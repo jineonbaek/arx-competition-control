@@ -1,4 +1,89 @@
-READ-ONLY REAL DEVICE VERIFICATION - latest result
+方舟无限比赛工作区
+==================
+
+运行位置为车载 ROG 的 /home/arx/arx-competition-control。这里维护方舟无限
+双臂、底盘、升降的网页控制，以及独立的导航适配。日常使用从桌面启动器进入。
+
+目录结构
+--------
+
+  web/
+    public/            9983 网页、样式和交互逻辑
+    src/               Python HTTP 后端、控制校验和 ROS 2 接口
+    config/            控制配置、反馈话题、设备限位及来源
+    hardware/          X5 双臂与机体驱动源码和启动脚本
+    tests/             网页与后端的软件测试
+    start.sh           只启动网页服务
+    README.md          网页、驱动和限位说明，含历史接入记录
+  scripts/
+    start-console.py   一键启动和设备自检入口
+    其他脚本           构建、离线测试及专项诊断
+  config/              工作区级配置与升降限位观测记录
+  env.sh               加载本机 ROS 2 和 SDK 环境
+  navigation/          雷达、建图和导航适配，详见 navigation/README.md
+  lift-low-speed/      升降低速实验源码和测试
+  lift-upward-damping-candidate/
+                       上升阻尼实验源码和补丁
+  repos/               本机独立检出的厂家 SDK
+  workspace/           本机 ROS 2 依赖及构建环境
+  .venv/               本机 Python 虚拟环境
+
+Git 保存项目源码、配置、测试和适配补丁。厂家 SDK、第三方依赖、编译产物、
+日志和桌面快捷方式都保存在本机。Git 检出后，需要先准备对应的本机依赖和构建
+产物，才能运行启动器。现有 ROG 已配置 Ubuntu 24.04、ROS 2 Jazzy、Python
+虚拟环境、驱动二进制和 USB 转 CAN 设备映射。启动器调用 sudo -n 管理 CAN，
+桌面弹窗使用 Zenity 和 GTK 3。
+
+ROG 开机后如何启动
+------------------
+
+1. 登录 ROG 的 arx 桌面。确认机器人供电、急停已释放、双臂与升降周围已清空，
+   并且现场人员能操作硬件急停。双臂驱动启动时可能使能或复位，机体驱动启动时
+   会执行升降回零。系统重启后需要手动打开启动器。
+
+2. 双击桌面「ARX 一键启动与自检」。也可在 ROG 图形桌面的终端执行同一入口。
+
+       cd /home/arx/arx-competition-control
+       /usr/bin/python3 scripts/start-console.py --desktop
+
+3. 等待「ARX 设备自检」窗口。机械臂、底盘、升降各有一行，显示「好」或
+   「不好」。故障原因写在对应行下，机械臂会注明左臂或右臂。「好」表示该项
+   有实时反馈且网页控制接口就绪。已有正常运行的进程会被复用，关掉自检窗口
+   后服务继续运行。
+
+4. 三项就绪后打开控制台。ROG 本机用 http://127.0.0.1:9983/，同一受信任
+   局域网的电脑用 http://192.168.58.14:9983/。如果 ROG 的 IP 变了，在
+   ROG 上运行 hostname -I 查看当前局域网地址。
+
+启动器依次确认 9983 网页服务、建立或复用 CAN 接口、启动缺失的驱动，再检查
+ROS 2 实时反馈和控制接口。左臂用 can1，右臂用 can3，底盘和升降共用机体驱动
+与 can5。网页与驱动使用 ROS 域 191。导航使用独立的 ROS 域 192，由导航
+工作区单独启动。
+
+自检异常时怎么查
+----------------
+
+- 网页能打开但读数是「—」时，先打开一键启动与自检。web/start.sh 只启动
+  网页，完整链路还需要 CAN 接口和对应驱动。
+- 某一项显示「不好」时，先看该行的故障提示。启动器新拉起进程的日志在
+  web/hardware/runtime/launcher-*.log。当前已运行的服务也可能使用同目录下
+  的 web.log 或带时间戳的驱动日志。
+- 以下命令可只读核对网页反馈与 Linux CAN 接口。
+
+       curl -fsS http://127.0.0.1:9983/api/state | python3 -m json.tool
+       ip -brief link show type can
+       ls -l /dev/arxcan1 /dev/arxcan3 /dev/arxcan5
+
+  /dev/arxcan* 是 USB 转 CAN 设备，can1、can3、can5 是 Linux 网络接口。
+  驱动运行时避免并行运行厂家控制程序或串口直连诊断脚本，以免争用设备。
+
+历史调试记录
+------------
+
+下面保留初期离线搭建、标定和硬件验证记录。里面的 PID、设备状态和阶段性限制
+属于记录当时的情况，日常启动和状态判断以上面的流程为准。
+
+READ-ONLY REAL DEVICE VERIFICATION - historical result
 
 Verified 15 feedback channels: left/right 6 arm motors each, two gripper motors,
 and lift motor. Each channel returned three measured positions. No motor enable,
