@@ -1,0 +1,83 @@
+--- upstream/rm_navigation_ws/src/rm_localization/FAST_LIO/CMakeLists.txt
++++ workspace/src/FAST_LIO/CMakeLists.txt
+@@ -9,17 +9,17 @@
+   cmake_policy(SET CMP0074 NEW)
+ endif()
+ 
+-ADD_COMPILE_OPTIONS(-std=c++14)
+-ADD_COMPILE_OPTIONS(-std=c++14)
+-set(CMAKE_CXX_FLAGS "-std=c++14 -O3")
++ADD_COMPILE_OPTIONS(-std=c++17)
++ADD_COMPILE_OPTIONS(-std=c++17)
++set(CMAKE_CXX_FLAGS "-std=c++17 -O3")
+ 
+ add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
+ 
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions")
+-set(CMAKE_CXX_STANDARD 14)
++set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -std=c++0x -std=c++14 -fexceptions")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread -std=c++17 -std=c++17 -fexceptions")
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ 
+ 
+--- upstream/rm_navigation_ws/src/rm_localization/point_lio/CMakeLists.txt
++++ workspace/src/point_lio/CMakeLists.txt
+@@ -5,17 +5,17 @@
+   set(CMAKE_BUILD_TYPE Release)
+ endif()
+ 
+-ADD_COMPILE_OPTIONS(-std=c++14)
+-ADD_COMPILE_OPTIONS(-std=c++14)
+-set(CMAKE_CXX_FLAGS "-std=c++14 -O3")
++ADD_COMPILE_OPTIONS(-std=c++17)
++ADD_COMPILE_OPTIONS(-std=c++17)
++set(CMAKE_CXX_FLAGS "-std=c++17 -O3")
+ 
+ add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
+ 
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions")
+-set(CMAKE_CXX_STANDARD 14)
++set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -std=c++0x -std=c++14 -fexceptions")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread -std=c++17 -std=c++17 -fexceptions")
+ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ 
+ if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" )
+@@ -49,6 +49,7 @@
+ find_package(livox_ros_driver2 REQUIRED)
+ 
+ find_package(Eigen3 REQUIRED)
++find_package(PCL REQUIRED COMPONENTS common io)
+ 
+ 
+ # OpenMP
+--- upstream/rm_navigation_ws/src/rm_perception/linefit_ground_segementation_ros2/linefit_ground_segmentation_ros/src/ground_segmentation_node.cc
++++ workspace/src/linefit_ground_segmentation_ros/src/ground_segmentation_node.cc
+@@ -1,3 +1,4 @@
++#include <cmath>
+ #include <memory>
+ 
+ #include <geometry_msgs/msg/transform_stamped.hpp>
+@@ -54,6 +55,9 @@
+   params_.n_threads = this->declare_parameter("n_threads", params_.n_threads);
+   // Params that need to be squared.
+   double r_min, r_max, max_fit_error;
++  this->declare_parameter("r_min", std::sqrt(params_.r_min_square));
++  this->declare_parameter("r_max", std::sqrt(params_.r_max_square));
++  this->declare_parameter("max_fit_error", std::sqrt(params_.max_error_square));
+   if (this->get_parameter("r_min", r_min)) {
+     params_.r_min_square = r_min * r_min;
+   }
+@@ -112,6 +116,7 @@
+                   "Failed to transform point cloud into "
+                   "gravity frame: %s",
+                   ex.what());
++      return;
+     }
+   }
+ 

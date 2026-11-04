@@ -1,0 +1,117 @@
+{
+  "checked_on": "2026-11-03",
+  "robot": "方舟无限（X5 双臂 + LIFT2）",
+  "scope": "网页输入及后端目标限位；不修改固件、SDK 二进制、硬件驱动或归零；不启用真实控制。",
+  "sources": [
+    {
+      "id": "ros2-arm-manual",
+      "path": "D:/Documents/meituan_comp_final/方舟无限/docs/01-X5&AC one-单臂ROS2话题说明 .pdf",
+      "url": "https://github.com/ARXroboticsX/ARX_X5/blob/c78328785ea23a81d908e1dcc551eca992f2f1e9/00-readme/01-X5%26AC%20one-%E5%8D%95%E8%87%82ROS2%E8%AF%9D%E9%A2%98%E8%AF%B4%E6%98%8E%20.pdf",
+      "pages": [
+        2,
+        6
+      ],
+      "git_blob": "7659ff25c0437d1f8d2f14f5d869b21aa1997305"
+    },
+    {
+      "id": "python-sdk-readme",
+      "path": "repos/X5/readme.md",
+      "commit": "9a255e38156e3f5a263f341df209ab028d49dad9",
+      "url": "https://github.com/ARXroboticsX/X5/blob/9a255e38156e3f5a263f341df209ab028d49dad9/readme.md"
+    },
+    {
+      "id": "official-joint-table",
+      "git_object": "repos/X5:images/readme/1782032034297.png",
+      "url": "https://github.com/ARXroboticsX/X5/blob/9a255e38156e3f5a263f341df209ab028d49dad9/images/readme/1782032034297.png"
+    },
+    {
+      "id": "lift-height-manual",
+      "path": "D:/Documents/meituan_comp_final/方舟无限/docs/LIFT高度控制与反馈.pdf",
+      "pages": [
+        1
+      ]
+    },
+    {
+      "id": "local-ros-controller",
+      "path": "repos/ARX_X5/ROS2/X5_ws/src/arx_x5_ros2/arx_x5_controller/src/X5Controller.cpp",
+      "commit": "c78328785ea23a81d908e1dcc551eca992f2f1e9",
+      "normal_gripper": "RobotCmd.gripper is passed directly to setCatch; VR 0..5 mapping does not apply to this web adapter."
+    },
+    {
+      "id": "local-lift-sdk",
+      "path": "repos/LIFT/body/ROS2/src/ARX_LIFT_ros2/arx_lift_controller/lib/arx_lift_src/libarx_lift_src.so",
+      "commit": "006984b693967d4e6aca51952acfd7f9b8f0df64",
+      "sha256": "426a07074efc420c0a0cf5b7c8fbab07bb67dcec1030a1b8d87cf3ffc8027f66"
+    }
+  ],
+  "joint_software_limits_rad": [
+    [
+      -1.57,
+      1.57
+    ],
+    [
+      -0.1,
+      3.6
+    ],
+    [
+      -0.1,
+      3
+    ],
+    [
+      -1.29,
+      1.29
+    ],
+    [
+      -1.48,
+      1.48
+    ],
+    [
+      -1.74,
+      1.74
+    ]
+  ],
+  "joint_degree_policy": "按厂家软件范围换算为度，然后向内取整到 0.1 度。机械止挡列、URDF ±10 rad、电机协议 P_MAX 不作为网页目标范围。",
+  "initial_joint_delta": {
+    "configured_deg": 5.7,
+    "manual_guidance_rad": 0.1,
+    "policy": "手册第6页建议联调角度不要超过 ±0.1。这里将其作为项目保守的单次目标与实际反馈差值约束，向内取整到 5.7 度；不是厂商通用速度/加速度限制。"
+  },
+  "gripper": {
+    "configured_variant": "X5-2025 / AC one",
+    "variant_evidence": "现有本机 LIFT2-AC-one 启动脚本使用 v2_pos_control.launch.py，其 YAML arm_end_type=2；这不是现场硬件版本验收。",
+    "ros2_manual_range_raw": [
+      -3.4,
+      0.1
+    ],
+    "python_manual_range_raw": [
+      -3.14,
+      0
+    ],
+    "configured_intersection_raw": [
+      -3.14,
+      0
+    ],
+    "open_target_raw": -3.14,
+    "closed_target_raw": 0,
+    "physical_endpoints_verified": false,
+    "policy": "取厂家两份资料交集；0 对应闭合，不使用 0.1 夹紧过驱值；保留 SDK 原值，不换算毫米或百分比。"
+  },
+  "lift": {
+    "manufacturer_range_motor_rad": [
+      0,
+      20
+    ],
+    "configured_range_motor_rad": [
+      0,
+      18
+    ],
+    "policy": "用户指定上限18rad优先；不因手册20rad扩大。重新归零后仍需确认参考。"
+  },
+  "unconfigured": {
+    "chassis_speed": "未找到厂家针对本机明确的安全速度上限；示例值不是上限。库中 RobotType=0 的内部钳位常数 x=0.92,y=1.6,yaw=1.8 仅为静态代码证据，不作为已确认单位/工况的安全速度。",
+    "joint_speed_acceleration": "可见公开头文件未提供已核实的本机速度/加速度限值；闭源库不可据此宣称具备完整限制。",
+    "tcp_workspace": "未找到适用于当前双臂安装的XYZ安全工作区；不能将620mm臂展直接用作XYZ限位。",
+    "collision": "没有本机双臂/车身碰撞模型验收；每轴限位不代表路径无碰撞。"
+  },
+  "execution_enabled": false
+}

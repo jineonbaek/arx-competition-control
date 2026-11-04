@@ -1,0 +1,13 @@
+**/.git
+**/__pycache__
+**/node_modules
+**/PCD
+**/Log
+build-sdk
+install-sdk
+workspace/build
+workspace/install
+workspace/log
+reports
+logs
+upstream

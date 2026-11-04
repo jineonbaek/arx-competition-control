@@ -1,0 +1,128 @@
+{
+  "execution_enabled": true,
+  "feedback_timeout_s": 1,
+  "chassis_lease_s": 0.3,
+  "arms": {
+    "left": {
+      "state_topic": "/arm_l_status_full",
+      "command_topic": "/web/left/command",
+      "joint_limits_deg": [
+        [
+          -89.9,
+          89.9
+        ],
+        [
+          -5.7,
+          206.2
+        ],
+        [
+          -5.7,
+          171.8
+        ],
+        [
+          -73.9,
+          73.9
+        ],
+        [
+          -84.7,
+          84.7
+        ],
+        [
+          -99.6,
+          99.6
+        ]
+      ],
+      "gripper_limits_raw": [
+        -3.14,
+        0
+      ],
+      "max_delta_deg": 5.7,
+      "tcp_limits_mm": null,
+      "verified": true,
+      "tcp_verified": false,
+      "stop_verified": true,
+      "gripper_open_raw": -3.14,
+      "gripper_closed_raw": 0,
+      "verified_modes": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "ready_topic": "/web/left/ready",
+      "stop_service": "/web/left/stop",
+      "command_result_topic": "/web/left/command_result",
+      "joint_speed_deg_s": 5.7
+    },
+    "right": {
+      "state_topic": "/arm_r_status_full",
+      "command_topic": "/web/right/command",
+      "joint_limits_deg": [
+        [
+          -89.9,
+          89.9
+        ],
+        [
+          -5.7,
+          206.2
+        ],
+        [
+          -5.7,
+          171.8
+        ],
+        [
+          -73.9,
+          73.9
+        ],
+        [
+          -84.7,
+          84.7
+        ],
+        [
+          -99.6,
+          99.6
+        ]
+      ],
+      "gripper_limits_raw": [
+        -3.14,
+        0
+      ],
+      "max_delta_deg": 5.7,
+      "tcp_limits_mm": null,
+      "verified": true,
+      "tcp_verified": false,
+      "stop_verified": true,
+      "gripper_open_raw": -3.14,
+      "gripper_closed_raw": 0,
+      "verified_modes": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "ready_topic": "/web/right/ready",
+      "stop_service": "/web/right/stop",
+      "command_result_topic": "/web/right/command_result",
+      "joint_speed_deg_s": 5.7
+    }
+  },
+  "body": {
+    "state_topic": "/body_information",
+    "command_topic": "/web/body/command",
+    "lift_parameter_service": "/lift_controller/set_parameters",
+    "lift_parameter_name": "fixed_body_height",
+    "lift_limits_raw": [
+      0,
+      18.0
+    ],
+    "lift_verified": true,
+    "lift_stop_verified": true,
+    "chassis_verified": true,
+    "chassis_stop_verified": true,
+    "max_linear_m_s": 2.0,
+    "max_angular_rad_s": 1.0,
+    "calibrated_topic": "/web/body/calibrated",
+    "lift_stop_service": "/web/body/stop_lift",
+    "chassis_input_scale": 1.0
+  }
+}

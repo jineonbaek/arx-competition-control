@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ARX · 比赛控制台</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">A</span><div><strong>ARX <span class="brand-separator">/</span> CONTROL</strong><small>LIFT2 · X5 双臂控制台</small></div></div>
+    <div class="status-group"><span id="web-status" class="status-chip"><i></i>网页连接中</span><span id="ros-status" class="status-chip"><i></i>ROS 等待连接</span><span id="mode-status" class="mode-badge">读取状态中</span><button id="btn-log-toggle" class="button secondary" type="button" aria-controls="log-panel" aria-expanded="false">日志</button></div>
+  </header>
+  <main>
+    <div class="page-heading"><div><span class="eyebrow">MANUAL CONTROL</span><h1>手动控制</h1><p>目标输入与实际反馈分开显示，发送后跟踪真实状态。</p></div><span id="last-update" class="update-time">等待实时反馈</span></div>
+    <div id="notice" class="notice" role="status">正在连接控制台。打开页面不会启动机器人驱动。</div>
+    <div class="dashboard">
+      <section class="panel arm-panel" aria-labelledby="arm-title">
+        <div class="panel-heading arm-heading"><div><span class="section-index">01 / ARM</span><h2 id="arm-title">机械臂控制</h2></div><div class="arm-switch" role="tablist" aria-label="选择机械臂"><button id="select-left" role="tab" aria-selected="true" class="selected">左臂</button><button id="select-right" role="tab" aria-selected="false">右臂</button></div></div>
+        <div class="arm-toolbar"><span id="arm-feedback-status" class="status-chip"><i></i>等待左臂反馈</span><div class="toolbar-actions"><button id="restore-feedback" class="text-button" type="button">恢复实时</button><button id="arm-stop" class="button stop-button" disabled>停止左臂</button></div></div>
+        <div id="arm-reason" class="section-note"></div>
+        <div id="arm-feedback-detail" class="feedback-detail"></div>
+        <details class="control-section arm-mode-section" open>
+          <summary><span>机械臂模式</span><span id="arm-mode-target" class="subtle-tag">作用于左臂</span></summary>
+          <p id="arm-mode-note" class="hint">点击按钮向当前所选机械臂请求切换。关节控制自动使用 5，末端控制自动使用 4。</p>
+          <div class="arm-mode-grid">
+            <button id="arm-mode-0" class="button secondary arm-mode-button mode-danger" type="button" data-arm-mode="0" aria-describedby="arm-mode-note" disabled><strong>0 · 力矩清零</strong><span>不主动托举，机械臂可能下落；不是保持位置或急停。</span></button>
+            <button id="arm-mode-1" class="button secondary arm-mode-button mode-warning" type="button" data-arm-mode="1" aria-describedby="arm-mode-note" disabled><strong>1 · 机械臂复位</strong><span>主动运动到驱动配置的初始姿态；不是零点标定。</span></button>
+            <button id="arm-mode-2" class="button secondary arm-mode-button" type="button" data-arm-mode="2" aria-describedby="arm-mode-note" disabled><strong>2 · 阻尼模式</strong><span>对运动增加阻力；不等于锁住当前位置。</span></button>
+            <button id="arm-mode-3" class="button secondary arm-mode-button" type="button" data-arm-mode="3" aria-describedby="arm-mode-note" disabled><strong>3 · 重力补偿</strong><span>补偿自重，便于拖动；补偿效果受末端负载影响。</span></button>
+          </div>
+          <p id="arm-mode-feedback" class="hint" role="status">实际模式暂无反馈；按钮不代表已进入该模式。</p>
+        </details>
+        <details class="control-section" open><summary><span>关节控制</span><span id="joint-mode" class="subtle-tag">实时跟随</span></summary>
+          <div id="joint-controls-body"></div>
+          <div class="section-actions"><span class="hint">滑块与输入框同步 · 角度单位 °</span><button id="joint-send" class="button primary" disabled>发送到左臂</button></div>
+        </details>
+        <details class="control-section" open><summary><span>夹爪控制</span><span id="gripper-actual" class="actual-value">实际 —</span></summary>
+          <div class="control-label"><label for="gripper-input">目标位置</label><div class="number-wrap"><input id="gripper-input" type="number" step="0.01" inputmode="decimal" disabled><span>SDK 原值</span></div></div>
+          <input id="gripper-slider" class="joint-slider" type="range" min="0" max="1" step="0.001" value="0.5" aria-label="夹爪目标位置" disabled>
+          <div id="gripper-range" class="range-label">夹爪端点待确认</div><div id="gripper-error" class="control-validation" role="alert"></div>
+          <div class="section-actions"><div class="button-row"><button id="gripper-close" class="button secondary" disabled>闭合</button><button id="gripper-open" class="button secondary" disabled>打开</button></div><button id="gripper-send" class="button primary" disabled>发送到夹爪</button></div>
+        </details>
+        <details class="control-section tcp-section"><summary><span>末端位姿</span><span id="tcp-mode" class="subtle-tag">mm / °</span></summary>
+          <div id="tcp-controls" class="tcp-grid"></div><div id="tcp-error" class="control-validation" role="alert"></div>
+          <p class="hint">显示 SDK 末端参考点；坐标与可达范围确认后可执行目标位姿。</p>
+          <div class="section-actions"><span id="tcp-actual" class="hint">实际位姿 —</span><button id="tcp-send" class="button primary" disabled>发送末端目标</button></div>
+        </details>
+      </section>
+      <div class="platform-column">
+        <section class="panel" aria-labelledby="chassis-title"><div class="panel-heading"><div><span class="section-index">02 / CHASSIS</span><h2 id="chassis-title">底盘控制</h2></div><span id="chassis-state" class="subtle-tag">待机</span></div>
+          <p class="hint">键盘控制 · W/S 前后，A/D 平移，Q/E 转向，Space 刹车。速度未做米制标定。</p>
+          <div class="speed-inputs"><div><label for="linear-speed">平移指令</label><div class="number-wrap"><input id="linear-speed" type="number" min="0" max="2" step="any" value="2.00"><span>SDK 原值</span></div></div><div><label for="angular-speed">转向指令</label><div class="number-wrap"><input id="angular-speed" type="number" min="0" max="1" step="any" value="1.00"><span>SDK 原值</span></div></div></div>
+
+          <p id="chassis-speed-range" class="hint"></p>
+          <div class="chassis-keyboard-toolbar"><button id="chassis-motion-toggle" class="button secondary motion-toggle" type="button" aria-pressed="false" aria-describedby="keyboard-instructions" disabled>运动模式</button><button id="chassis-stop" class="button stop-button" type="button" disabled>刹车</button></div>
+          <p id="keyboard-instructions" class="hint">开启后按住方向键运动，松开停车。Space 刹车；切出窗口或编辑输入框会退出运动模式。</p>
+          <div class="keyboard-map" aria-label="底盘键位提示，不可点击">
+            <span class="keyboard-cell key-q"><kbd data-drive-key="KeyQ">Q</kbd>左转</span>
+            <span class="keyboard-cell key-w"><kbd data-drive-key="KeyW">W</kbd>前进</span>
+            <span class="keyboard-cell key-e"><kbd data-drive-key="KeyE">E</kbd>右转</span>
+            <span class="keyboard-cell key-a"><kbd data-drive-key="KeyA">A</kbd>左移</span>
+            <div class="keyboard-cell keyboard-brake"><kbd data-drive-key="Space">SPACE</kbd><span>刹车 · 软件停车请求</span></div>
+            <span class="keyboard-cell key-d"><kbd data-drive-key="KeyD">D</kbd>右移</span>
+            <span class="keyboard-cell key-s"><kbd data-drive-key="KeyS">S</kbd>后退</span>
+          </div>
+          <p id="keyboard-feedback" class="keyboard-feedback" role="status">点击运动模式后才响应键盘。</p>
+          <p class="hint">单方向控制；同时按多个方向键会请求停车，松开全部键后再操作。</p>
+          <div id="chassis-reason" class="section-note"></div><div class="feedback-strip"><span>轮速反馈（保护模式可能保留上次值）</span><strong id="wheel-feedback">—</strong></div>
+        </section>
+        <section class="panel" aria-labelledby="lift-title"><div class="panel-heading"><div><span class="section-index">03 / LIFT</span><h2 id="lift-title">升降控制</h2></div><button id="lift-stop" class="button stop-button" disabled>停止升降</button></div>
+          <div class="feedback-strip lift-feedback"><span>实际反馈</span><strong id="lift-actual">— <small>SDK rad</small></strong></div>
+          <div class="control-label"><label for="lift-input">目标位置</label><div class="number-wrap"><input id="lift-input" type="number" min="0" max="18" step="0.01" disabled><span>SDK rad</span></div></div>
+          <input id="lift-slider" class="joint-slider" type="range" min="0" max="18" step="0.01" value="0" aria-label="升降目标位置" disabled>
+          <div id="lift-range" class="range-label">软件范围读取中</div><div id="lift-error" class="control-validation" role="alert"></div>
+          <div id="lift-reason" class="section-note"></div><div class="section-actions"><button id="lift-restore" class="text-button">恢复实时</button><button id="lift-send" class="button primary" disabled>发送升降目标</button></div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+  <footer><span>ARX 比赛控制台</span><span>网页“停止”是软件请求，不替代实体急停。</span></footer>
+
+  <section id="log-panel" class="log-drawer" aria-labelledby="log-title" hidden>
+    <div class="log-header"><div><strong id="log-title">通信与运行日志</strong><span id="log-count" class="subtle-tag">最近 0 条</span></div><div class="log-actions"><label><input id="log-autoscroll" type="checkbox" checked>自动滚动</label><button id="btn-log-close" class="button secondary" type="button" aria-label="关闭日志">关闭</button></div></div>
+    <p class="log-description">网页连接、ROS 反馈状态及指令发送／拒绝事件。仅显示最近 100 条；不是全部驱动的终端输出。</p>
+    <div id="log-area" tabindex="0"><p class="log-empty">等待日志</p></div>
+  </section>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

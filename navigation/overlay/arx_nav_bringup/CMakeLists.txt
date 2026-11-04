@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.8)
+project(arx_nav_bringup)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(PROGRAMS scripts/custom_to_cloud.py DESTINATION lib/${PROJECT_NAME})
+ament_package()

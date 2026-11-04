@@ -1,0 +1,9 @@
+{
+  "name": "arx-competition-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui": "node --test tests/state.test.mjs",
+    "start": "bash start.sh"
+  }
+}

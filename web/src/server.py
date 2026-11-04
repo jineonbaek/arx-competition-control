@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""LAN web control server: static UI + JSON commands + server-sent feedback."""
+import argparse
+import http.cookies
+import json
+import mimetypes
+import os
+from pathlib import Path
+import signal
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote, urlsplit
+import uuid
+
+from control import Controller, Rejected
+from ros_adapter import RosAdapter
+
+WEB_ROOT = Path(__file__).resolve().parents[1]
+PUBLIC = WEB_ROOT / "public"
+
+
+def make_handler(controller):
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, fmt, *args):
+            # Do not log cookie values or request bodies.
+            print("%s %s" % (self.address_string(), fmt % args), flush=True)
+
+        def response_headers(self, status, content_type, length=None):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
+            if length is not None:
+                self.send_header("Content-Length", str(length))
+
+        def client(self):
+            c = http.cookies.SimpleCookie()
+            try:
+                c.load(self.headers.get("Cookie", ""))
+                value = c["arx_web_session"].value
+                return str(uuid.UUID(value))
+            except (KeyError, ValueError, http.cookies.CookieError):
+                return None
+
+        def json(self, status, obj):
+            payload = json.dumps(obj, ensure_ascii=False, allow_nan=False).encode()
+            self.response_headers(status, "application/json; charset=utf-8", len(payload))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_GET(self):
+            path = urlsplit(self.path).path
+            if path == "/api/state":
+                return self.json(200, controller.snapshot())
+            if path == "/events":
+                client = self.client()
+                if not client:
+                    return self.json(403, {"ok": False, "message": "请先打开网页"})
+                self.response_headers(200, "text/event-stream; charset=utf-8")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                try:
+                    while not self.server.stopping.is_set():
+                        payload = json.dumps(controller.snapshot(), ensure_ascii=False, allow_nan=False)
+                        self.wfile.write(("data: " + payload + "\n\n").encode())
+                        self.wfile.flush()
+                        self.server.stopping.wait(0.1)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+                finally:
+                    controller.disconnected(client)
+                    self.close_connection = True
+                return
+            target = (PUBLIC / ("index.html" if path == "/" else unquote(path).lstrip("/"))).resolve()
+            if not target.is_relative_to(PUBLIC.resolve()) or not target.is_file():
+                return self.json(404, {"ok": False, "message": "页面不存在"})
+            body = target.read_bytes()
+            kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
+            if path == "/" and not self.client():
+                self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if urlsplit(self.path).path != "/api/command":
+                return self.json(404, {"ok": False, "message": "接口不存在"})
+            expected = "http://" + self.headers.get("Host", "")
+            if self.headers.get("Origin") != expected or not self.client():
+                self.close_connection = True
+                return self.json(403, {"ok": False, "message": "请求来源无效"})
+            try:
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                    raise Rejected("仅接受 JSON")
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 8192:
+                    raise Rejected("请求大小无效")
+                data = json.loads(self.rfile.read(length), parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
+                return self.json(200, controller.submit(data, self.client()))
+            except (ValueError, TypeError, Rejected) as e:
+                self.close_connection = True
+                return self.json(400, {"ok": False, "message": str(e)})
+            except Exception:
+                controller.log("控制接口异常，未确认执行结果", "warning")
+                return self.json(503, {"ok": False, "message": "控制接口异常，请查看反馈"})
+    return Handler
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=9983)
+    args = parser.parse_args()
+    config = json.loads((WEB_ROOT / "config/control.json").read_text())
+    adapter = RosAdapter(config)
+    controller = Controller(config, adapter)
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller))
+    server.daemon_threads = True
+    server.stopping = threading.Event()
+    adapter.start(controller)
+    def stop(signum, frame):
+        server.stopping.set()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    print("ARX Web http://%s:%d | execution_enabled=%s | ROS_DOMAIN_ID=%s" %
+          (args.host, args.port, config["execution_enabled"], os.environ.get("ROS_DOMAIN_ID", "0")), flush=True)
+    try:
+        server.serve_forever(poll_interval=0.1)
+    finally:
+        server.stopping.set()
+        adapter.close()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

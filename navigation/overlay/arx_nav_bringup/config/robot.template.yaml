@@ -1,0 +1,17 @@
+# Copy to navigation/config/robot.yaml and fill measured values before launch.
+# Height below is a USER measurement to the physical bottom face, NOT TF z.
+lidar_bottom_height_above_ground_m: 1.267332
+# base_link -> native livox_frame; include actual inverted mounting rotation.
+lidar_xyz_m: null
+lidar_rpy_rad: null
+base_link_height_above_ground_m: null
+# Actual LiDAR coordinate origin above ground (for ground segmentation).
+lidar_origin_height_above_ground_m: null
+# Internal LiDAR -> IMU extrinsics from the MID360S documentation/calibration.
+# Do not substitute the physical inverted mounting rotation here.
+lidar_imu_extrinsic_T_m: null
+lidar_imu_extrinsic_R: null
+# Polygon in base_link coordinates: [[x,y], ...], at least three points.
+footprint: null
+# Copy an official MID360S-compatible JSON config here after setting real IPs.
+livox_config_file: null

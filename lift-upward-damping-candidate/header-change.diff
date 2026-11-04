@@ -1,0 +1,35 @@
+--- /home/arx/LIFT/body/ROS2/src/ARX_LIFT_ros2/arx_lift_controller/lib/arx_lift_src/include/arx_lift_src/lift_head_control_loop.h
++++ candidate header
+@@ -10,6 +10,7 @@
+ #include "arx_hardware_interface/canbase/SocketCan.hpp"
+ #include "arx_hardware_interface/chassis_dlc/Chassis1Dlc.hpp"
+ #include <chrono>
++#include "upward_damping.hpp"
+ 
+ using namespace arx;
+ using namespace hw_interface;
+@@ -53,9 +54,24 @@
+   void loop() {
+     read();
+     if (!protect_) {
++      const double previous_reference=lift_pos_current_des_;
+       update();
++      double velocity=0.0;
++      if (lift_is_calibrated_) velocity=lift_motor_->GetMotorMsg().velocity;
++      const bool upward=lift_pos_current_des_ > previous_reference+1e-10;
++      arx_lift_experiment::motion_active = !lift_is_calibrated_ ||
++          std::abs(lift_pos_current_des_-previous_reference)>1e-10 ||
++          !std::isfinite(velocity) || std::abs(velocity)>0.05;
++      const bool experiment_on=arx_lift_experiment::active(
++          arx_lift_experiment::enabled,lift_is_calibrated_,upward,
++          robot_type_==RobotType::LIFT);
++      lift_motor_torque_des_=arx_lift_experiment::apply(
++          lift_motor_torque_des_,velocity,experiment_on,
++          config_.gravity_compensation_torque-config_.lift_max_torque,
++          config_.gravity_compensation_torque+config_.lift_max_torque);
+       write();
+     } else {
++      arx_lift_experiment::motion_active=true;
+       protect();
+     }
+   }

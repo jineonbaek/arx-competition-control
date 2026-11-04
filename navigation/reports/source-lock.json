@@ -1,0 +1,23 @@
+{
+  "upstream": {
+    "commit": "07335f942ad37f0b55bbdde3186ed26993abe90f"
+  },
+  "navigation": {
+    "commit": "c194997cb1ffb41ada91bba4002c3ba09d0e4cfd"
+  },
+  "fast_lio": {
+    "commit": "d43ba685e88e6da05178bdafde8d959cf00e0fad"
+  },
+  "point_lio": {
+    "commit": "580226ca0e76a122167cc729631c2005efa8f593"
+  },
+  "livox_ros_driver2": {
+    "commit": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49"
+  },
+  "livox_sdk2": {
+    "commit": "c0796f04c143143899c87a773d9f6b7136453c0b"
+  },
+  "ikd_tree": {
+    "commit": "e2e3f4e9d3b95a9e66b1ba83dc98d4a05ed8a3c4"
+  }
+}

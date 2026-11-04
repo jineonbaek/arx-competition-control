@@ -1,0 +1,51 @@
+--- /home/arx/LIFT/body/ROS2/src/ARX_LIFT_ros2/arx_lift_controller/src/lift_controller.cpp
++++ /home/arx/arx-competition-control/lift-low-speed/lift_controller_low_speed.cpp
+@@ -9,6 +9,9 @@
+ #include <sensor_msgs/msg/joy.hpp>
+ #include <sensor_msgs/msg/imu.hpp>
+ #include <csignal>
++#include <cmath>
++#include <stdexcept>
++#include "slow_lift_config.hpp"
+ 
+ std::shared_ptr<LiftHeadControlLoop> control_loop;
+ void signalHandler(int signum) {
+@@ -25,8 +28,28 @@
+   auto node = rclcpp::Node::make_shared("lift_controller");
+   int robot_type = node->declare_parameter("robot_type", 0);
+   const double fixed_body_height =
+-      node->declare_parameter("fixed_body_height", 20.0 / 41.54);
++      node->declare_parameter("fixed_body_height", 0.0);
++  if (!valid_lift_target(fixed_body_height)) {
++    throw std::invalid_argument("Height target must be finite and within 0..18.3 SDK radians");
++  }
++  auto target_validation_handle = node->add_on_set_parameters_callback(
++    [](const std::vector<rclcpp::Parameter>& parameters) {
++      rcl_interfaces::msg::SetParametersResult result;
++      result.successful = true;
++      for (const auto& parameter : parameters) {
++        if (parameter.get_name() == "fixed_body_height" &&
++            (parameter.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE ||
++             !valid_lift_target(parameter.as_double()))) {
++          result.successful = false;
++          result.reason = "Target must be a double within 0..18.3 SDK radians";
++          break;
++        }
++      }
++      return result;
++    });
+   control_loop = std::make_shared<LiftHeadControlLoop>("can5", static_cast<LiftHeadControlLoop::RobotType>(robot_type));
++  apply_slow_lift_config(control_loop->config_);
++  RCLCPP_INFO(node->get_logger(), "LOW SPEED: target ramp 0.5rad/s; homing 0.5rad/s; target %.4frad", fixed_body_height);
+   int running_state = 2;
+   double lift_height = 0;
+   bool collect = false;
+@@ -89,7 +112,7 @@
+   while (rclcpp::ok()) {
+     // Keep the body at the configured collection height even when no command
+     // publisher (/body_control, /ARX_VR_L, or /joy) is running.
+-    control_loop->setHeight(fixed_body_height);
++    control_loop->setHeight(node->get_parameter("fixed_body_height").as_double());
+     control_loop->loop();
+ 
+     //control_loop->setHeight(20 / 41.54);

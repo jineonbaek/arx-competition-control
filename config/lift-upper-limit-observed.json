@@ -1,0 +1,41 @@
+{
+  "record_type": "OBSERVED_PHYSICAL_UPPER_STOP",
+  "recorded_date": "2026-11-03",
+  "timezone": "Asia/Shanghai",
+  "device": "current host can5 lift motor ID1",
+  "reported_physical_travel_mm": 460,
+  "reported_physical_travel_source": "user: 460; 481 is without physical stop",
+  "observed_upper_lift_angle_rad_approx": 18.85,
+  "recorded_feedback_before_estop_rad": 18.85385671778439,
+  "coordinate_definition": "lift_angle = -SDK unwrapped cumulative motor angle; SDK P_MAX12.5; this run includes one negative wrap",
+  "zero_reference": "original controller automatic zeroing immediately before this ascent",
+  "onsite_confirmation": "已到最高，已按急停并停稳",
+  "previous_command_target_rad": 19.1084,
+  "previous_command_is_measured_upper_limit": false,
+  "nominal_scale_rad_per_m": 41.54,
+  "nominal_scale_physically_validated": false,
+  "physical_travel_independently_measured": false,
+  "automatic_motion_enabled": false,
+  "safe_software_upper_target_rad": null,
+  "margin_to_physical_stop_rad": null,
+  "reuse_requires_matching_zero_reference": true,
+  "notes": [
+    "实测限位反馈是约值，未重复测量。",
+    "不得将19.1084rad或20rad当作本机已验证上限。",
+    "观测到的物理止挡不是可持续顶压的控制目标；软件上限须留余量后另行验证。",
+    "重新校准、圈数丢失或机械改动后，需重新核对该参考。",
+    "后续18.3rad目标复测反馈约18.040rad，亦有约0.26rad稳态偏差；目标未追上本身不能证明物理止挡接触，原上限仍以现场确认记录为依据。"
+  ],
+  "evidence": {
+    "path": "/home/arx/arx-competition-control/reports/lift-to-460/result.json",
+    "sha256": "456ef3a24a93d07fb3cdd257fc3a28ad46804cb74ac68d7de638b69687b4894d"
+  },
+  "repeat_test_evidence": "/home/arx/arx-competition-control/reports/lift-softlimit-repeat/result.json",
+  "stop_contact_independently_verified": false,
+  "tested_upper_target_rad": 18.3,
+  "tested_upper_target_feedback_rad": 18.040169375143055,
+  "tested_upper_target_onsite_confirmation": "已停稳，无异常，顶部有间隙",
+  "tested_upper_target_is_enforced_global_limit": false,
+  "last_reboot_boot_id": "a4cdf202-fb1e-4754-ad42-b8cbc1b82e50",
+  "zero_reference_after_latest_reboot_verified": false
+}
