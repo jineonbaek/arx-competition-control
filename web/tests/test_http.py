@@ -73,4 +73,31 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.adapter.calls[-1],
                              ("arm", ("right", [.2] * 6, -1.2, [.3] * 6, mode)))
 
+    def test_chassis_vector_reaches_adapter_once_and_keeps_limits_and_brake(self):
+        _, response_headers, _ = self.request("GET", "/")
+        headers = {"Content-Type": "application/json",
+                   "Cookie": response_headers["Set-Cookie"].split(";")[0],
+                   "Origin": "http://127.0.0.1:%d" % self.port}
+        self.controller.config["execution_enabled"] = True
+        self.controller.config["body"].update(max_linear_m_s=2, max_angular_rad_s=1)
+        self.controller.update_body(5., [0.] * 4, .2, .1, -.1)
+
+        def post(data):
+            return self.request("POST", "/api/command", json.dumps(data), headers)[0]
+
+        axis = 2 ** .5
+        move = {"type": "chassis", "x": axis, "y": axis, "omega": 1, "sequence": 1}
+        self.assertEqual(post(move), 200)
+        self.assertEqual(len(self.adapter.calls), 1)
+        self.assertEqual(self.adapter.calls[-1][1][:3], (axis, axis, 1))
+        for invalid in ({"x": 2, "y": 2}, {"omega": 1.01}, {"x": True},
+                        {"x": 10 ** 1000}, {"x": 0, "y": 0, "omega": 0},
+                        {"x": float("nan")}, {"direction": "forward"}):
+            self.assertEqual(post({**move, **invalid, "sequence": 2}), 400)
+        self.assertEqual(len(self.adapter.calls), 1)
+        self.assertEqual(post({"type": "chassis.stop", "sequence": 3}), 200)
+        self.assertEqual(self.adapter.calls[-1][1][:3], (0, 0, 0))
+        self.assertEqual(post({**move, "sequence": 2}), 400)
+        self.assertEqual(len(self.adapter.calls), 2)
+
 if __name__ == "__main__": unittest.main()

@@ -16,6 +16,8 @@ target_link_libraries(lift_controller_web ${BODY_ROOT}/lib/arx_lift_src/libarx_l
 ament_target_dependencies(lift_controller_web rclcpp arm_control sensor_msgs std_msgs std_srvs tf2)
 add_executable(test_body_limits test_body_limits.cpp)
 target_compile_options(test_body_limits PRIVATE -UNDEBUG)
+add_executable(test_chassis_motion test_chassis_motion.cpp)
+target_compile_options(test_chassis_motion PRIVATE -UNDEBUG)
 
 find_package(arx5_arm_msg REQUIRED)
 set(ARM_ROOT ${CONTROL_ROOT}/repos/ARX_X5/ROS2/X5_ws/src/arx_x5_ros2/arx_x5_controller)

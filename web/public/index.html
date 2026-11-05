@@ -56,7 +56,7 @@
 
           <p id="chassis-speed-range" class="hint"></p>
           <div class="chassis-keyboard-toolbar"><button id="chassis-motion-toggle" class="button secondary motion-toggle" type="button" aria-pressed="false" aria-describedby="keyboard-instructions" disabled>运动模式</button><button id="chassis-stop" class="button stop-button" type="button" disabled>刹车</button></div>
-          <p id="keyboard-instructions" class="hint">开启后按住方向键运动，松开停车。Space 刹车；切出窗口或编辑输入框会退出运动模式。</p>
+          <p id="keyboard-instructions" class="hint">开启后按住方向键运动，松开全部方向键停车。Space 刹车；切出窗口或编辑输入框会退出运动模式。</p>
           <div class="keyboard-map" aria-label="底盘键位提示，不可点击">
             <span class="keyboard-cell key-q"><kbd data-drive-key="KeyQ">Q</kbd>左转</span>
             <span class="keyboard-cell key-w"><kbd data-drive-key="KeyW">W</kbd>前进</span>
@@ -67,7 +67,7 @@
             <span class="keyboard-cell key-s"><kbd data-drive-key="KeyS">S</kbd>后退</span>
           </div>
           <p id="keyboard-feedback" class="keyboard-feedback" role="status">点击运动模式后才响应键盘。</p>
-          <p class="hint">单方向控制；同时按多个方向键会请求停车，松开全部键后再操作。</p>
+          <p class="hint">可组合不同轴的方向键，例如 W+A+Q。相反方向同时按下会停车，松开全部键后再操作。</p>
           <div id="chassis-reason" class="section-note"></div><div class="feedback-strip"><span>轮速反馈（保护模式可能保留上次值）</span><strong id="wheel-feedback">—</strong></div>
         </section>
         <section class="panel" aria-labelledby="lift-title"><div class="panel-heading"><div><span class="section-index">03 / LIFT</span><h2 id="lift-title">升降控制</h2></div><button id="lift-stop" class="button stop-button" disabled>停止升降</button></div>

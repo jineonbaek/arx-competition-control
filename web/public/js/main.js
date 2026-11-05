@@ -199,7 +199,7 @@ function render(force=false) {
   }
   $('chassis-reason').textContent=snapshot.capabilities.chassis;
   $('chassis-state').textContent=!motionMode?'键盘未启用':intent.kind==='brake'?'刹车请求':keyBlocked?'等待松键':held?held.label+'指令':'键盘已启用';
-  $('keyboard-feedback').textContent=!motionMode?'点击运动模式后才响应键盘。':keyBlocked?'已请求停车；松开全部键后重新按下方向键。':held?'键盘请求：'+held.code.slice(3)+' · '+held.label:'按住单个方向键运动，松开停车。';
+  $('keyboard-feedback').textContent=!motionMode?'点击运动模式后才响应键盘。':keyBlocked?'已请求停车；松开全部键后重新按下方向键。':held?'键盘请求：'+held.keys+' · '+held.label:'可组合平移和转向，松开全部方向键停车。';
   $('linear-speed').disabled=Boolean(held);$('angular-speed').disabled=Boolean(held);
   if(Number.isFinite(snapshot.limits.linear))$('linear-speed').max=snapshot.limits.linear;
   if(Number.isFinite(snapshot.limits.angular))$('angular-speed').max=snapshot.limits.angular;
@@ -303,7 +303,7 @@ function editable(target) {
 async function driveTick() {
   if(!held || !motionMode || heartbeatBusy)return;
   heartbeatBusy=true;
-  const data={type:'chassis',direction:held.direction,speed:held.speed,turn_speed:held.turn,sequence:++baseSequence};
+  const data={type:'chassis',x:held.x,y:held.y,omega:held.omega,sequence:++baseSequence};
   const ok=await command(data,true);
   heartbeatBusy=false;
   if(!ok){
@@ -312,13 +312,15 @@ async function driveTick() {
   }
 }
 function startDrive(intent) {
-  if(held?.direction===intent.direction)return;
   if(!motionMode || !chassisReady()){exitMotionMode();return;}
   const speed=checkedNumber($('linear-speed').value,Number.MIN_VALUE,snapshot?.limits.linear??0);
   const turn=checkedNumber($('angular-speed').value,Number.MIN_VALUE,snapshot?.limits.angular??0);
   if(!speed.valid || !turn.valid){toast('请检查底盘速度输入');exitMotionMode();return;}
-  held={...intent,speed:speed.value,turn:turn.value};
-  driveTick();heartbeat=setInterval(driveTick,100);
+  const linearScale=speed.value/Math.max(1,Math.hypot(intent.x,intent.y));
+  held={x:intent.x*linearScale,y:intent.y*linearScale,omega:intent.omega*turn.value,
+        keys:intent.codes.map(code=>code.slice(3)).join('+'),
+        label:intent.codes.map(code=>CHASSIS_KEYS[code].label).join(' + ')};
+  driveTick();heartbeat??=setInterval(driveTick,100);
 }
 function stopDrive(force=false) {
   const wasHeld=Boolean(held);

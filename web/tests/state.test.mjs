@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newEditor, followFeedback, checkedNumber, CHASSIS_KEYS, chassisKeyIntent } from '../public/js/state.js';
+import { newEditor, followFeedback, checkedNumber, chassisKeyIntent } from '../public/js/state.js';
 const feedback={fresh:true,joints:[Math.PI/2,0,0,0,0,0],gripper:-1,tcp:[.1,.2,.3,Math.PI,0,0]};
 test('feedback maps units and missing data is not zero',()=>{
   const e=newEditor('left',feedback);
@@ -23,16 +23,28 @@ test('invalid input is rejected',()=>{
   assert.equal(checkedNumber('-2.5',-10,10).value,-2.5);
 });
 
-test('chassis keyboard mapping keeps six vendor directions',()=>{
-  const expected={KeyW:'forward',KeyS:'backward',KeyA:'left',KeyD:'right',KeyQ:'yaw-left',KeyE:'yaw-right'};
-  for(const [code,direction] of Object.entries(expected)){
-    assert.equal(CHASSIS_KEYS[code].direction,direction);
-    assert.deepEqual(chassisKeyIntent(new Set([code])),{kind:'move',code,...CHASSIS_KEYS[code]});
+test('chassis keyboard maps each key to its signed axis',()=>{
+  const expected={KeyW:[1,0,0],KeyS:[-1,0,0],KeyA:[0,1,0],KeyD:[0,-1,0],KeyQ:[0,0,1],KeyE:[0,0,-1]};
+  for(const [code,axes] of Object.entries(expected)){
+    const {kind,x,y,omega,codes}=chassisKeyIntent(new Set([code]));
+    assert.equal(kind,'move');
+    assert.deepEqual([x,y,omega],axes);
+    assert.deepEqual(codes,[code]);
   }
 });
-test('space wins and multiple direction keys cannot become a combined command',()=>{
-  assert.deepEqual(chassisKeyIntent(new Set(['KeyW','Space'])),{kind:'brake'});
-  assert.deepEqual(chassisKeyIntent(new Set(['KeyW','KeyD'])),{kind:'conflict'});
+test('independent axes combine and releasing a key updates the remaining axes',()=>{
+  const keys=new Set(['KeyW','KeyA','KeyQ']);
+  for(const [released,axes] of [[null,[1,1,1]],['KeyA',[1,0,1]],['KeyQ',[1,0,0]]]){
+    keys.delete(released);
+    const {kind,x,y,omega}=chassisKeyIntent(keys);
+    assert.equal(kind,'move');
+    assert.deepEqual([x,y,omega],axes);
+  }
+});
+test('space wins and opposed keys still request a stop',()=>{
+  assert.deepEqual(chassisKeyIntent(new Set(['KeyW','KeyA','KeyQ','Space'])),{kind:'brake'});
+  for(const codes of [['KeyW','KeyS'],['KeyA','KeyD'],['KeyQ','KeyE']])
+    assert.deepEqual(chassisKeyIntent(new Set(codes)),{kind:'conflict'});
   assert.deepEqual(chassisKeyIntent(new Set()),{kind:'idle'});
   assert.deepEqual(chassisKeyIntent(new Set(['ArrowUp'])),{kind:'idle'});
 });

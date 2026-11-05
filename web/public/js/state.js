@@ -22,17 +22,22 @@ export function validBounds(pair) {
 }
 
 export const CHASSIS_KEYS = Object.freeze({
-  KeyW: { direction: 'forward', label: '前进' },
-  KeyS: { direction: 'backward', label: '后退' },
-  KeyA: { direction: 'left', label: '左移' },
-  KeyD: { direction: 'right', label: '右移' },
-  KeyQ: { direction: 'yaw-left', label: '左转' },
-  KeyE: { direction: 'yaw-right', label: '右转' },
+  KeyW: { axis: 'x', sign: 1, label: '前进' },
+  KeyS: { axis: 'x', sign: -1, label: '后退' },
+  KeyA: { axis: 'y', sign: 1, label: '左移' },
+  KeyD: { axis: 'y', sign: -1, label: '右移' },
+  KeyQ: { axis: 'omega', sign: 1, label: '左转' },
+  KeyE: { axis: 'omega', sign: -1, label: '右转' },
 });
 export function chassisKeyIntent(keys) {
   if (keys.has('Space')) return { kind: 'brake' };
   const codes = Object.keys(CHASSIS_KEYS).filter(code => keys.has(code));
   if (!codes.length) return { kind: 'idle' };
-  if (codes.length > 1) return { kind: 'conflict' };
-  return { kind: 'move', code: codes[0], ...CHASSIS_KEYS[codes[0]] };
+  const axes = { x: 0, y: 0, omega: 0 };
+  for (const code of codes) {
+    const { axis, sign } = CHASSIS_KEYS[code];
+    if (axes[axis] !== 0) return { kind: 'conflict' };
+    axes[axis] = sign;
+  }
+  return { kind: 'move', codes, ...axes };
 }

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "slow_lift_config.hpp"
+#include "chassis_motion.hpp"
 #include <std_msgs/msg/bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <sys/file.h>
@@ -71,18 +72,19 @@ int main(int argc, char **argv) {
   auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/arx_imu", 1);
   auto ready_pub = node->create_publisher<std_msgs::msg::Bool>("/web/body/calibrated", 1);
   auto last_command = std::chrono::steady_clock::time_point{};
+  ChassisMotion chassis_motion;
   auto chassis_sub = node->create_subscription<arm_control::msg::PosCmd>(
       "/web/body/command", 1, [&](const arm_control::msg::PosCmd &msg) {
         const double x = msg.chx / 2.5, y = -msg.chy / 2.5, yaw = msg.chz / 2.5;
         if (!valid_chassis_target(x, y, yaw, msg.mode1) ||
             (msg.mode1 == 1 && !control_loop->calibrated())) {
-          control_loop->setChassisCmd(0, 0, 0, 2);
-          control_loop->setWheelVel(0, 0, 0, 0);
+          chassis_motion.protect();
           RCLCPP_WARN(node->get_logger(), "Rejected chassis target: invalid range/mode or body not ready");
           return;
         }
         last_command = std::chrono::steady_clock::now();
-        control_loop->setChassisCmd(x, y, yaw, msg.mode1);
+        chassis_motion.request({x, y, yaw}, msg.mode1,
+            std::chrono::duration<double>(last_command.time_since_epoch()).count());
       });
   auto stop_lift_service = node->create_service<std_srvs::srv::Trigger>(
       "/web/body/stop_lift", [&](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
@@ -101,16 +103,14 @@ int main(int argc, char **argv) {
   while (rclcpp::ok()) {
     // Lift target is independent of chassis messages; no head/waist/VR/joy inputs.
     control_loop->setHeight(node->get_parameter("fixed_body_height").as_double());
+    const auto now = std::chrono::steady_clock::now();
+    chassis_motion.step(std::chrono::duration<double>(now.time_since_epoch()).count(),
+                        std::chrono::duration<double>(now - last_command).count(),
+                        control_loop->calibrated());
+    const auto &velocity = chassis_motion.velocity();
+    control_loop->setChassisCmd(velocity[0], velocity[1], velocity[2], chassis_motion.mode());
+    control_loop->setWheelVel(0, 0, 0, 0);
     control_loop->loop();
-
-    //control_loop->setHeight(20 / 41.54);
-    
-    const double command_age = std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - last_command).count();
-    if (chassis_expired(command_age)) {
-      control_loop->setChassisCmd(0, 0, 0, 2);
-      control_loop->setWheelVel(0, 0, 0, 0);
-    }
     std_msgs::msg::Bool ready_msg;
     ready_msg.data = control_loop->calibrated();
     ready_pub->publish(ready_msg);

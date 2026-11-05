@@ -186,7 +186,8 @@ class Controller:
                    "chassis": {"type", "direction", "speed", "turn_speed", "sequence"},
                    "chassis.stop": {"type", "sequence"}, "lift": {"type", "target"}, "lift.stop": {"type"}}
         kind = data.get("type")
-        if kind not in schemas or set(data) != schemas[kind]:
+        chassis_vector = kind == "chassis" and set(data) == {"type", "x", "y", "omega", "sequence"}
+        if not chassis_vector and (kind not in schemas or set(data) != schemas[kind]):
             raise Rejected("指令类型或字段无效")
         if "arm" in data:
             side = data["arm"]
@@ -255,21 +256,30 @@ class Controller:
             raise Rejected("底盘正在由另一网页控制")
         self.base_sequences[client] = sequence
         if kind == "chassis.stop":
-            self._stop_chassis("底盘停止")
+            self._stop_chassis("底盘停止", force=True)
             return
-        direction, speed, turn = data["direction"], data["speed"], data["turn_speed"]
         c = self.config["body"]
-        if direction not in DIRECTIONS or not number(speed) or not number(turn) or not 0 < speed <= c["max_linear_m_s"] or not 0 < turn <= c["max_angular_rad_s"]:
-            raise Rejected("方向或速度超出已配置范围")
-        x, y, z = DIRECTIONS[direction]
+        max_linear, max_angular = c["max_linear_m_s"], c["max_angular_rad_s"]
+        if chassis_vector:
+            x, y, omega = data["x"], data["y"], data["omega"]
+            if (not all(type(v) in (int, float) and -limit <= v <= limit
+                        for v, limit in ((x, max_linear), (y, max_linear), (omega, max_angular)))
+                    or math.hypot(x, y) > max_linear or (x, y, omega) == (0, 0, 0)):
+                raise Rejected("底盘三轴速度无效或超出已配置范围")
+        else:
+            direction, speed, turn = data["direction"], data["speed"], data["turn_speed"]
+            if direction not in DIRECTIONS or not number(speed) or not number(turn) or not 0 < speed <= max_linear or not 0 < turn <= max_angular:
+                raise Rejected("方向或速度超出已配置范围")
+            dx, dy, rotation = DIRECTIONS[direction]
+            x, y, omega = dx * speed, dy * speed, rotation * turn
         self.chassis_message = copy.deepcopy(self.body)
-        self.adapter.chassis(x * speed, y * speed, z * turn, self.chassis_message)
+        self.adapter.chassis(x, y, omega, self.chassis_message)
         self.chassis_owner = client
         self.chassis_deadline = self.clock() + self.config["chassis_lease_s"]
 
-    def _stop_chassis(self, reason):
-        if self.chassis_owner is not None:
-            self.adapter.chassis(0, 0, 0, self.chassis_message)
+    def _stop_chassis(self, reason, force=False):
+        if self.chassis_owner is not None or force:
+            self.adapter.chassis(0, 0, 0, self.chassis_message or self.body)
             self.chassis_owner = None
             self.chassis_message = None
             self.log(reason)

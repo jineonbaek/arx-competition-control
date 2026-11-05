@@ -138,6 +138,15 @@ class ControlTests(unittest.TestCase):
         self.controller.submit({"type": "chassis", "direction": "forward",
                                 "speed": .0005, "turn_speed": .0005, "sequence": 20}, "A")
 
+    def test_explicit_brake_still_publishes_when_no_web_motion_is_active(self):
+        self.controller.submit({"type": "chassis.stop", "sequence": 1}, "A")
+        self.assertEqual(len(self.adapter.calls), 1)
+        self.assertEqual(self.adapter.calls[-1][1][:3], (0, 0, 0))
+        self.assertEqual(self.adapter.calls[-1][1][3]["height"], 5.)
+        self.assertIsNone(self.controller.chassis_owner)
+        self.controller.tick()
+        self.assertEqual(len(self.adapter.calls), 1)
+
     def test_chassis_timeout_sends_zero_preserving_body(self):
         self.controller.submit({"type": "chassis", "direction": "left", "speed": .05, "turn_speed": .1, "sequence": 1}, "A")
         self.now += .31
