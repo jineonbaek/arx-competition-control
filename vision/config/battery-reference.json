@@ -1,0 +1,56 @@
+{
+  "classes": [
+    "battery",
+    "holder"
+  ],
+  "examples": [
+    {
+      "bbox": [
+        64,
+        109,
+        155,
+        270
+      ],
+      "class": 0,
+      "source": "d435.jpg",
+      "source_bbox": [
+        348,
+        78,
+        439,
+        239
+      ]
+    },
+    {
+      "bbox": [
+        244,
+        78,
+        396,
+        301
+      ],
+      "class": 0,
+      "source": "d405-placed.jpg",
+      "source_bbox": [
+        159,
+        140,
+        311,
+        363
+      ]
+    },
+    {
+      "bbox": [
+        435,
+        163,
+        625,
+        216
+      ],
+      "class": 1,
+      "source": "astra-placed.jpg",
+      "source_bbox": [
+        340,
+        370,
+        558,
+        431
+      ]
+    }
+  ]
+}

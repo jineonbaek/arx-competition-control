@@ -1,0 +1,79 @@
+{
+  "class_names": [
+    "battery",
+    "holder"
+  ],
+  "minimum_score": 0.25,
+  "references": {
+    "d405": {
+      "image": "d405-reference.jpg",
+      "boxes": [
+        [
+          160,
+          140,
+          312,
+          364
+        ],
+        [
+          77,
+          70,
+          294,
+          207
+        ]
+      ],
+      "classes": [
+        0,
+        1
+      ]
+    },
+    "astra": {
+      "image": "astra-reference.jpg",
+      "boxes": [
+        [
+          327,
+          432,
+          444,
+          480
+        ],
+        [
+          482,
+          431,
+          640,
+          480
+        ],
+        [
+          333,
+          369,
+          528,
+          432
+        ]
+      ],
+      "classes": [
+        0,
+        0,
+        1
+      ]
+    },
+    "d435": {
+      "image": "d435-reference.jpg",
+      "boxes": [
+        [
+          394,
+          73,
+          487,
+          230
+        ],
+        [
+          403,
+          0,
+          590,
+          72
+        ]
+      ],
+      "classes": [
+        0,
+        1
+      ]
+    }
+  }
+}

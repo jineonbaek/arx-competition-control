@@ -50,3 +50,6 @@ logs/
 /navigation/reports/*
 !/navigation/reports/jazzy-source.patch
 !/navigation/reports/source-lock.json
+
+# Generated live camera frames and per-frame metadata
+/web/public/camera-live/

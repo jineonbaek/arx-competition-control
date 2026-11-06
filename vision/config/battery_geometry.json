@@ -1,0 +1,10 @@
+{
+  "units": "mm",
+  "model_dimensions": [82.35,75.0,195.28],
+  "handle_hole_width_height": [40.0,14.0],
+  "model_hole_center": [0.15602874755859375,0.0,169.74542236328125],
+  "model_candidate_bar_center": [0.15602874755859375,0.0,186.01271057128906],
+  "stl_sha256": "2891406c4185318ccefde7276e288fb3dc70de96585650be036db6df83b53720",
+  "step_sha256": "0a31ce4be0b1cbd2c05dc4d1e43920e4636e57be3888b1690e8d1ae93749a623",
+  "use": "Geometric prior for slot detection; not full CAD pose registration or grasp validation"
+}
