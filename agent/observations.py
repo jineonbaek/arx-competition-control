@@ -49,6 +49,26 @@ class ConsoleObservations:
         now = email.utils.parsedate_to_datetime(date).timestamp() if date else time.time()
         return body, now
 
+    def robot_state(self):
+        try:
+            raw, _ = self._get('/api/state', 2_000_000)
+            state = strict_json(raw)
+            if not isinstance(state, dict) or any(not isinstance(state.get(k), dict) for k in ('arms', 'body', 'ros')):
+                raise ValueError('Invalid robot state')
+            arm_fields = ('joints', 'gripper', 'tcp', 'timestamp', 'fresh', 'age_s')
+            body_fields = ('height', 'wheels', 'waist', 'head_yaw', 'head_pitch', 'timestamp', 'fresh', 'age_s')
+            ros_fields = ('connected', 'domain_id', 'error', 'feedback_sources')
+            snapshot = {'arms': {side: {key: value for key, value in state['arms'].get(side, {}).items() if key in arm_fields}
+                                  for side in ('left', 'right')},
+                        'body': {key: value for key, value in state['body'].items() if key in body_fields},
+                        'ros': {key: value for key, value in state['ros'].items() if key in ros_fields},
+                        'chassis_active': state.get('chassis_active'), 'execution_enabled': state.get('execution_enabled')}
+            return {'available': True, 'retrieved_at': time.time(), 'source_time': state.get('time'),
+                    'snapshot': snapshot, 'read_only': True,
+                    'units_note': 'Controller feedback in SDK conventions; body.height is not calibrated metres. Freshness flags belong to each source.'}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
+            return {'available': False, 'error': 'robot_state_unavailable', 'read_only': True}
+
     def capture(self, cameras, view='raw'):
         if not cameras or len(cameras) > 3 or len(set(cameras)) != len(cameras) or any(c not in CAMERAS for c in cameras) or view not in ('raw', 'annotated'):
             raise AgentError('invalid_arguments', 'Invalid cameras or view')
@@ -79,12 +99,9 @@ class ConsoleObservations:
                 errors[camera] = {'code': 'camera_unavailable', 'error_type': type(error).__name__}
         if not frames:
             raise AgentError('observation_unavailable', 'No fresh validated camera frame was available')
-        robot_state = {}
-        try:
-            raw, _ = self._get('/api/state', 2_000_000)
-            state = strict_json(raw)
-            robot_state = {k: state[k] for k in ('arms', 'body', 'ros', 'chassis_active') if k in state}
-        except (OSError, ValueError, TypeError):
+        current = self.robot_state()
+        robot_state = current.get('snapshot', {})
+        if not current['available']:
             errors['robot_state'] = {'code': 'state_unavailable'}
         return self.store.save_observation({'source': 'existing_console_http_get', 'cameras': frames,
                                             'robot_state': robot_state, 'errors': errors,

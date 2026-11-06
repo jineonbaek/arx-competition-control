@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 import sys
 import threading
+import time
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -56,13 +57,22 @@ class ArxgentChat:
     @staticmethod
     def _new_session():
         return {'conversation_id': str(uuid.uuid4()), 'messages': [], 'job': None,
-                'run_dir': None, 'requests': {}, 'activity': []}
+                'run_dir': None, 'requests': {}, 'activity': [], 'last_seen': time.monotonic()}
 
     def _session(self, client):
+        now = time.monotonic()
+        for identity, session in list(self.sessions.items()):
+            busy = session['job'] and session['job']['status'] in ('running', 'cancelling')
+            if identity != client and not busy and now - session['last_seen'] > 3600:
+                del self.sessions[identity]
         if client not in self.sessions:
             if len(self.sessions) >= 32:
-                raise ChatError(503, '对话连接已达上限，请联系维护人员。')
+                unused = [(identity, session) for identity, session in self.sessions.items() if not session['messages'] and not session['job']]
+                if not unused:
+                    raise ChatError(503, '近期对话已达上限，请稍后再试。')
+                del self.sessions[min(unused, key=lambda item: item[1]['last_seen'])[0]]
             self.sessions[client] = self._new_session()
+        self.sessions[client]['last_seen'] = now
         return self.sessions[client]
 
     def _snapshot(self, session):

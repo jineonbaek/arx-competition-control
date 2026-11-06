@@ -71,7 +71,11 @@ class ArxgentHTTPTests(unittest.TestCase):
 
     def test_malformed_duplicate_or_oversized_chat_json_is_rejected_before_dispatch(self):
         for body in ['{', '{"action":"send","action":"new"}', '{"action":NaN}', ' ' * 8193]:
-            self.assertEqual(self.request('POST', '/api/arxgent', body, self.headers)[0], 400)
+            try:
+                self.assertEqual(self.request('POST', '/api/arxgent', body, self.headers)[0], 400)
+            except (ConnectionAbortedError, ConnectionResetError):
+                # Windows may reset a rejected request whose oversized body remains unread.
+                self.assertGreater(len(body), 8192)
         self.assertEqual(self.chat.calls, [])
         self.assertEqual(self.adapter.calls, [])
         self.assertEqual(self.request('GET', '/agent/.secrets/qwen.env')[0], 404)

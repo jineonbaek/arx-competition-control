@@ -27,6 +27,12 @@ QWEN_BASE_URL=https://maas.qianwenaiapi.com/compatible-mode/v1
 
 ## 使用
 
+网页入口：[当前控制台](http://192.168.58.14:9983/)。相机区下方右栏的 **arxgent** 面板支持文字对话、状态读取、三相机观察和连续追问，底盘控制在其下方。可点击“看看三个相机”或输入消息，Enter发送、Shift+Enter换行。处理期间显示工具活动；“取消回复”停止后续处理并等待当前云端请求结束，“新对话”重新建立上下文。
+
+网页端只允许 `get_system_status`、`observe_scene`、`read_observation`，不会发出运动。状态工具包含现有控制服务的实时反馈和各来源的freshness，不把SDK高度反馈标成米。后续轮次使用独立内部工具ID，避免复用旧照片；浏览器刷新可恢复当前网页进程内的会话。网页进程重启后会开启新会话，旧运行文件仍保留。会话最多20轮；闲置1小时后可回收，未聊天的旁观会话在容量压力下优先回收。
+
+接口为同源 `GET /api/arxgent` 与 `POST /api/arxgent`；复用现有HttpOnly会话Cookie与Origin校验。凭证只从服务器私有环境读取，不经过浏览器。新增后端文件为 `web/src/arxgent.py`，界面文件为 `web/public/js/arxgent.js` 和 `web/public/css/arxgent.css`。开发机可执行 `python -X utf8 web/tests/check_arxgent_browser.py` 做离线浏览器验证（仅开发测试依赖已安装的Playwright，不用于ROG运行服务）。
+
 ```bash
 cd /home/arx/arx-agent-framework
 python3 -m agent --env-file agent/.secrets/qwen.env doctor

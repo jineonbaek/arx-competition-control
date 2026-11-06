@@ -13,7 +13,7 @@
 ## Constraints / scope
 
 - Continue branch codex/qwen-agent-framework in /home/arx/arx-agent-framework; base957e529. Explicit local commits per verified feature; no push/merge.
-- Whitelist source changes: agent/runtime.py; web/src/arxgent.py; web/src/server.py; web/public/index.html; web/public/js/arxgent.js; web/public/css/arxgent.css; corresponding new tests/docs.
+- Whitelist source changes: agent/runtime.py; agent/observations.py; agent/tools.py; web/src/arxgent.py; web/src/server.py; web/public/index.html; web/public/js/arxgent.js; web/public/css/arxgent.css; corresponding new tests/docs.
 - Chat only get_system_status / observe_scene / read_observation, motion disabled, no robot backend.
 - Preserve existing unrelated dirty files in active /home/arx/arx-competition-control. Do not change launcher, control, ROS adapter, hardware or camera code.
 - User explicitly requested live-page change/verification, permitting selective publication and web-only reload after review. This overrides earlier generic no-deployment default for this scoped page update only.
@@ -39,7 +39,7 @@
 - [x] Add panel before CHASSIS with existing visual tokens, accessible input/transcript/status, send/cancel/new-chat and suggested observation prompt.
 - [x] Add frontend tests for safe text rendering / keyboard / pending and API behavior; check desktop and mobile layout in browser (3 Node tests; real Chromium offline fixture verifies 2 turns, refresh, keyboard guard, literal markup, cancel and390px viewport).
 - [x] Run all related tests, review source diff and commit (31 Agent,85 web Python,15 Node; offline browser no page errors or motion requests).
-- [ ] Final independent review; fix material findings with regression tests and scoped commit.
+- [x] Final independent review; fix material findings with regression tests and scoped commit (3 Important findings;4 regression tests observed failing then passing).
 - [ ] Compare clean target files against Git base and preserve dirty file hashes; selectively publish committed files and reload only the web process.
 - [ ] Verify browser real Qwen tool/image dialogue and follow-up; record commits, tests, runtime evidence and remaining limits.
 
@@ -49,3 +49,6 @@
 - Browser automation: Python Playwright and bundled Chromium are already installed locally. No new runtime dependency needed.
 - Backend commit b205f33 passed31 Agent+85 web tests. All writes remain on the independent development branch so far.
 - User specified exact placement/name and requested implementation/real-page verification; routine visual and architecture details were resolved using existing UI/service patterns without another approval round.
+- Final review: live status now reads bounded sanitized /api/state feedback, source timestamps and freshness, with explicit unavailable state; no guessed height units. The original mission/config status remains distinct.
+- Final review: continuation uses persistent per-turn internal call namespaces while retaining original provider IDs on the API protocol, so new-frame requests cannot reuse a prior turn's observation cache. Same-turn request deduplication is retained.
+- Final review: expired idle sessions are reclaimed after1hour; when the32-session bound is reached, unused spectator sessions are evicted before refusing a new client. Ongoing jobs and recent conversation history are preserved.

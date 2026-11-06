@@ -1,8 +1,10 @@
 """Serial model/tool loop with persistent budgets, image references and recovery."""
 import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
+import re
 import uuid
 
 from .contracts import AgentError
@@ -44,15 +46,17 @@ class AgentRuntime:
                 continue
             if self.store.cancelled:
                 return 'cancelled'
+            namespace = state.get('tool_namespace')
+            internal_id = 'turn_' + namespace + '_' + hashlib.sha256(call['id'].encode()).hexdigest() if namespace and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', call['id']) else call['id']
             ids = state['usage']['tool_call_ids']
-            if call['id'] not in ids:
+            if internal_id not in ids:
                 if len(ids) >= self.config.max_tool_calls:
                     return 'tool_budget_exhausted'
-                ids.append(call['id'])
+                ids.append(internal_id)
                 self.store.save()
             if self.progress:
                 self.progress({'event': 'tool', 'tool': call['function']['name']})
-            result = self.tools.execute(call['function']['name'], call['function']['arguments'], call['id'])
+            result = self.tools.execute(call['function']['name'], call['function']['arguments'], internal_id)
             messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False, allow_nan=False)})
             self.store.save()
             if self.progress:
@@ -85,6 +89,7 @@ class AgentRuntime:
         if not state['messages'] or state['messages'][-1]['role'] != 'assistant' or state['messages'][-1].get('tool_calls'):
             raise AgentError('continuation_not_allowed', 'Previous turn is incomplete')
         state['messages'].append({'role': 'user', 'content': instruction})
+        state['tool_namespace'] = uuid.uuid4().hex[:12]
         state['usage'] = {'rounds': 0, 'tool_call_ids': []}
         state['outcome'] = None
         self.store.save()

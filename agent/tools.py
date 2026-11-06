@@ -33,7 +33,7 @@ SCHEMAS = {
     "get_execution_status": object_schema(), "finish_task": object_schema(),
 }
 DESCRIPTIONS = {
-    "get_system_status": "Read mission stage, pending receipt and configured capabilities. No hardware commands.",
+    "get_system_status": "Read mission stage, pending receipt, configured capabilities and selected live robot feedback from the existing console. Check robot_state.available and per-source freshness. No hardware commands.",
     "set_task": "Bind the instruction's target color and destination once. Do not guess missing task requirements.",
     "observe_scene": "Freeze existing camera HTTP JPEGs and matching metadata. Raw or annotated view. No camera startup. Existing console exposes no raw depth or robot extrinsics.",
     "read_observation": "Read an immutable observation belonging to this run, with its stored camera images.",
@@ -152,9 +152,10 @@ class ToolRegistry:
         state = self.store.state
         mission = Mission(state["mission"])
         if name == "get_system_status":
+            robot = self.observations.robot_state() if hasattr(self.observations, 'robot_state') else {'available': False, 'error': 'robot_state_unavailable', 'read_only': True}
             return {"mission": copy.deepcopy(mission.data), "pending": copy.deepcopy(state["pending"]),
                     "capabilities": self.capabilities(), "motion_enabled": self.config.motion_enabled,
-                    "cancel_requested": self.store.cancelled, "observation_count": len(state["observations"])}
+                    "cancel_requested": self.store.cancelled, "observation_count": len(state["observations"]), 'robot_state': robot}
         if name == "set_task":
             mission.require(("IDLE",))
             mission.data.update(stage="TASK_ACCEPTED", task=dict(arguments), target=None, candidates=[], plan=None, slot=None)
