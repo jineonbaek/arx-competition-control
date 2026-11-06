@@ -56,4 +56,30 @@ class PreviewTests(unittest.TestCase):
                 self.assertEqual(run.call_args.args[0],spec)
             self.assertEqual(run.call_count,2)
 
+    def test_single_camera_capture_can_disable_all_detection(self):
+        from camera_preview import parse_options
+        options=parse_options(['--camera','d405','--no-detector'])
+        self.assertEqual(options.camera,'d405')
+        self.assertTrue(options.no_detector)
+        defaults=parse_options([])
+        self.assertIsNone(defaults.camera)
+        self.assertFalse(defaults.no_detector)
+        import contextlib,io
+        with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+            parse_options(['--camera','unknown'])
+
+    def test_d405_only_mode_starts_one_worker_and_never_starts_detector(self):
+        import contextlib,io
+        from unittest.mock import Mock,patch
+        import camera_preview as preview
+        with tempfile.TemporaryDirectory() as tmp:
+            web=Path(tmp)/'web';web.mkdir()
+            stop=Mock();stop.is_set.side_effect=[False,True]
+            with patch.object(preview,'WEB',web),patch.object(preview,'OUT',web/'public/camera-live'),patch.object(preview.threading,'Event',return_value=stop),patch.object(preview.threading,'Thread') as thread,patch.object(preview.signal,'signal'),patch.object(preview.subprocess,'Popen') as launch,patch.object(preview,'publish'),patch.object(Path,'is_file',return_value=True),contextlib.redirect_stdout(io.StringIO()):
+                preview.main(['--camera','d405','--no-detector'])
+                self.assertEqual([call.kwargs['args'][0]['id'] for call in thread.call_args_list],['d405'])
+                launch.assert_not_called()
+                thread.return_value.start.assert_called_once()
+                thread.return_value.join.assert_called_once()
+
 if __name__=='__main__':unittest.main()

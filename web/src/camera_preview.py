@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Camera-only latest JPEG publisher. No ROS, robot SDK or CAN access."""
+import argparse
 import fcntl
 import collections
 import uuid
@@ -119,7 +120,15 @@ def worker(spec,stop):
         stop.wait(3)
     publish(OUT,key,None,sequence,None,'offline','视频采集已停止')
 
-def main():
+def parse_options(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--camera',choices=[spec['id'] for spec in SPECS],help='Capture only this camera')
+    parser.add_argument('--no-detector',action='store_true',help='Capture only; do not start visual recognition')
+    return parser.parse_args(argv)
+
+def main(argv=None):
+    options=parse_options(argv)
+    specs=[spec for spec in SPECS if options.camera is None or spec['id']==options.camera]
     logs=WEB/'logs';logs.mkdir(exist_ok=True)
     with (logs/'camera-preview.lock').open('a+') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -127,15 +136,17 @@ def main():
         lock.seek(0);lock.truncate();lock.write(str(os.getpid()));lock.flush()
         stop=threading.Event()
         for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:stop.set())
-        workers=[threading.Thread(target=worker,args=(spec,stop),daemon=True) for spec in SPECS]
+        for spec in SPECS:
+            if spec not in specs:publish(OUT,spec['id'],None,0,None,'offline','本次未启用')
+        workers=[threading.Thread(target=worker,args=(spec,stop),daemon=True) for spec in specs]
         for t in workers:t.start()
-        print('Camera preview started: 3 RGB + depth cameras, 640x480, up to 5 JPEG frames/s; no robot interfaces',flush=True)
+        print('Camera preview started:',','.join(spec['id'] for spec in specs),'RGB + depth, 640x480, up to 5 JPEG frames/s; detector',not options.no_detector,'; no robot interfaces',flush=True)
         detector=None;next_retry=0.0
         vision=WEB.parent/'vision'
         command=[str(vision/'.venv-detector/bin/python'),str(WEB/'src/battery_boxes_service.py')]
         try:
             while not stop.is_set():
-                if (detector is None or detector.poll() is not None) and time.monotonic()>=next_retry:
+                if not options.no_detector and (detector is None or detector.poll() is not None) and time.monotonic()>=next_retry:
                     if all(Path(path).is_file() for path in command) and (vision/'models/yoloe-11s-seg.pt').is_file():
                         detector=subprocess.Popen(command,cwd=WEB.parent,stdin=subprocess.DEVNULL,start_new_session=True)
                         (vision/'runtime').mkdir(exist_ok=True)
@@ -151,6 +162,6 @@ def main():
                 except subprocess.TimeoutExpired:
                     detector.kill();detector.wait(timeout=2)
             for t in workers:t.join(timeout=2)
-            for spec in SPECS:publish(OUT,spec['id'],None,0,None,'offline','视频采集已停止')
+            for spec in specs:publish(OUT,spec['id'],None,0,None,'offline','视频采集已停止')
 
 if __name__=='__main__':main()

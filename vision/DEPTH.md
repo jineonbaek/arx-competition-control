@@ -42,6 +42,16 @@ The rule grants group `plugdev` access only to Astra depth USB ID `2bc5:0403`; u
 
 The setup pins the official Orbbec ROS repository at `210f530144314da7c70072215bacba12130d9b20`, downloads only six Linux x64 runtime files (about 2.6 MB), and checks SHA256. The stock `openni==2.3.0` Python binding omits Orbbec's `serialNumber[256]` field in `OniDeviceInfo`. Setup adds it deterministically; runtime rejects the unsafe structure before SDK initialization. Without it the SDK writes beyond the Python buffer and may crash. This is a camera-only compatibility fix, not a driver or firmware change. Reinstall through this setup script so the patch is reapplied.
 
+## D405-only recovery mode
+
+To enable only D405 RGB-D, without touching D435/Astra or starting the detector:
+
+```bash
+python3 web/src/camera_preview.py --camera d405 --no-detector
+```
+
+This uses the same exclusive capture lock and existing HTTP camera metadata. Unselected cameras are reported offline; robot processes stay untouched. The normal desktop launcher still defaults to all cameras: do not request camera recovery there during this isolated D405 check. This mode does not claim the shared USB fault is fixed.
+
 ## Start / verify
 
 ```bash
