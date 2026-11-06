@@ -11,6 +11,37 @@ import uuid
 from .contracts import AgentError, strict_json
 
 
+def pid_alive(pid):
+    if type(pid) is not int or pid <= 0:
+        raise ValueError('Invalid writer PID')
+    if os.name == 'nt':
+        # Windows os.kill(pid, 0) can terminate a process; query its handle instead.
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            if ctypes.get_last_error() == 87:
+                return False
+            raise PermissionError('Cannot query writer process')
+        try:
+            code = wintypes.DWORD()
+            if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+                raise PermissionError('Cannot query writer exit code')
+            return code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def atomic_json(path, value):
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("w", encoding="utf-8") as handle:
@@ -58,9 +89,7 @@ class RunStore:
             owner = strict_json(lock.read_text(encoding="utf-8"))
             if owner.get("host") != socket.gethostname():
                 raise RuntimeError("Run is owned by another host; inspect the writer lock")
-            try:
-                os.kill(owner["pid"], 0)
-            except ProcessLookupError:
+            if not pid_alive(owner['pid']):
                 lock.unlink()
                 fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             else:

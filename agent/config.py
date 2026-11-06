@@ -7,6 +7,25 @@ from urllib.parse import urlsplit
 from .contracts import AgentError, strict_json
 
 
+def load_private_env(path):
+    """Read literal values only; dotenv files are never executed as shell scripts."""
+    path = Path(path)
+    if os.name == 'posix' and path.stat().st_mode & 0o077:
+        raise AgentError('private_config_permissions', 'Private configuration must have permissions 600')
+    values = {}
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        if not separator or key not in ('DASHSCOPE_API_KEY', 'QWEN_BASE_URL') or key in values:
+            raise AgentError('invalid_config', 'Invalid private environment file')
+        value = value.strip()
+        if not value or any(c.isspace() for c in value):
+            raise AgentError('invalid_config', 'Private environment values must be nonempty literal strings')
+        values[key] = value
+    os.environ.update(values)
+
+
 def checked_url(value):
     parsed = urlsplit(value)
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:

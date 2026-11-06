@@ -65,10 +65,10 @@
 
 **Interfaces:** `AgentRuntime.run(instruction)`, CLI commands, durable event and outcome records.
 
-- [ ] Write integration tests for multi-round model/tool exchanges, vision attachments, budgets, cancellation, unknown execution/resume and truthful final outcomes.
-- [ ] Implement orchestration, CLI, configuration examples and operational documentation.
-- [ ] Run all agent tests and existing web Python/Node checks in the isolated ROG worktree.
-- [ ] Exercise doctor and real read-only observations against the running ROG console.
+- [x] Write integration tests for multi-round model/tool exchanges, vision attachments, budgets, cancellation, unknown execution/resume and truthful final outcomes (6 new tests observed failing before implementation).
+- [x] Implement orchestration, CLI, configuration examples and operational documentation.
+- [x] Run all agent tests and existing web Python/Node checks in the isolated ROG worktree (22 agent + 78 web Python + 12 Node passed).
+- [x] Exercise doctor and real read-only observations against the running ROG console (all 3 cameras; live streamed Qwen status->observe->3 images->Chinese report, 3 model rounds, 28.1s; mission remains IDLE).
 - [ ] Perform independent code review, address material findings, and report evidence boundaries.
 
 ## Execution Record
@@ -77,3 +77,5 @@
 - 2026-11-06: ROG reboot caused temporary SSH loss. Connection recovered; isolated worktree created successfully at the stated path. Active checkout untouched.
 - Publication/merge and live model verification are outside this implementation stage; keep changes reviewable and report them explicitly.
 - User subsequently provided a key and explicitly authorized API testing: text, D435 image and function-call probes succeeded. The current platform uses https://maas.qianwenaiapi.com/compatible-mode/v1. The secret is only in ignored agent/.secrets/qwen.env with permissions 600; no secret enters commits.
+- Stage 1 commit: 13afda2; stage 2 commit: 7c9e8be. User authorized scoped local commits after checks, without push/merge/deployment. Runtime records and secrets remain ignored.
+- Ruling: External grasp/planning/control/verification/navigation/insertion services remain explicit contracts, not fabricated implementations. Current evidence only supports their unavailable state; integrating each requires its own hardware and calibration work.
