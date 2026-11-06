@@ -1,0 +1,137 @@
+{
+  "measured_at": "2026-11-06T22:29:00.819055+08:00",
+  "input": {
+    "source": "official doc/example_data",
+    "batch_size": 1,
+    "sampled_points": 20000,
+    "scene_points": 513688,
+    "num_view": 300,
+    "precision": "torch.float32",
+    "warmup_iterations": 5,
+    "cpu_threads": 4,
+    "collision_threshold": 0.01,
+    "voxel_size_m": 0.01
+  },
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+    "compute_capability": [
+      12,
+      0
+    ],
+    "python": "3.12.12",
+    "torch": "2.10.0+cu128",
+    "torch_cuda": "12.8",
+    "numpy": "1.26.4",
+    "open3d": "0.19.0",
+    "model_parameters": 1025964
+  },
+  "cold": {
+    "model_load_ms": 34.53911799988418,
+    "prepare_ms": 343.69271400009893,
+    "first_inference_ms": 421.67795400018804
+  },
+  "latency": {
+    "forward_only": {
+      "count": 50,
+      "mean_ms": 69.88354705998972,
+      "median_ms": 69.87444549986321,
+      "p95_ms": 70.02228740020655,
+      "min_ms": 69.64147700000467,
+      "max_ms": 70.03342699999848
+    },
+    "inference_including_decode_and_cpu_copy": {
+      "count": 50,
+      "mean_ms": 70.57214724001824,
+      "median_ms": 70.55454650003412,
+      "p95_ms": 70.73445814999104,
+      "min_ms": 70.44146799989903,
+      "max_ms": 70.8582860002025
+    },
+    "offline_pipeline": {
+      "count": 10,
+      "mean_ms": 500.3618490000008,
+      "median_ms": 496.87983750004605,
+      "p95_ms": 510.23580095006764,
+      "min_ms": 493.59302699986074,
+      "max_ms": 511.48383500003547
+    },
+    "pipeline_preparation": {
+      "count": 10,
+      "mean_ms": 328.67152890007674,
+      "median_ms": 329.9771315000726,
+      "p95_ms": 337.22558824995303,
+      "min_ms": 319.4222400002218,
+      "max_ms": 338.7589339999977
+    },
+    "pipeline_inference": {
+      "count": 10,
+      "mean_ms": 73.19325029998254,
+      "median_ms": 73.77810150001096,
+      "p95_ms": 74.56783825009552,
+      "min_ms": 70.62183000016375,
+      "max_ms": 74.70985600002678
+    },
+    "pipeline_collision_filter": {
+      "count": 10,
+      "mean_ms": 97.79659770001672,
+      "median_ms": 97.33387949995631,
+      "p95_ms": 102.82505790005416,
+      "min_ms": 92.30267700013428,
+      "max_ms": 103.21887000009156
+    },
+    "pipeline_nms": {
+      "count": 10,
+      "mean_ms": 0.3022614999736106,
+      "median_ms": 0.24959099982879707,
+      "p95_ms": 0.5404039999802985,
+      "min_ms": 0.22772700003770296,
+      "max_ms": 0.738106999961019
+    }
+  },
+  "memory": {
+    "baseline_before_model_total_gpu_mib": 462.375,
+    "sampled_process_gpu_peak_mib": 1194.0,
+    "torch_peak_allocated_mib": 662.27978515625,
+    "torch_peak_reserved_mib": 1028.0,
+    "sampled_total_gpu_peak_mib": 1661.5,
+    "sample_interval_ms": 10,
+    "sampling_errors": []
+  },
+  "candidates": {
+    "raw": 332,
+    "after_collision": 112,
+    "after_nms": 71,
+    "saved_for_viewing": 50
+  },
+  "scope": {
+    "includes_live_camera": false,
+    "includes_model_load_in_warm_latency": false,
+    "includes_gui_in_warm_latency": false,
+    "robot_commands_sent": 0,
+    "pipeline_includes": [
+      "RGB-D file loading",
+      "point cloud construction and sampling",
+      "inference and decoding",
+      "CPU result copy",
+      "collision filter",
+      "NMS"
+    ]
+  },
+  "sources": {
+    "official_source": "https://drive.google.com/file/d/1hd0G8LN6tRpi4742XOTEisbTXNZ-1jmk/view",
+    "official_download_status": "quota exceeded",
+    "download_url": "https://huggingface.co/dgrachev/a2_pretrained/resolve/7856e4e550052131b6ac5c0adb6564b04433ad9b/checkpoint-rs.tar",
+    "mirror_revision": "7856e4e550052131b6ac5c0adb6564b04433ad9b",
+    "sha256": "60680087c61cba2b6791614fef1519071e294f6dcaf99b3f581bb95f7c51a868",
+    "bytes": 12468415,
+    "weights_only_load": true,
+    "epoch": 18,
+    "official_bitwise_identity": "not independently verified",
+    "mainland_mirror_url": "https://hf-mirror.com/dgrachev/a2_pretrained/resolve/7856e4e550052131b6ac5c0adb6564b04433ad9b/checkpoint-rs.tar",
+    "mainland_mirror_verified_sha256": "60680087c61cba2b6791614fef1519071e294f6dcaf99b3f581bb95f7c51a868",
+    "upstream": {
+      "graspnet-baseline": "280c215129f759ed8649cb4e89fc5dfee55f4f80",
+      "graspnetAPI": "eb57dd2092d8dbe05312a29c3d0c22f3226efbfc"
+    }
+  }
+}

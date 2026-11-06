@@ -61,3 +61,49 @@ committed.
 
 Dependencies, vendor code, model weights, build outputs and runtime logs are ignored.
 Only this task's source, instructions and summarized measurements are committed.
+
+
+## Measured official-example benchmark
+
+Measured on the ROG RTX 5070 Laptop (8,151 MiB), Python 3.12.12,
+PyTorch 2.10.0+cu128 / CUDA 12.8; FP32, batch 1, 20,000 sampled points,
+300 views, 4 CPU threads. The saved official scene has 513,688 valid points.
+Five warmups precede 50 measured inference runs; the full offline pipeline
+is measured 10 times. CUDA is synchronized around every timed region.
+
+| Measurement | Median | P95 |
+| --- | ---: | ---: |
+| Network forward only | 69.87 ms | 70.02 ms |
+| Inference + decode + result CPU copy | 70.55 ms | 70.73 ms |
+| RGB-D files to collision-filtered / NMS grasps | 496.88 ms | 510.24 ms |
+
+Peak PyTorch allocated memory: 662.28 MiB.
+Peak PyTorch reserved memory: 1028.00 MiB.
+NVML compute-process sampled peak: 1194.00 MiB.
+NVML whole-GPU sampled peak: 1661.50 MiB.
+These are different accounting scopes, not values to add together. NVML samples
+every 10 ms and can miss shorter peaks; PyTorch reports its allocator high-water mark.
+
+The final sampled cloud produced 332 raw candidates,
+112 after collision filtering and
+71 after NMS; 50 are saved for viewing.
+Candidate arrays are checked for finite values and orthonormal rotations.
+
+The approximately 0.50-second offline pipeline includes disk reads, depth-to-cloud
+conversion/sampling, inference, collision filtering and NMS. It excludes model
+loading, live capture, network transport, GUI rendering and any robot planning
+or motion. This is one saved example, not battery-grasp accuracy or a live-camera FPS claim.
+The model has 1,025,964 trainable parameters.
+See benchmark-results.json for full measured values and checkpoint provenance.
+
+Repeat:
+
+    cd /home/arx/arx-graspnet-demo
+    OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4 grasp/.venv/bin/python grasp/benchmark.py --iterations 50
+
+The repeat overwrites the local benchmark-results.json measurement report; review
+its diff before committing a new measurement. Runtime logs and 3D artifacts remain ignored.
+Only run-demo.sh --show opens an interactive viewer; it never executes a robot command.
+
+Validation: 5 installation/CUDA/checkpoint checks and 3 benchmark-statistics tests pass.
+The setup script was rerun successfully, and the upstream official demo produced 50 candidates.
