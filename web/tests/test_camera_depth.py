@@ -27,6 +27,17 @@ class DepthTests(unittest.TestCase):
             self.assertEqual(len(files),2)
             self.assertTrue(all(p.is_file() for p in files))
             json.dumps(meta,allow_nan=False)
+    def test_absent_usb_camera_is_detected_without_sdk_discovery(self):
+        from battery_rgbd import usb_camera_present
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            self.assertFalse(usb_camera_present('D435 product',root))
+            device=root/'4-2';device.mkdir();(device/'product').write_text('D435 product\n')
+            self.assertTrue(usb_camera_present('D435 product',root))
+            self.assertFalse(usb_camera_present('D405 product',root))
+            (root/'4-3').mkdir()
+            self.assertFalse(usb_camera_present('absent',root))
+
     def test_rejects_invalid_depth_without_writing_a_frame(self):
         with tempfile.TemporaryDirectory() as tmp:
             for raw,scale in [(np.zeros((2,2),np.float32),.001),(np.zeros((2,2),np.uint16),0),(np.zeros((2,2),np.uint16),float("nan"))]:

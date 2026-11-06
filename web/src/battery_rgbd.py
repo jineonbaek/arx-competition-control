@@ -12,6 +12,14 @@ from camera_depth import write_depth
 
 ROOT=Path(__file__).resolve().parents[2]
 
+def usb_camera_present(product,sysfs=Path('/sys/bus/usb/devices')):
+    # Avoid SDK discovery on an absent/timed-out USB camera blocking other capture threads.
+    for device in sysfs.iterdir():
+        try:
+            if (device/'product').read_text().strip()==product:return True
+        except OSError:continue
+    return False
+
 def run(spec,stop,publish,out):
     sys.path.insert(0,str(ROOT/'vision/vendor-python'))
     import pyrealsense2 as rs
@@ -19,11 +27,13 @@ def run(spec,stop,publish,out):
     while not stop.is_set():
         pipeline=None;started=False
         try:
+            if not usb_camera_present(spec['product']):raise RuntimeError('USB device not enumerated: '+model)
             publish(out,key,None,sequence,None,'connecting','正在连接同步彩色与深度')
-            devices=[d for d in rs.context().query_devices() if d.get_info(rs.camera_info.name).removeprefix('Intel ')==model]
+            context=rs.context()
+            devices=[d for d in context.query_devices() if d.get_info(rs.camera_info.name).removeprefix('Intel ')==model]
             if len(devices)!=1:raise RuntimeError('Expected exactly one '+model)
             serial=devices[0].get_info(rs.camera_info.serial_number)
-            pipeline=rs.pipeline();config=rs.config();config.enable_device(serial)
+            pipeline=rs.pipeline(context);config=rs.config();config.enable_device(serial)
             config.enable_stream(rs.stream.depth,640,480,rs.format.z16,15)
             config.enable_stream(rs.stream.color,640,480,rs.format.bgr8,15)
             profile=pipeline.start(config);started=True
