@@ -9,6 +9,8 @@
   <script type="module" src="js/main.js"></script>
   <link rel="stylesheet" href="css/cameras.css">
   <script type="module" src="js/cameras.js"></script>
+  <link rel="stylesheet" href="css/arxgent.css">
+  <script type="module" src="js/arxgent.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -60,6 +62,20 @@
         </details>
       </section>
       <div class="platform-column">
+        <section id="arxgent-panel" class="panel arxgent-panel" aria-labelledby="arxgent-title">
+          <div class="panel-heading arxgent-heading"><div><span class="section-index">AGENT / VISION</span><h2 id="arxgent-title">arxgent</h2></div><button id="arxgent-new" class="text-button" type="button" disabled>新对话</button></div>
+          <div class="arxgent-meta"><span id="arxgent-status" class="status-chip"><i></i>正在连接</span><span class="subtle-tag">只读助手</span></div>
+          <div id="arxgent-messages" class="arxgent-messages" role="log" aria-label="与 arxgent 的对话" aria-live="polite" aria-relevant="additions text"><p class="arxgent-empty">我是 arxgent。可以查看机器人状态和三路相机，和你一起判断现场情况。</p></div>
+          <div id="arxgent-activity" class="arxgent-activity" role="status">连接后即可开始对话</div>
+          <div class="arxgent-suggestions"><button class="arxgent-suggestion" type="button" data-arxgent-prompt="请先读取机器人状态，再查看三个相机，用中文简述各画面内容，判断有没有清晰可见的比赛电池。只读检查，不执行动作。" disabled>看看三个相机</button><button class="arxgent-suggestion" type="button" data-arxgent-prompt="请读取机器人系统状态，简要告诉我目前能使用哪些能力。" disabled>读取机器人状态</button></div>
+          <form id="arxgent-form" class="arxgent-form">
+            <label class="arxgent-input-label" for="arxgent-input">发送给 arxgent</label>
+            <textarea id="arxgent-input" rows="3" maxlength="2000" placeholder="例如：看看三个相机，告诉我你看到了什么…" aria-describedby="arxgent-input-hint" disabled></textarea>
+            <div class="arxgent-compose-footer"><span id="arxgent-input-hint">Enter 发送 · Shift+Enter 换行</span><div class="button-row"><button id="arxgent-cancel" class="button secondary" type="button" hidden>取消回复</button><button id="arxgent-send" class="button primary" type="submit" disabled>发送</button></div></div>
+          </form>
+          <p id="arxgent-error" class="arxgent-error" role="alert" hidden></p>
+          <p class="arxgent-note">Qwen3.8-Flash · 可连续追问 · 这里不会驱动机器人运动</p>
+        </section>
         <section class="panel" aria-labelledby="chassis-title"><div class="panel-heading"><div><span class="section-index">02 / CHASSIS</span><h2 id="chassis-title">底盘控制</h2></div><span id="chassis-state" class="subtle-tag">待机</span></div>
           <p class="hint">键盘控制 · W/S 前后，A/D 平移，Q/E 转向，Space 刹车。速度未做米制标定。</p>
           <div class="speed-inputs"><div><label for="linear-speed">平移指令</label><div class="number-wrap"><input id="linear-speed" type="number" min="0" max="2" step="any" value="2.00"><span>SDK 原值</span></div></div><div><label for="angular-speed">转向指令</label><div class="number-wrap"><input id="angular-speed" type="number" min="0" max="1" step="any" value="1.00"><span>SDK 原值</span></div></div></div>

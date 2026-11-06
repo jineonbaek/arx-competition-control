@@ -36,9 +36,9 @@
 
 ## Task 2: UI and live-page validation
 
-- [ ] Add panel before CHASSIS with existing visual tokens, accessible input/transcript/status, send/cancel/new-chat and suggested observation prompt.
-- [ ] Add frontend tests for safe text rendering / keyboard / pending and API behavior; check desktop and mobile layout in browser.
-- [ ] Run all related tests, review source diff and commit.
+- [x] Add panel before CHASSIS with existing visual tokens, accessible input/transcript/status, send/cancel/new-chat and suggested observation prompt.
+- [x] Add frontend tests for safe text rendering / keyboard / pending and API behavior; check desktop and mobile layout in browser (3 Node tests; real Chromium offline fixture verifies 2 turns, refresh, keyboard guard, literal markup, cancel and390px viewport).
+- [x] Run all related tests, review source diff and commit (31 Agent,85 web Python,15 Node; offline browser no page errors or motion requests).
 - [ ] Final independent review; fix material findings with regression tests and scoped commit.
 - [ ] Compare clean target files against Git base and preserve dirty file hashes; selectively publish committed files and reload only the web process.
 - [ ] Verify browser real Qwen tool/image dialogue and follow-up; record commits, tests, runtime evidence and remaining limits.
@@ -47,3 +47,5 @@
 
 - Current active server uses /home/arx/arx-competition-control/web/src/server.py, main e744156. Existing Agent branch957e529. Launcher does not continuously respawn web; RosAdapter.close may issue a chassis stop, so deployment requires chassis inactive and preserves existing control processes.
 - Browser automation: Python Playwright and bundled Chromium are already installed locally. No new runtime dependency needed.
+- Backend commit b205f33 passed31 Agent+85 web tests. All writes remain on the independent development branch so far.
+- User specified exact placement/name and requested implementation/real-page verification; routine visual and architecture details were resolved using existing UI/service patterns without another approval round.
