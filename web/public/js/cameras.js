@@ -41,6 +41,9 @@ async function show(c,meta){
  const features=meta.whole_battery;const location=meta.battery?.location;
  detail.classList.toggle('valid',Boolean(features) || location?.status==='surface_valid');
  const lines=[];
+ const depth=meta.depth;
+ if(depth?.state==='online')lines.push(`深度：${depth.width} × ${depth.height} · 有效 ${(depth.valid_fraction*100).toFixed(0)}% · ${depth.aligned_to_color?'已对齐彩色':'独立深度，未对齐彩色'}`);
+ else lines.push('深度未就绪'+(depth?.message?'：'+depth.message:''));
  if(features){
   lines.push(`电池外框：${features.count} · 可见把手孔：${features.hole_count ?? 0}`+(features.partial_count?` · ${features.partial_count} 个目标被截断`:''));
   lines.push((features.hole_count ?? 0)>0?'蓝色 H：图像中实际检出的孔洞':'孔洞未检出或不可见，不推断孔洞位置');

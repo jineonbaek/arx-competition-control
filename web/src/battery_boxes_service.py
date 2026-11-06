@@ -83,6 +83,7 @@ def main():
                         counters[key]+=1;name=f'{key}-b-{session}-{counters[key]}.jpg';p=OUT/name;atomic(p,jpeg.tobytes());files[key].append(p)
                         features=dict(boxes=boxes,count=len(boxes),partial_count=sum(x['partial'] for x in boxes),holes=holes,hole_count=len(holes),hole_status='observed' if holes else 'not_visible_or_not_detected',method='YOLOE_visual_reference_and_visible_slot_geometry',minimum_score=config['minimum_score'],inference_ms=elapsed,source_sequence=meta['sequence'],coordinate_kind='image_pixels_only',read_only=True)
                         extras={'battery':measurement} if key=='d435' and measurement else {}
+                        if 'depth' in meta:extras['depth']=meta['depth']
                         state(key,counters[key],'online',meta['captured_at'],image_file=name,whole_battery=features,**extras)
                         while len(files[key])>35:files[key].popleft().unlink(missing_ok=True)
                         last[key]=frame_key

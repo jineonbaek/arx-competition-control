@@ -5,3 +5,4 @@ __pycache__/
 models/
 runtime/
 probe_whole_battery*.py
+vendor-openni/

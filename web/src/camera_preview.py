@@ -61,9 +61,13 @@ def worker(spec,stop):
         from battery_rgbd import run
         return run(spec,stop,publish,OUT)
     import cv2
-    key=spec['id'];sequence=0
+    from astra_depth import AstraDepth,error_message
+    from camera_depth import write_depth
+    key=spec['id'];sequence=0;depth_files=collections.deque()
+    for old in OUT.glob(f'{key}-z-*'):
+        if time.time()-old.stat().st_mtime>60:old.unlink(missing_ok=True)
     while not stop.is_set():
-        cap=None
+        cap=None;depth_source=None;next_depth_retry=0;depth_error='Depth not started'
         try:
             publish(OUT,key,None,sequence,None,'connecting','正在连接相机')
             dev=select_device(spec,devices())
@@ -86,12 +90,32 @@ def worker(spec,stop):
                 ok,jpeg=cv2.imencode('.jpg',frame,[cv2.IMWRITE_JPEG_QUALITY,82])
                 if not ok:raise RuntimeError('图像编码失败')
                 sequence+=1
-                publish(OUT,key,jpeg.tobytes(),sequence,captured_at,'online')
+                depth_meta={'state':'offline','message':depth_error}
+                if depth_source is None and time.monotonic()>=next_depth_retry:
+                    try:depth_source=AstraDepth()
+                    except Exception as error:
+                        depth_error=error_message(error);depth_meta['message']=depth_error;next_depth_retry=time.monotonic()+3
+                if depth_source is not None:
+                    try:
+                        raw,info=depth_source.read()
+                        depth_meta,paths=write_depth(OUT,key,f'{SESSION}-{sequence}',raw,.001,depth_source.intrinsics,False,info['frame_number'],info['sensor_timestamp_ms'])
+                        depth_meta.update(info);depth_files.append(paths)
+                        while len(depth_files)>35:
+                            for expired in depth_files.popleft():expired.unlink(missing_ok=True)
+                    except Exception as error:
+                        depth_error=error_message(error);depth_meta={'state':'offline','message':depth_error}
+                        try:depth_source.close()
+                        except Exception:pass
+                        depth_source=None;next_depth_retry=time.monotonic()+3
+                publish(OUT,key,jpeg.tobytes(),sequence,captured_at,'online',extra={'depth':depth_meta})
                 last=time.monotonic()
         except Exception as error:
             publish(OUT,key,None,sequence,None,'offline',str(error))
         finally:
             if cap is not None:cap.release()
+            if depth_source is not None:
+                try:depth_source.close()
+                except Exception:pass
         stop.wait(3)
     publish(OUT,key,None,sequence,None,'offline','视频采集已停止')
 
@@ -105,7 +129,7 @@ def main():
         for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:stop.set())
         workers=[threading.Thread(target=worker,args=(spec,stop),daemon=True) for spec in SPECS]
         for t in workers:t.start()
-        print('Camera preview started: 3 cameras (RealSense RGB-D), 640x480, up to 5 JPEG frames/s; no robot interfaces',flush=True)
+        print('Camera preview started: 3 RGB + depth cameras, 640x480, up to 5 JPEG frames/s; no robot interfaces',flush=True)
         detector=None;next_retry=0.0
         vision=WEB.parent/'vision'
         command=[str(vision/'.venv-detector/bin/python'),str(WEB/'src/battery_boxes_service.py')]

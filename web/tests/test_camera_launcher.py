@@ -33,10 +33,19 @@ class CameraLauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp,patch.object(launcher,'CAMERA_OUTPUT',Path(tmp)):
             self.assertTrue(launcher.camera_fault())
             for key in ['d435','d405','astra']:
-                (Path(tmp)/(key+'.json')).write_text(json.dumps({'state':'online','sequence':1,'captured_at':time.time()}))
+                (Path(tmp)/(key+'.json')).write_text(json.dumps({'state':'online','sequence':1,'captured_at':time.time(),'depth':{'state':'online','captured_at':time.time()}}))
             self.assertEqual(launcher.camera_fault(),'')
             (Path(tmp)/'d405.json').write_text(json.dumps({'state':'online','captured_at':time.time()-60}))
             self.assertIn('D405',launcher.camera_fault())
+
+    def test_fresh_color_cannot_hide_missing_failed_or_stale_depth(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(launcher,'CAMERA_OUTPUT',Path(tmp)):
+            for depth in [None,{'state':'offline','message':'Access denied'}, {'state':'online','captured_at':time.time()-60}]:
+                for key in ['d435','d405','astra']:
+                    (Path(tmp)/(key+'.json')).write_text(json.dumps({'state':'online','captured_at':time.time(),'depth':depth}))
+                fault=launcher.camera_fault()
+                for name in ['D435','D405','Astra Pro']:self.assertIn(name,fault)
+                if depth and depth.get('message'):self.assertIn('Access denied',fault)
 
     def test_existing_capture_is_reused_and_duplicate_process_is_rejected(self):
         self.assertTrue(hasattr(launcher,'ensure_cameras'),'Camera startup missing')

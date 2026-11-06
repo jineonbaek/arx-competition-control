@@ -20,12 +20,12 @@ D435 同时采集 640×480、15 FPS 的彩色与深度，通过 RealSense SDK �
 python3 scripts/start-console.py --cameras-only
 ```
 
-`camera_preview.py` 对 D435 使用 `battery_rgbd.py`，其他两台继续彩色预览。依赖独立安装在 `vision/vendor-python/`，没有修改控制服务的 Python 环境。
+`camera_preview.py` 对 D435/D405 使用 `battery_rgbd.py`，Astra Pro 使用 UVC 彩色和 OpenNI 独立深度。三台都导出无损深度 PNG，见 [深度接口、安装与限制](DEPTH.md)。依赖独立安装在 `vision/vendor-python/`，没有修改控制服务的 Python 环境。
 
 重建依赖时使用系统 Python 3.12 对应环境，将 `requirements-rgbd.txt` 安装到该目录（系统已具有 numpy 与 OpenCV）：
 
 ```bash
-python3 -m pip install --no-deps --target vision/vendor-python -r vision/requirements-rgbd.txt
+python3 vision/scripts/setup-depth.py
 ```
 
 本功能不导入 ROS、机器人 SDK 或 CAN，不发送控制请求。机器人和相机的装配 CAD 外参没有被当作实机标定结果使用。绝对精度与模型中心位姿仍需后续测量/配准验证。

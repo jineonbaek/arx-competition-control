@@ -76,6 +76,12 @@ def camera_fault(not_before=0.0):
                     or not math.isfinite(captured) or captured < not_before
                     or not -1.5 <= now-captured <= 3):
                 faults.append(label + "：" + (meta.get("message") or "画面未更新"))
+                continue
+            depth=meta.get("depth") or {}
+            stamp=depth.get("captured_at")
+            if (depth.get("state")!="online" or type(stamp) not in (int,float)
+                    or not math.isfinite(stamp) or stamp<not_before or not -1.5<=now-stamp<=3):
+                faults.append(label+"：深度未就绪（"+(depth.get("message") or "深度帧缺失或过期")+"）")
         except (OSError, ValueError, AttributeError):
             faults.append(label + "：等待相机画面")
     return "\n".join(faults)

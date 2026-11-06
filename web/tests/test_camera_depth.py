@@ -34,4 +34,43 @@ class DepthTests(unittest.TestCase):
                     write_depth(Path(tmp),"astra","abc123-1",raw,scale,{},False,1,0.)
             self.assertEqual(list(Path(tmp).iterdir()),[])
 
+class AstraTests(unittest.TestCase):
+    def test_openni_abi_patch_is_idempotent_and_rejects_unknown_bindings(self):
+        import importlib.util
+        path=Path(__file__).resolve().parents[2]/"vision/scripts/setup-depth.py"
+        spec=importlib.util.spec_from_file_location("depth_setup",path)
+        setup=importlib.util.module_from_spec(spec);spec.loader.exec_module(setup)
+        source="OniDeviceInfo._fields_ = [\n    ('uri', (ctypes.c_char * 256)),\n    ('vendor', (ctypes.c_char * 256)),\n    ('name', (ctypes.c_char * 256)),\n    ('usbVendorId', ctypes.c_ushort),\n]\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"binding.py";p.write_text(source)
+            setup.patch_binding(p);first=p.read_text();setup.patch_binding(p)
+            self.assertEqual(first,p.read_text())
+            self.assertIn("('serialNumber', (ctypes.c_char * 256))",first)
+            p.write_text("unknown")
+            with self.assertRaises(RuntimeError):setup.patch_binding(p)
+
+    def test_unpatched_abi_is_rejected_before_sdk_initialization(self):
+        import ctypes
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        from astra_depth import AstraDepth
+        sdk=Mock();fake=SimpleNamespace(openni2=sdk,_openni2=SimpleNamespace(OniDeviceInfo=ctypes.c_int))
+        with patch.dict(sys.modules,{'openni':fake}):
+            with self.assertRaisesRegex(RuntimeError,'Unsafe OpenNI ABI'):AstraDepth()
+        sdk.initialize.assert_not_called()
+
+    def test_astra_copies_depth_buffer_and_never_claims_color_registration(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from astra_depth import AstraDepth
+        buffer=bytearray(np.array([0,1000,2000,3000],np.uint16).tobytes())
+        frame=SimpleNamespace(width=2,height=2,frameIndex=42,timestamp=1234000,get_buffer_as_uint16=lambda:buffer)
+        capture=AstraDepth.__new__(AstraDepth);capture.sdk=Mock();capture.stream=Mock();capture.serial='astra-test'
+        capture.stream.read_frame.return_value=frame
+        raw,meta=capture.read();buffer[:]=bytes(len(buffer))
+        np.testing.assert_array_equal(raw,[[0,1000],[2000,3000]])
+        self.assertEqual(meta['sensor_timestamp_ms'],1234.)
+        self.assertEqual(meta['pairing'],'independent_unsynchronized')
+        self.assertEqual(meta['registration'],'native_depth_unregistered')
+
 if __name__=="__main__":unittest.main()

@@ -1,1 +1,2 @@
 pyrealsense2==2.59.1.11053
+openni==2.3.0
