@@ -19,6 +19,10 @@ export function messageElement(document, message) {
   const label = document.createElement('span');
   label.className = 'arxgent-message-label';
   label.textContent = message.role === 'user' ? '你' : 'arxgent';
+  if (message.role === 'assistant' && Number.isFinite(message.elapsed_s) && message.elapsed_s >= 0 && Array.isArray(message.tools)) {
+    label.textContent += ` · 思考耗时（含工具）${message.elapsed_s.toFixed(1)} 秒 · 工具：${message.tools.length ? message.tools.join('、') : '无'}`;
+    label.title = '整轮应答耗时，包含云端请求、模型推理与生成、工具执行。';
+  }
   const content = document.createElement('p');
   content.className = 'arxgent-message-content';
   content.textContent = message.content;

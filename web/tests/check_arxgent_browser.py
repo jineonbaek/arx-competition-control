@@ -89,6 +89,10 @@ def main():
                 textbox.fill('请记住红色电池')
                 textbox.press('Enter')
                 page.locator('.arxgent-message:not(.user)').filter(has_text='已记录').wait_for()
+                expect(page.locator('.arxgent-message:not(.user) .arxgent-message-label')).to_contain_text('思考耗时（含工具）')
+                expect(page.locator('.arxgent-message:not(.user) .arxgent-message-label')).to_contain_text('工具：无')
+                assert page.locator('.arxgent-message-content').first.evaluate('(node) => parseFloat(getComputedStyle(node).lineHeight)') <= 18
+                assert page.locator('.arxgent-message').first.evaluate('(node) => parseFloat(getComputedStyle(node).paddingTop)') <= 7
                 textbox.fill('我刚才说的是什么颜色')
                 page.locator('#arxgent-send').click()
                 page.locator('.arxgent-message:not(.user)').filter(has_text='你刚才说的是红色电池').wait_for()

@@ -95,6 +95,24 @@ class ChatTests(unittest.TestCase):
         self.assertNotIn('reasoning_content', json.dumps(result))
         self.assertEqual(self.runtimes[0].tools.allowed_tools, {'get_system_status', 'observe_scene', 'read_observation'})
 
+    def test_reply_metadata_is_measured_once_and_kept_per_turn(self):
+        self.send('first')
+        self.assertTrue(self.entered.wait(1))
+        first_session = self.chat.sessions[self.client]
+        for index in range(12):
+            self.chat._progress(first_session, {'event': 'tool', 'tool': 'observe_scene' if index else 'read_observation'})
+        time.sleep(.03)
+        self.release.set()
+        first = self.wait_done()['messages'][-1]
+        self.assertGreaterEqual(first['elapsed_s'], .03)
+        self.assertEqual(first['tools'], ['read_observation', 'observe_scene', 'get_system_status'])
+        self.assertNotIn('elapsed_s', self.chat.snapshot(self.client)['messages'][0])
+        self.send('second')
+        final = self.wait_done()
+        self.assertEqual(final['messages'][1], first)
+        self.assertEqual(final['messages'][-1]['tools'], ['get_system_status'])
+        self.assertEqual(self.chat.snapshot(self.client)['messages'][1], first)
+
     def test_conversation_isolation_busy_bound_and_followup_reuses_run(self):
         self.send('记住我说的红色电池')
         other = str(uuid.uuid4())

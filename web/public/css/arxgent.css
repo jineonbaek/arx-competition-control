@@ -3,14 +3,14 @@
 .arxgent-heading h2{font-size:22px;letter-spacing:-.5px}
 .arxgent-heading .text-button{padding:6px 0 6px 10px}
 .arxgent-meta{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.arxgent-messages{height:250px;min-height:160px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3b4a61 transparent;background:#090f1b;border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px}
+.arxgent-messages{height:250px;min-height:160px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3b4a61 transparent;background:#090f1b;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px}
 .arxgent-empty{color:var(--text-secondary);font-size:12px;line-height:1.9;margin:16px 3px;max-width:32em}
-.arxgent-message{padding:11px 12px;margin:0 12px 12px 0;background:#121d2c;border-left:2px solid #3d586d;border-radius:0 6px 6px 0;overflow-wrap:anywhere}
+.arxgent-message{padding:6px 9px;margin:0 8px 6px 0;background:#121d2c;border-left:2px solid #3d586d;border-radius:0 6px 6px 0;overflow-wrap:anywhere}
 .arxgent-message:last-child{margin-bottom:0}
-.arxgent-message.user{margin-left:24px;margin-right:0;background:var(--accent-dim);border-left-color:var(--accent)}
-.arxgent-message-label{display:block;color:#a9c2cf;font-size:10px;font-weight:600;letter-spacing:.4px;margin-bottom:5px}
+.arxgent-message.user{margin-left:16px;margin-right:0;background:var(--accent-dim);border-left-color:var(--accent)}
+.arxgent-message-label{display:block;color:#a9c2cf;font-size:10px;font-weight:600;letter-spacing:.4px;line-height:1.4;margin-bottom:2px}
 .arxgent-message.user .arxgent-message-label{color:var(--accent)}
-.arxgent-message-content{margin:0;white-space:pre-wrap;font:inherit;font-size:12px;line-height:1.85}
+.arxgent-message-content{margin:0;white-space:pre-wrap;font:inherit;font-size:12px;line-height:1.4}
 .arxgent-activity{min-height:18px;color:#99d5da;font-size:11px;line-height:1.6;overflow-wrap:anywhere}
 .arxgent-activity[data-busy="true"]:before{content:"";display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin:0 7px 1px 0}
 .arxgent-suggestions{display:flex;gap:7px;flex-wrap:wrap}

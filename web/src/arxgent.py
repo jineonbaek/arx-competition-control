@@ -139,7 +139,7 @@ class ArxgentChat:
             session['requests'][request_id] = fingerprint
             session['messages'].append({'role': 'user', 'content': text})
             session['activity'] = []
-            session['job'] = {'id': request_id, 'status': 'running', 'phase': 'thinking', 'error': None}
+            session['job'] = {'id': request_id, 'status': 'running', 'phase': 'thinking', 'error': None, 'tools': []}
             worker = threading.Thread(target=self._work, args=(session, text), daemon=True, name='arxgent-chat')
             try:
                 worker.start()
@@ -155,12 +155,15 @@ class ArxgentChat:
                 job['phase'] = event['event']
             name = event.get('tool')
             if event['event'] == 'tool' and name in READ_ONLY_TOOLS:
+                if name not in job['tools']:
+                    job['tools'].append(name)
                 session['activity'].append({'tool': name, 'status': 'running'})
                 session['activity'] = session['activity'][-8:]
             if event['event'] == 'tool_result' and session['activity']:
                 session['activity'][-1]['status'] = 'done' if event.get('ok') else 'error'
 
     def _work(self, session, text):
+        started = time.monotonic()
         store = None
         answer, error, status = '', None, 'error'
         try:
@@ -192,7 +195,9 @@ class ArxgentChat:
                 if session['job']['status'] == 'cancelling':
                     status, answer, error = 'cancelled', '', None
                 if status == 'done':
-                    session['messages'].append({'role': 'assistant', 'content': answer})
+                    session['messages'].append({'role': 'assistant', 'content': answer,
+                                                'elapsed_s': round(time.monotonic() - started, 3),
+                                                'tools': list(session['job']['tools'])})
                 session['job'].update(status=status, phase=None, error=error)
             self.worker_slot.release()
 

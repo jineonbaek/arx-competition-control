@@ -19,6 +19,18 @@ test('model and user markup is always text, never HTML', () => {
   assert.equal(element.children[0].textContent, 'arxgent');
 });
 
+test('each assistant reply has its own measured duration and exact tool names', () => {
+  const document = {createElement: tag => ({tag, children: [], append(...children) {this.children.push(...children);}})};
+  const first = messageElement(document, {role: 'assistant', content: 'reply', elapsed_s: 12.345, tools: ['get_system_status', 'observe_scene']});
+  assert.match(first.children[0].textContent, /^arxgent · 思考耗时（含工具）12\.3 秒 · 工具：get_system_status、observe_scene$/);
+  const second = messageElement(document, {role: 'assistant', content: 'followup', elapsed_s: .25, tools: []});
+  assert.match(second.children[0].textContent, /0\.3 秒 · 工具：无$/);
+  const user = messageElement(document, {role: 'user', content: 'question', elapsed_s: 99, tools: ['observe_scene']});
+  assert.equal(user.children[0].textContent, '你');
+  const legacy = messageElement(document, {role: 'assistant', content: 'old reply'});
+  assert.equal(legacy.children[0].textContent, 'arxgent');
+});
+
 test('activity distinguishes camera reads from text-only thinking and tool failures', () => {
   assert.equal(activityText({busy: true, job: {status: 'running', phase: 'thinking'}, activity: []}), 'arxgent 正在思考…');
   assert.match(activityText({busy: true, job: {status: 'running', phase: 'tool'}, activity: [{tool: 'observe_scene', status: 'running'}]}), /查看相机/);
