@@ -261,6 +261,7 @@ def adapter_fault(channel, records, identity):
 
 def motor_feedback(seconds=0.35):
     sockets, seen, errors, lift = {}, {}, {}, []
+    chassis_seen = False
     try:
         for channel in CHANNELS.values():
             try:
@@ -284,6 +285,10 @@ def motor_feedback(seconds=0.35):
                 if cid & 0xE0000000:
                     continue
                 channel = sockets[sock]
+                # Vendor ChassisType1: wheel feedback 702, periodic IMU 706/707/708.
+                if channel == "can5" and size == 8 and cid in (0x702, 0x706, 0x707, 0x708):
+                    chassis_seen = True
+                    continue
                 motor = data[0] & 15
                 if channel != "can5" and size >= 6 and cid in (1, 2, 4):
                     seen[channel].add(cid)
@@ -310,6 +315,8 @@ def motor_feedback(seconds=0.35):
         missing = required - seen.get(channel, set())
         if missing:
             errors.setdefault(channel, f"{channel}：未收到电机 {sorted(missing)} 的真实反馈；检查供电、急停、接线或驱动")
+    if not chassis_seen:
+        errors["chassis"] = "未收到底盘控制器反馈（0x702/706/707/708）；检查机体急停、底盘供电或 CAN 支路"
     sample = None
     if lift:
         positions = [item[0] for item in lift]
@@ -349,6 +356,7 @@ def can_health():
     received, sample = motor_feedback()
     for channel in CHANNELS.values():
         faults[channel] = "\n".join(filter(None, [faults[channel], received.get(channel, "")]))
+    faults["chassis"] = received.get("chassis", "")
     return faults, sample
 
 
@@ -360,7 +368,7 @@ def recovery_plan(snapshot, buses=None):
         buses = can_health()[0] if buses is None else buses
         result = [name for name, channel in CHANNELS.items()
                   if buses[channel] or check_fault(snapshot, "lift" if name == "body" else name)
-                  or (name == "body" and check_fault(snapshot, "chassis"))]
+                  or (name == "body" and (buses.get("chassis") or check_fault(snapshot, "chassis")))]
     if camera_fault() or whole_battery_fault():
         result.append("cameras")
     return result
@@ -617,7 +625,8 @@ def component_status(snapshot, failed=None, reason=""):
     faults = {}
     for name in CHECKS:
         channel = CHANNELS["body" if name in ("chassis", "lift") else name]
-        faults[name] = "\n".join(filter(None, [buses[channel], check_fault(snapshot, name)]))
+        faults[name] = "\n".join(filter(None, [buses[channel],
+            buses.get("chassis", "") if name == "chassis" else "", check_fault(snapshot, name)]))
     if failed in ("left", "can1"):
         faults["left"] = reason
     elif failed in ("right", "can3"):

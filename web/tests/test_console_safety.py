@@ -204,7 +204,7 @@ class RecoveryFlowTests(unittest.TestCase):
 
 
 class PassiveCanTests(unittest.TestCase):
-    def feedback(self, payload, flags=0):
+    def feedback(self, payload, flags=0, extra=()):
         clock = [0.]
         class FakeSocket:
             def __init__(self,*_):self.frames=[]
@@ -212,6 +212,8 @@ class PassiveCanTests(unittest.TestCase):
             def bind(self,address):
                 if address[0]=="can5":
                     self.frames=[(struct.pack("=IB3x8s",0,8,payload), [],flags,None)]
+                    self.frames.extend((struct.pack("=IB3x8s",cid,8,data),[],origin,None)
+                                       for cid,data,origin in extra)
             def recvmsg(self,_):return self.frames.pop(0)
             def close(self):pass
         def select(sockets,*_):
@@ -232,6 +234,33 @@ class PassiveCanTests(unittest.TestCase):
         errors,sample=self.feedback(bytes([0xe1,0x7f,0xff,0x7f,0xf0,0,37,38]))
         self.assertIn("过载",errors["can5"]);self.assertTrue(sample["fault"])
         self.assertFalse(launcher.bottom_ok(snapshot(),sample))
+
+class ChassisHealthTests(unittest.TestCase):
+    feedback = PassiveCanTests.feedback
+    def test_live_lift_alone_does_not_prove_chassis_online(self):
+        errors,_=self.feedback(bytes([0x11,0x7f,0xff,0x7f,0xf0,0,37,38]))
+        self.assertIn("chassis",errors)
+
+    def test_parked_chassis_imu_response_is_sufficient_without_wheel_packets(self):
+        for cid in (0x706,0x707,0x708,0x702):
+            errors,_=self.feedback(bytes([0x11,0x7f,0xff,0x7f,0xf0,0,37,38]),
+                                  extra=[(cid,bytes(8),0)])
+            self.assertFalse(errors.get("chassis"))
+
+    def test_local_echo_is_not_a_chassis_controller_response(self):
+        errors,_=self.feedback(bytes([0x11,0x7f,0xff,0x7f,0xf0,0,37,38]),
+                              extra=[(0x706,bytes(8),launcher.socket.MSG_DONTROUTE)])
+        self.assertIn("chassis",errors)
+
+    def test_chassis_failure_preserves_healthy_lift_and_selects_shared_body(self):
+        buses={"can1":"","can3":"","can5":"","chassis":"controller not responding"}
+        with patch.object(launcher,"can_health",return_value=(buses,None)), \
+             patch.object(launcher,"camera_fault",return_value=""), \
+             patch.object(launcher,"whole_battery_fault",return_value=""):
+            status=launcher.component_status(snapshot())
+            self.assertTrue(status["底盘"])
+            self.assertEqual(status["升降"],"")
+            self.assertEqual(launcher.recovery_plan(snapshot()),["body"])
 
 if __name__ == "__main__":
     unittest.main()
