@@ -108,7 +108,11 @@ class TransportTests(unittest.TestCase):
         ]
         wire = ''.join('data: ' + json.dumps({'choices': [p]}) + '\n\n' for p in pieces) + 'data: [DONE]\n\n'
         with Server(lambda p, b: (200, 'text/event-stream', wire.encode())) as server, patch.dict('os.environ', {'QWEN_BASE_URL': server.url, 'DASHSCOPE_API_KEY': 'fixture-key'}):
-            message = QwenClient(Config()).complete([{'role': 'user', 'content': 'test'}], [])
+            tools = [{'type': 'function', 'function': {'name': 'get_system_status', 'parameters': {'type': 'object'}}}]
+            message = QwenClient(Config()).complete([{'role': 'user', 'content': 'test'}], tools)
+            payload = json.loads(server.requests[0][2])
+            self.assertTrue(payload['parallel_tool_calls'])
+            self.assertEqual(payload['max_tokens'], 16384)
             self.assertEqual(message['tool_calls'][0]['function']['arguments'], '{}')
             self.assertEqual(message['reasoning_content'], 'protocol context')
             self.assertEqual(server.requests[0][1], '/chat/completions')

@@ -37,13 +37,13 @@ def checked_url(value):
 class Config:
     console_url: str = "http://127.0.0.1:9983"
     motion_enabled: bool = False
-    max_rounds: int = 12
-    max_tool_calls: int = 32
-    api_timeout_s: int = 60
+    max_rounds: int = 40
+    max_tool_calls: int = 96
+    api_timeout_s: int = 180
     service_timeout_s: int = 10
     max_frame_age_s: float = 3.0
     max_image_bytes: int = 5_000_000
-    max_output_tokens: int = 4096
+    max_output_tokens: int = 16384
     services: dict = field(default_factory=dict)
     profiles: dict = field(default_factory=lambda: {
         "cloud": {"model": "qwen3.8-flash", "base_url_env": "QWEN_BASE_URL",

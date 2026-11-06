@@ -1,10 +1,11 @@
 {
   "console_url": "http://127.0.0.1:9983",
   "motion_enabled": false,
-  "max_rounds": 12,
-  "max_tool_calls": 32,
-  "api_timeout_s": 60,
+  "max_rounds": 40,
+  "max_tool_calls": 96,
+  "api_timeout_s": 180,
   "service_timeout_s": 10,
+  "max_output_tokens": 16384,
   "services": {},
   "profiles": {
     "cloud": {
