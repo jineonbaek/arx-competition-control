@@ -1,0 +1,17 @@
+{
+  "official_source": "https://drive.google.com/file/d/1hd0G8LN6tRpi4742XOTEisbTXNZ-1jmk/view",
+  "official_download_status": "quota exceeded",
+  "download_url": "https://huggingface.co/dgrachev/a2_pretrained/resolve/7856e4e550052131b6ac5c0adb6564b04433ad9b/checkpoint-rs.tar",
+  "mirror_revision": "7856e4e550052131b6ac5c0adb6564b04433ad9b",
+  "sha256": "60680087c61cba2b6791614fef1519071e294f6dcaf99b3f581bb95f7c51a868",
+  "bytes": 12468415,
+  "weights_only_load": true,
+  "epoch": 18,
+  "official_bitwise_identity": "not independently verified",
+  "mainland_mirror_url": "https://hf-mirror.com/dgrachev/a2_pretrained/resolve/7856e4e550052131b6ac5c0adb6564b04433ad9b/checkpoint-rs.tar",
+  "mainland_mirror_verified_sha256": "60680087c61cba2b6791614fef1519071e294f6dcaf99b3f581bb95f7c51a868",
+  "upstream": {
+    "graspnet-baseline": "280c215129f759ed8649cb4e89fc5dfee55f4f80",
+    "graspnetAPI": "eb57dd2092d8dbe05312a29c3d0c22f3226efbfc"
+  }
+}
