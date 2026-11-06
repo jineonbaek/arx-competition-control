@@ -60,6 +60,20 @@ class AstraTests(unittest.TestCase):
             p.write_text("unknown")
             with self.assertRaises(RuntimeError):setup.patch_binding(p)
 
+    def test_setup_refuses_to_replace_sdk_while_camera_owner_holds_lock(self):
+        import fcntl
+        import importlib.util
+        from unittest.mock import patch
+        path=Path(__file__).resolve().parents[2]/"vision/scripts/setup-depth.py"
+        spec=importlib.util.spec_from_file_location("depth_setup_lock_test",path)
+        setup=importlib.util.module_from_spec(spec);spec.loader.exec_module(setup)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(setup,'ROOT',Path(tmp)),patch.object(setup.subprocess,'run') as install:
+            logs=Path(tmp)/'web/logs';logs.mkdir(parents=True)
+            with (logs/'camera-preview.lock').open('a+') as owner:
+                fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                with self.assertRaisesRegex(SystemExit,'Stop the camera preview'):setup.main()
+            install.assert_not_called()
+
     def test_unpatched_abi_is_rejected_before_sdk_initialization(self):
         import ctypes
         from types import SimpleNamespace

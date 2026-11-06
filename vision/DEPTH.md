@@ -29,7 +29,7 @@ Astra depth has its own device timestamp and host receipt time. `pairing=indepen
 
 ## Dependencies and Astra permissions
 
-System Python 3.12, NumPy and OpenCV are already installed. Camera dependencies live under ignored `vision/vendor-python/` and `vision/vendor-openni/`; robot Python environments are unchanged.
+Stop the camera preview owner before installing dependencies: setup holds the existing capture lock and refuses to overwrite SDK libraries that are in use. System Python 3.12, NumPy and OpenCV are already installed. Camera dependencies live under ignored `vision/vendor-python/` and `vision/vendor-openni/`; robot Python environments are unchanged.
 
 ```bash
 cd /home/arx/arx-competition-control
