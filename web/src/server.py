@@ -15,12 +15,13 @@ import uuid
 
 from control import Controller, Rejected
 from ros_adapter import RosAdapter
+from arxgent import ArxgentChat, ChatError, strict_json
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_handler(controller):
+def make_handler(controller, arxgent=None):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -56,6 +57,15 @@ def make_handler(controller):
             path = urlsplit(self.path).path
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
+            if path == '/api/arxgent':
+                if not self.client():
+                    return self.json(403, {'ok': False, 'message': '请先打开网页'})
+                if arxgent is None:
+                    return self.json(503, {'ok': False, 'message': 'arxgent 尚未启用'})
+                try:
+                    return self.json(200, arxgent.snapshot(self.client()))
+                except ChatError as error:
+                    return self.json(error.status, {'ok': False, 'message': error.message})
             if path == "/events":
                 client = self.client()
                 if not client:
@@ -87,7 +97,8 @@ def make_handler(controller):
             self.wfile.write(body)
 
         def do_POST(self):
-            if urlsplit(self.path).path != "/api/command":
+            path = urlsplit(self.path).path
+            if path not in ('/api/command', '/api/arxgent'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -99,8 +110,16 @@ def make_handler(controller):
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
-                data = json.loads(self.rfile.read(length), parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
+                raw = self.rfile.read(length)
+                if path == '/api/arxgent':
+                    if arxgent is None:
+                        return self.json(503, {'ok': False, 'message': 'arxgent 尚未启用'})
+                    data = strict_json(raw)
+                    return self.json(202, arxgent.handle(self.client(), data))
+                data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
                 return self.json(200, controller.submit(data, self.client()))
+            except ChatError as error:
+                return self.json(error.status, {'ok': False, 'message': error.message})
             except (ValueError, TypeError, Rejected) as e:
                 self.close_connection = True
                 return self.json(400, {"ok": False, "message": str(e)})
@@ -118,7 +137,8 @@ def main():
     config = json.loads((WEB_ROOT / "config/control.json").read_text())
     adapter = RosAdapter(config)
     controller = Controller(config, adapter)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller))
+    arxgent = ArxgentChat.from_repository(WEB_ROOT.parent, args.port)
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -133,6 +153,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        arxgent.close()
         adapter.close()
         server.server_close()
 

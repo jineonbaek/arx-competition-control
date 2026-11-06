@@ -11,8 +11,10 @@ from .tools import ToolRegistry
 
 
 class AgentRuntime:
-    def __init__(self, config, store, tools=None, model=None, profile='cloud'):
+    def __init__(self, config, store, tools=None, model=None, profile='cloud', progress=None, system_context=None):
         self.config, self.store = config, store
+        self.progress = progress
+        self.system_context = system_context
         self.tools = tools if tools is not None else ToolRegistry(config, store)
         self.model = model if model is not None else QwenClient(config, profile)
 
@@ -48,9 +50,13 @@ class AgentRuntime:
                     return 'tool_budget_exhausted'
                 ids.append(call['id'])
                 self.store.save()
+            if self.progress:
+                self.progress({'event': 'tool', 'tool': call['function']['name']})
             result = self.tools.execute(call['function']['name'], call['function']['arguments'], call['id'])
             messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False, allow_nan=False)})
             self.store.save()
+            if self.progress:
+                self.progress({'event': 'tool_result', 'tool': call['function']['name'], 'ok': result['ok']})
         attached = {m.get('_observation_id') for m in messages}
         for message in list(messages[assistant_index + 1:]):
             if message['role'] != 'tool':
@@ -70,6 +76,20 @@ class AgentRuntime:
                 self.store.save()
         return None
 
+    def continue_turn(self, instruction):
+        state = self.store.state
+        if not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 10000:
+            raise AgentError('invalid_instruction', 'Instruction must be nonempty and bounded')
+        if state['mission']['stage'] != 'IDLE' or state['pending'] or (state.get('outcome') or {}).get('reason') != 'model_finished':
+            raise AgentError('continuation_not_allowed', 'Start a new conversation after an interrupted or active task')
+        if not state['messages'] or state['messages'][-1]['role'] != 'assistant' or state['messages'][-1].get('tool_calls'):
+            raise AgentError('continuation_not_allowed', 'Previous turn is incomplete')
+        state['messages'].append({'role': 'user', 'content': instruction})
+        state['usage'] = {'rounds': 0, 'tool_call_ids': []}
+        state['outcome'] = None
+        self.store.save()
+        return self.run()
+
     def run(self, instruction=None):
         state = self.store.state
         state.setdefault('usage', {'rounds': 0, 'tool_call_ids': []})
@@ -77,6 +97,8 @@ class AgentRuntime:
             if state['messages'] or not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 10000:
                 raise AgentError('invalid_instruction', 'Use a new run for a new instruction')
             prompt = (Path(__file__).parent / 'prompts/system.md').read_text(encoding='utf-8')
+            if self.system_context:
+                prompt += '\n' + self.system_context
             prompt += '\nConfigured capabilities (configuration is not health verification):\n' + json.dumps(self.tools.capabilities())
             state['messages'] = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': instruction}]
             self.store.save()
@@ -112,6 +134,8 @@ class AgentRuntime:
                     break
                 state['usage']['rounds'] += 1
                 self.store.save()
+                if self.progress:
+                    self.progress({'event': 'thinking'})
                 message = self.model.complete(self._messages(), self.tools.definitions(available_only=True))
                 state['messages'].append(message)
                 self.store.save()
