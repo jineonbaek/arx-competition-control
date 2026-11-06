@@ -56,10 +56,10 @@
 
 **Interfaces:** `ConsoleObservations.capture(cameras)`, `QwenClient.complete(messages, tools)`, normalized assistant message retaining tool calls and reasoning fields.
 
-- [ ] Write tests against real local HTTP servers for fresh/stale images, path traversal, source-image binding, missing depth/extrinsics, streamed tool-call chunks and partial-stream rejection.
-- [ ] Run the tests and record expected failure.
-- [ ] Implement camera GET capture, profiles and model transport without new dependencies.
-- [ ] Run the task tests until green.
+- [x] Write tests against real local HTTP servers for fresh/stale images, path traversal, source-image binding, missing depth/extrinsics, streamed tool-call chunks and partial-stream rejection.
+- [x] Run the tests and record expected failure (5 missing-module errors).
+- [x] Implement camera GET capture, profiles and model transport without new dependencies.
+- [x] Run the task tests until green (16 total on ROG; live raw and annotated snapshots from all 3 cameras, 640x480).
 
 ## Task 3: System Runtime, CLI and Verification
 
@@ -76,3 +76,4 @@
 - 2026-11-06: Existing design reused; system framework requested explicitly. API key not yet available; user instructed proceeding without it.
 - 2026-11-06: ROG reboot caused temporary SSH loss. Connection recovered; isolated worktree created successfully at the stated path. Active checkout untouched.
 - Publication/merge and live model verification are outside this implementation stage; keep changes reviewable and report them explicitly.
+- User subsequently provided a key and explicitly authorized API testing: text, D435 image and function-call probes succeeded. The current platform uses https://maas.qianwenaiapi.com/compatible-mode/v1. The secret is only in ignored agent/.secrets/qwen.env with permissions 600; no secret enters commits.
