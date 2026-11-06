@@ -49,7 +49,7 @@ def publish(directory,key,jpeg,sequence,captured_at,state,message='',extra=None)
     else:
         image.unlink(missing_ok=True)
     metadata=dict(state=state,sequence=sequence,captured_at=captured_at,message=message)
-    if jpeg is not None and key in RECENT:
+    if jpeg is not None and key in RECENT and not (extra or {}).get('image_file'):
         name=f'{key}-v-{SESSION}-{sequence}.jpg';p=directory/name
         atomic(p,jpeg);metadata['image_file']=name;RECENT[key].append(p)
         while len(RECENT[key])>35:RECENT[key].popleft().unlink(missing_ok=True)
@@ -57,7 +57,7 @@ def publish(directory,key,jpeg,sequence,captured_at,state,message='',extra=None)
     atomic(directory/(key+'.json'),json.dumps(metadata,allow_nan=False).encode())
 
 def worker(spec,stop):
-    if spec['id']=='d435':
+    if spec['id'] in ('d435','d405'):
         from battery_rgbd import run
         return run(spec,stop,publish,OUT)
     import cv2
@@ -105,7 +105,7 @@ def main():
         for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:stop.set())
         workers=[threading.Thread(target=worker,args=(spec,stop),daemon=True) for spec in SPECS]
         for t in workers:t.start()
-        print('Camera preview started: 3 RGB cameras, 640x480, up to 5 JPEG frames/s; no robot interfaces',flush=True)
+        print('Camera preview started: 3 cameras (RealSense RGB-D), 640x480, up to 5 JPEG frames/s; no robot interfaces',flush=True)
         detector=None;next_retry=0.0
         vision=WEB.parent/'vision'
         command=[str(vision/'.venv-detector/bin/python'),str(WEB/'src/battery_boxes_service.py')]

@@ -37,4 +37,23 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual((d/first).read_bytes(),b'first-frame')
             self.assertEqual((d/second).read_bytes(),b'second-frame')
 
+    def test_rgbd_publisher_keeps_the_capture_owned_filename(self):
+        from camera_preview import publish,RECENT
+        with tempfile.TemporaryDirectory() as tmp:
+            d=Path(tmp);before=len(RECENT['d405'])
+            publish(d,'d405',b'frame',1,100.,'online',extra={'image_file':'d405-v-abc123-1.jpg','depth':{'image_file':'d405-z-abc123-1.png'}})
+            meta=json.loads((d/'d405.json').read_text())
+            self.assertEqual(meta['image_file'],'d405-v-abc123-1.jpg')
+            self.assertEqual(meta['depth']['image_file'],'d405-z-abc123-1.png')
+            self.assertEqual(len(RECENT['d405']),before)
+
+    def test_both_realsense_models_use_the_existing_rgbd_owner(self):
+        from unittest.mock import patch
+        from camera_preview import worker,SPECS
+        with patch('battery_rgbd.run') as run:
+            for spec in SPECS[:2]:
+                worker(spec,object())
+                self.assertEqual(run.call_args.args[0],spec)
+            self.assertEqual(run.call_count,2)
+
 if __name__=='__main__':unittest.main()
