@@ -1,0 +1,25 @@
+{
+  "console_url": "http://127.0.0.1:9983",
+  "motion_enabled": false,
+  "max_rounds": 40,
+  "max_tool_calls": 96,
+  "api_timeout_s": 180,
+  "service_timeout_s": 10,
+  "max_output_tokens": 16384,
+  "services": {},
+  "profiles": {
+    "cloud": {
+      "model": "qwen3.8-flash",
+      "base_url_env": "QWEN_BASE_URL",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "enable_thinking": true,
+      "stream": true
+    },
+    "local": {
+      "model": "Qwen3.5-2B",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "enable_thinking": false,
+      "stream": false
+    }
+  }
+}
