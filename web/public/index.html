@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="css/cameras.css">
   <script type="module" src="js/cameras.js"></script>
   <link rel="stylesheet" href="css/arxgent.css">
+  <link rel="stylesheet" href="css/layout.css">
   <script type="module" src="js/arxgent.js"></script>
 </head>
 <body>
@@ -20,14 +21,6 @@
   <main>
     <div class="page-heading"><div><span class="eyebrow">MANUAL CONTROL</span><h1>手动控制</h1><p>目标输入与实际反馈分开显示，发送后跟踪真实状态。</p></div><span id="last-update" class="update-time">等待实时反馈</span></div>
     <div id="notice" class="notice" role="status">正在连接控制台。打开页面不会启动机器人驱动。</div>
-    <section id="camera-panel" class="panel camera-panel" aria-labelledby="camera-title">
-      <div class="camera-heading"><div><span class="section-index">LIVE / CAMERAS</span><h2 id="camera-title">实时相机</h2><p>三路彩色画面 · 仅查看</p></div><button id="camera-pause" class="button secondary" type="button" aria-pressed="false">暂停显示</button></div>
-      <div class="camera-grid">
-        <article class="camera-card" data-camera="d435" aria-label="RealSense D435 实时画面"><div class="camera-card-header"><h3>RealSense D435</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="RealSense D435 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
-        <article class="camera-card" data-camera="d405" aria-label="RealSense D405 实时画面"><div class="camera-card-header"><h3>RealSense D405</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="RealSense D405 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
-        <article class="camera-card" data-camera="astra" aria-label="Astra Pro 实时画面"><div class="camera-card-header"><h3>Astra Pro</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="Astra Pro 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
-      </div>
-    </section>
     <div class="dashboard">
       <section class="panel arm-panel" aria-labelledby="arm-title">
         <div class="panel-heading arm-heading"><div><span class="section-index">01 / ARM</span><h2 id="arm-title">机械臂控制</h2></div><div class="arm-switch" role="tablist" aria-label="选择机械臂"><button id="select-left" role="tab" aria-selected="true" class="selected">左臂</button><button id="select-right" role="tab" aria-selected="false">右臂</button></div></div>
@@ -61,7 +54,15 @@
           <div class="section-actions"><span id="tcp-actual" class="hint">实际位姿 —</span><button id="tcp-send" class="button primary" disabled>发送末端目标</button></div>
         </details>
       </section>
-      <div class="platform-column">
+      <div class="vision-column">
+    <section id="camera-panel" class="panel camera-panel" aria-labelledby="camera-title">
+      <div class="camera-heading"><div><span class="section-index">LIVE / CAMERAS</span><h2 id="camera-title">实时相机</h2><p>三路彩色画面 · 仅查看</p></div><button id="camera-pause" class="button secondary" type="button" aria-pressed="false">暂停显示</button></div>
+      <div class="camera-grid">
+        <article class="camera-card" data-camera="d435" aria-label="RealSense D435 实时画面"><div class="camera-card-header"><h3>RealSense D435</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="RealSense D435 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
+        <article class="camera-card" data-camera="d405" aria-label="RealSense D405 实时画面"><div class="camera-card-header"><h3>RealSense D405</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="RealSense D405 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
+        <article class="camera-card" data-camera="astra" aria-label="Astra Pro 实时画面"><div class="camera-card-header"><h3>Astra Pro</h3><span class="camera-status">正在连接</span></div><div class="camera-view"><img alt="Astra Pro 实时画面" hidden><p class="camera-message">正在连接</p></div><p class="camera-detail">等待首帧</p></article>
+      </div>
+    </section>
         <section id="arxgent-panel" class="panel arxgent-panel" aria-labelledby="arxgent-title">
           <div class="panel-heading arxgent-heading"><div><span class="section-index">AGENT / VISION</span><h2 id="arxgent-title">arxgent</h2></div><button id="arxgent-new" class="text-button" type="button" disabled>新对话</button></div>
           <div class="arxgent-meta"><span id="arxgent-status" class="status-chip"><i></i>正在连接</span><span class="subtle-tag">只读助手</span></div>
@@ -76,6 +77,8 @@
           <p id="arxgent-error" class="arxgent-error" role="alert" hidden></p>
           <p class="arxgent-note">Qwen3.8-Flash · 可连续追问 · 这里不会驱动机器人运动</p>
         </section>
+      </div>
+      <div class="platform-column">
         <section class="panel" aria-labelledby="chassis-title"><div class="panel-heading"><div><span class="section-index">02 / CHASSIS</span><h2 id="chassis-title">底盘控制</h2></div><span id="chassis-state" class="subtle-tag">待机</span></div>
           <p class="hint">键盘控制 · W/S 前后，A/D 平移，Q/E 转向，Space 刹车。速度未做米制标定。</p>
           <div class="speed-inputs"><div><label for="linear-speed">平移指令</label><div class="number-wrap"><input id="linear-speed" type="number" min="0" max="2" step="any" value="2.00"><span>SDK 原值</span></div></div><div><label for="angular-speed">转向指令</label><div class="number-wrap"><input id="angular-speed" type="number" min="0" max="1" step="any" value="1.00"><span>SDK 原值</span></div></div></div>

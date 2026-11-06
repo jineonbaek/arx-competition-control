@@ -1,0 +1,13 @@
+/* Wide console: arm | cameras + arxgent | chassis + lift. */
+main{max-width:none}
+.dashboard{grid-template-columns:minmax(0,1fr) minmax(0,1.9fr) minmax(0,1.05fr);grid-template-areas:"arm vision platform"}
+.arm-panel{grid-area:arm}
+.vision-column{grid-area:vision;display:grid;gap:20px;min-width:0}
+.vision-column>.camera-panel{margin:0}
+.platform-column{grid-area:platform;min-width:0}
+@media(max-width:1279px){
+  .dashboard{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-areas:"vision vision" "arm platform"}
+}
+@media(max-width:900px){
+  .dashboard{grid-template-columns:minmax(0,1fr);grid-template-areas:"vision" "arm" "platform"}
+}

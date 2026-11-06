@@ -79,7 +79,12 @@ def main():
                 agent = page.locator('#arxgent-panel').bounding_box()
                 arm = page.locator('.arm-panel').bounding_box()
                 chassis = page.locator('[aria-labelledby="chassis-title"]').bounding_box()
-                assert agent['x'] > arm['x'] and chassis['y'] >= agent['y'] + agent['height']
+                camera = page.locator('#camera-panel').bounding_box()
+                lift = page.locator('[aria-labelledby="lift-title"]').bounding_box()
+                assert arm['x'] + arm['width'] <= camera['x']
+                assert camera['x'] == agent['x'] and camera['y'] + camera['height'] <= agent['y']
+                assert agent['x'] + agent['width'] <= chassis['x']
+                assert chassis['y'] + chassis['height'] <= lift['y']
                 textbox = page.locator('#arxgent-input')
                 textbox.fill('请记住红色电池')
                 textbox.press('Enter')
@@ -114,7 +119,7 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
                 assert not errors, errors
                 assert not adapter.calls, adapter.calls
-                print(json.dumps({'desktop_panel_before_chassis': True, 'two_turns_and_reload': True,
+                print(json.dumps({'desktop_three_columns': True, 'camera_above_agent': True, 'chassis_above_lift': True, 'two_turns_and_reload': True,
                                   'input_exits_motion_mode': True, 'motion_requests': 0, 'html_rendered_as_text': True,
                                   'cancel_completed': True, 'mobile_no_horizontal_overflow': True, 'page_errors': errors}))
                 browser.close()
