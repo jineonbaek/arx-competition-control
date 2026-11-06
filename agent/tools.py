@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import re
+import time
 import uuid
 
 from .backends import BackendRouter
@@ -54,8 +55,16 @@ DESCRIPTIONS = {
 
 
 class ToolRegistry:
-    def __init__(self, config, store, observations=None, backends=None):
+    def __init__(self, config, store, observations=None, backends=None, *, allowed_tools=None):
         self.config, self.store = config, store
+        persisted = store.state.get('allowed_tools')
+        if allowed_tools is not None:
+            if not set(allowed_tools) <= SCHEMAS.keys() or (persisted is not None and not set(allowed_tools) <= set(persisted)):
+                raise AgentError('invalid_tool_policy', 'Tool policy cannot introduce unknown tools or broaden a saved run')
+            persisted = sorted(allowed_tools)
+            store.state['allowed_tools'] = persisted
+            store.save()
+        self.allowed_tools = set(persisted) if persisted is not None else set(SCHEMAS)
         if observations is None:
             from .observations import ConsoleObservations
             observations = ConsoleObservations(config, store)
@@ -70,6 +79,8 @@ class ToolRegistry:
         capabilities = self.capabilities()
         output = []
         for name, schema in SCHEMAS.items():
+            if name not in self.allowed_tools:
+                continue
             available = capabilities.get(name, True)
             if available_only and not available:
                 continue
@@ -83,6 +94,8 @@ class ToolRegistry:
                 raise AgentError("invalid_call_id", "Invalid tool call identity")
             if name not in SCHEMAS:
                 raise AgentError("unknown_tool", "Tool is not registered")
+            if name not in self.allowed_tools:
+                raise AgentError('tool_not_allowed', 'Tool is outside this run execution policy')
             if isinstance(arguments, str):
                 try:
                     arguments = strict_json(arguments)
@@ -125,6 +138,16 @@ class ToolRegistry:
             raise AgentError("invalid_bbox", "Bounding box is outside the stored image")
         return observation
 
+    def _post_stage_observation(self, observation_id, stage, camera=None):
+        observation = self.store.observation(observation_id)
+        barrier = self.store.state['mission'].get('evidence_barriers', {}).get(stage)
+        if not barrier or observation_id in barrier['previous_observation_ids'] or observation['recorded_at'] <= barrier['completed_at']:
+            raise AgentError('post_action_evidence_required', 'Observation must be captured after the required action completed')
+        frames = [observation['cameras'].get(camera, {})] if camera else list(observation['cameras'].values())
+        if not frames or any(frame.get('captured_at', observation.get('captured_at', 0)) <= barrier['completed_at'] for frame in frames):
+            raise AgentError('post_action_evidence_required', 'Source camera frame predates the completed action')
+        return observation
+
     def _dispatch(self, name, arguments, call_id):
         state = self.store.state
         mission = Mission(state["mission"])
@@ -153,6 +176,7 @@ class ToolRegistry:
                 if arguments["slot_id"] != mission.data["task"]["destination"]:
                     raise AgentError("wrong_destination", "Selected slot differs from the task destination")
                 self._box(arguments)
+                self._post_stage_observation(arguments['observation_id'], 'ARRIVED_AT_PLACE_AREA', arguments['camera'])
                 mission.data.update(stage="SLOT_IDENTIFIED", slot=dict(arguments))
                 selected = dict(arguments)
             return selected
@@ -165,7 +189,8 @@ class ToolRegistry:
             if not pending:
                 return {"pending": None, "stage": mission.stage}
             receipt = self.backends.status(pending["operation"], pending["request_id"])
-            return self._receipt(pending["operation"], pending["arguments"], receipt, physical=True)
+            return self._receipt(pending["operation"], pending["arguments"], receipt, physical=True,
+                                 request_id=pending['request_id'], original_call=pending)
         return self._operation(name, arguments, call_id, mission)
 
     def _operation(self, name, arguments, call_id, mission):
@@ -186,11 +211,19 @@ class ToolRegistry:
             raise AgentError("plan_missing", "Plan is not the current verified plan")
         if "observation_id" in arguments:
             self.store.observation(arguments["observation_id"])
+        if name in ('verify_hold', 'verify_placement'):
+            self._post_stage_observation(arguments['observation_id'], 'PICK_EXECUTED' if name == 'verify_hold' else 'RELEASED')
+        if name == 'align_battery_to_slot':
+            slot = mission.data['slot']
+            observation = self._post_stage_observation(arguments['observation_id'], 'ARRIVED_AT_PLACE_AREA', slot['camera'])
+            if slot['observation_id'] != arguments['observation_id'] or not observation['cameras'].get(slot['camera'], {}).get('geometry_ready'):
+                raise AgentError('geometry_unavailable', 'Alignment needs geometry from the selected slot observation and camera')
         payload = dict(arguments, task=copy.deepcopy(mission.data["task"]), target=copy.deepcopy(mission.data.get("target")),
                        slot=copy.deepcopy(mission.data.get("slot")), plan=copy.deepcopy(mission.data.get("plan")))
         request_id = self.store.state["run_id"] + ":" + call_id
         if physical:
-            self.store.state["pending"] = {"operation": name, "arguments": payload, "request_id": request_id, "call_id": call_id}
+            self.store.state["pending"] = {"operation": name, "arguments": payload, "request_id": request_id, "call_id": call_id,
+                                           'fingerprint': hashlib.sha256(json.dumps([name, arguments], sort_keys=True, allow_nan=False).encode()).hexdigest()}
             self.store.save()
         self.store.event("backend_request", {"operation": name, "request_id": request_id, "physical": physical})
         try:
@@ -201,20 +234,35 @@ class ToolRegistry:
             if isinstance(error, AgentError):
                 raise
             raise AgentError("backend_failed", "Domain backend failed") from None
-        return self._receipt(name, payload, receipt, physical=physical)
+        return self._receipt(name, payload, receipt, physical=physical, request_id=request_id)
 
-    def _receipt(self, name, arguments, receipt, *, physical):
+    def _receipt(self, name, arguments, receipt, *, physical, request_id, original_call=None):
+        if not isinstance(receipt, dict) or receipt.get('execution_id') != request_id:
+            raise AgentError('receipt_identity_mismatch', 'Receipt does not identify the requested execution; pending state retained')
         status = receipt.get("status") if isinstance(receipt, dict) else None
         if status in ("accepted", "running", "unknown") or status is None:
             raise AgentError("execution_pending" if status != "unknown" else "execution_unknown", "Operation has not produced a completed receipt")
         if status == "rejected":
             if physical:
+                if original_call is not None:
+                    self.store.state['calls'][original_call['call_id']] = {
+                        'fingerprint': original_call['fingerprint'],
+                        'result': {'ok': False, 'tool': name, 'data': None,
+                                   'error': {'code': 'backend_rejected', 'message': 'Backend rejected the original operation', 'retryable': False}}}
                 self.store.state["pending"] = None
             raise AgentError("backend_rejected", "Backend rejected the operation; inspect its diagnostics")
         if status != "completed":
             raise AgentError("invalid_backend_result", "Unknown execution status")
         data = Mission(self.store.state["mission"]).apply(name, receipt.get("data"), arguments)
         if physical:
+            barriers = self.store.state['mission'].setdefault('evidence_barriers', {})
+            barriers[self.store.state['mission']['stage']] = {'completed_at': time.time(),
+                                                               'previous_observation_ids': list(self.store.state['observations'])}
+            if original_call is not None:
+                result = {'ok': True, 'tool': name,
+                          'data': {'execution_status': 'completed', 'execution_id': request_id,
+                                   'stage': self.store.state['mission']['stage'], **data}, 'error': None}
+                self.store.state['calls'][original_call['call_id']] = {'fingerprint': original_call['fingerprint'], 'result': result}
             self.store.state["pending"] = None
         return {"execution_status": "completed", "execution_id": receipt.get("execution_id"),
                 "stage": self.store.state["mission"]["stage"], **data}

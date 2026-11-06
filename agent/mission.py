@@ -58,6 +58,8 @@ class Mission:
         elif operation == "plan_pick":
             if not isinstance(data.get("plan_id"), str) or not data["plan_id"] or any(data.get(k) is not True for k in ("ik_valid", "collision_checked", "collision_free")):
                 raise AgentError("plan_not_verified", "Plan requires explicit IK and collision-check evidence")
+            if any(key in data and data[key] != arguments[key] for key in ('candidate_id', 'arm')):
+                raise AgentError('plan_identity_conflict', 'Planner result contradicts requested candidate or arm')
             self.data["plan"] = dict(data, candidate_id=arguments["candidate_id"], arm=arguments["arm"])
         elif operation in ("verify_hold", "verify_placement"):
             if data.get("evidence_observation_id") != arguments["observation_id"] or data.get("evidence_after_execution") is not True:

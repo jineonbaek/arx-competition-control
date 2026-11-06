@@ -84,12 +84,12 @@ class AgentRuntime:
             raise AgentError('invalid_run', 'No instruction to resume')
         reason, answer = 'round_budget_exhausted', ''
         try:
+            recovery_note = None
             if state['pending']:
                 result = self.tools.execute('get_execution_status', {}, 'reconcile_' + uuid.uuid4().hex)
                 if not result['ok']:
                     return self._outcome(result['error']['code'], '')
-                state['messages'].append({'role': 'user', 'content': 'Application recovered existing execution receipt: ' + json.dumps(result, ensure_ascii=False)})
-                self.store.save()
+                recovery_note = 'Application recovered existing execution receipt: ' + json.dumps(result, ensure_ascii=False)
             while True:
                 if self.store.cancelled:
                     reason = 'cancelled'
@@ -98,6 +98,10 @@ class AgentRuntime:
                 if stopped:
                     reason = stopped
                     break
+                if recovery_note is not None:
+                    state['messages'].append({'role': 'user', 'content': recovery_note})
+                    self.store.save()
+                    recovery_note = None
                 if state['mission']['stage'] == 'COMPLETED':
                     reason = 'mission_completed'
                     break

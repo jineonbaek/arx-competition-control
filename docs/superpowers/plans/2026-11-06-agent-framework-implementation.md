@@ -69,7 +69,7 @@
 - [x] Implement orchestration, CLI, configuration examples and operational documentation.
 - [x] Run all agent tests and existing web Python/Node checks in the isolated ROG worktree (22 agent + 78 web Python + 12 Node passed).
 - [x] Exercise doctor and real read-only observations against the running ROG console (all 3 cameras; live streamed Qwen status->observe->3 images->Chinese report, 3 model rounds, 28.1s; mission remains IDLE).
-- [ ] Perform independent code review, address material findings, and report evidence boundaries.
+- [x] Perform independent code review, address material findings, and report evidence boundaries (5 findings, 9 regression tests; 31 total passed locally; final ROG validation recorded below).
 
 ## Execution Record
 
@@ -79,3 +79,12 @@
 - User subsequently provided a key and explicitly authorized API testing: text, D435 image and function-call probes succeeded. The current platform uses https://maas.qianwenaiapi.com/compatible-mode/v1. The secret is only in ignored agent/.secrets/qwen.env with permissions 600; no secret enters commits.
 - Stage 1 commit: 13afda2; stage 2 commit: 7c9e8be. User authorized scoped local commits after checks, without push/merge/deployment. Runtime records and secrets remain ignored.
 - Ruling: External grasp/planning/control/verification/navigation/insertion services remain explicit contracts, not fabricated implementations. Current evidence only supports their unavailable state; integrating each requires its own hardware and calibration work.
+- Stage 3 commit: 9a9ce4c; live read-only Qwen loop verified before commit. No control or camera service was restarted.
+- Final review fixed receipt request identity and planner identity contradictions; mismatched completion/rejection retains pending. Regression tests observed failing then passing.
+- Final review fixed crash-window replay and invalid tool-message ordering. Original completed/rejected receipts are cached before pending is cleared; two crash-window tests RED->GREEN.
+- Final review fixed pre-action evidence reuse and unbound alignment geometry. Post-stage observation and selected-slot/camera guards verified RED->GREEN.
+- Final review fixed smoke execution allowlist, retained across resume. Policy regression RED->GREEN.
+- Final review replaced PID read/unlink recovery with process-lifetime OS file locks. Coordinated stale-lock race test produced two writers before fix and exactly one after; crash-release test also passed on Windows.
+- No minor findings deferred. Final scope remains source and local commits in the independent worktree; no push, merge or active-service deployment.
+- Final verification: 31/31 Agent tests passed on both Windows and ROG. Post-fix streamed Qwen smoke completed status->three-camera capture->Chinese report, run run-20261106T105110Z-080f970d, IDLE and motion disabled. Existing isolated web checks passed 78 Python +12 Node. Secrets absent from tracked task sources; private key file mode600. Original active main checkout's six dirty tracked files were preserved; camera/control PIDs unchanged.
+- Ruling: Keep branch and development worktree in place without presenting merge/push options, following the user's explicit no-push/no-merge/no-deployment instruction. Integration requires a later user request.

@@ -61,7 +61,7 @@ def main(argv=None):
                     'note': 'Configuration inspection only; no API, camera startup or hardware command'})
             return 0
         store = RunStore.open(args.run_dir) if args.command in ('resume', 'reconcile') else RunStore.create(args.runs_root)
-        tools = ToolRegistry(config, store)
+        tools = ToolRegistry(config, store, allowed_tools={'get_system_status', 'observe_scene', 'read_observation'} if args.command == 'smoke' else None)
         if args.command == 'tools':
             output({'available_tools': tools.definitions(available_only=True), 'capabilities': tools.capabilities()})
         elif args.command == 'observe':
@@ -74,9 +74,6 @@ def main(argv=None):
         elif args.command == 'smoke':
             # Only these two read-only tools are exposed for the connectivity probe.
             model = QwenClient(config, args.profile)
-            names = {'get_system_status', 'observe_scene', 'read_observation'}
-            real_definitions = tools.definitions
-            tools.definitions = lambda **kwargs: [d for d in real_definitions(**kwargs) if d['function']['name'] in names]
             instruction = '只读检查：先调用get_system_status，再调用observe_scene读取相机' + ','.join(args.cameras) + '，根据返回的真实图片用中文简述场景。没有清晰电池就明确说没有；不要建立比赛任务或执行动作。'
             result = AgentRuntime(config, store, tools, model).run(instruction)
             output(result)
