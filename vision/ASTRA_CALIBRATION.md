@@ -73,3 +73,11 @@ Sources:
 `result.json` reports `captured` or `error`. Successful frames are lossless `color.png` and `infrared.png` under the token directory; IR is intensity, **not distance**. Host receipt times are logged separately and are not exposure synchronization. Both board and camera must stay stationary for a pair to be suitable for calibration. All samples and request/results are ignored runtime data.
 
 A camera-only reload with `python3 web/src/camera_preview.py --skip-camera d435` keeps the faulty D435 unopened and retains D405/Astra color. The original no-argument launcher behavior is unchanged. Three robot-driver PIDs were unchanged during this camera-only reload. The first real IR pair was captured successfully, but projected dots obscure the board: RGB detected 20 markers/15 ChArUco corners, IR detected none. This pair is diagnostic evidence, not a calibration solution.
+
+### Projector limitation confirmed on this firmware
+
+The PS1080 emitter-control experiment was not retained in source. Read `0x1080E007` reports write-only; readback `0x1080FFBF` reports a device-protocol unknown error. Boolean off/on writes to `0x1080E007` also report device-protocol errors. No command was acknowledged as successful. Do not try unverified property numbers, payload sizes or firmware flashing to bypass this result.
+
+After returning to the verified snapshot-only source and reloading only cameras, another real IR frame confirms projected dots are still present. Saturated-pixel fractions were 0.0125195 before and 0.0125065 afterward, and the images were visually checked. D405/Astra color remain online, depth requests remain OFF, and all three robot-driver PIDs remain unchanged. D435 is intentionally skipped during this session because of its pre-existing stream-stop fault.
+
+Next acquisition requires temporary physical occlusion of the **IR projector**, leaving RGB and the IR imaging lens clear, or a separately verified supported projector-control method. Identify the projector before covering anything. Capture only while the target and camera are stationary. Previously saved pairs were diagnostics, not fitted calibration data. No numeric camera calibration or grasp target has been installed.
