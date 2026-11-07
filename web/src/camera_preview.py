@@ -106,7 +106,7 @@ def worker(spec,stop,control=None):
                 if depth_source is not None:
                     try:
                         raw,info=depth_source.read()
-                        depth_meta,paths=write_depth(OUT,key,f'{SESSION}-{sequence}',raw,.001,depth_source.intrinsics,False,info['frame_number'],info['sensor_timestamp_ms'])
+                        depth_meta,paths=write_depth(OUT,key,f'{SESSION}-{sequence}',raw,.001,depth_source.intrinsics,info['aligned_to_color'],info['frame_number'],info['sensor_timestamp_ms'])
                         depth_meta.update(info,requested=True);depth_files.append(paths)
                         while len(depth_files)>35:
                             for expired in depth_files.popleft():expired.unlink(missing_ok=True)

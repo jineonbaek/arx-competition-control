@@ -76,3 +76,7 @@ All depth requests reset OFF on capture startup. A locked, atomically replaced r
 YOLOE weights and source remain on disk, but capture never starts recognition and the page no longer reads its overlays. Recognition is removed from desktop recovery requirements. Intentional depth OFF is healthy in camera self-checks.
 
 On-demand depth reduces unnecessary USB traffic. It does not prove the cause of the earlier shared-USB fault has been fixed.
+
+## Astra calibration validation
+
+The Astra source now validates factory parameters, supports a measured calibration file bound to serial/profile, and keeps raw depth when registration cannot be established. Calibration availability and physical alignment validation are reported separately. See [Astra calibration evidence and procedure](ASTRA_CALIBRATION.md). No measured file has been installed for this camera; physical target capture and accuracy verification are still required. Existing capture processes need a camera-only reload to load source changes.

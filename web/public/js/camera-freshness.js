@@ -21,3 +21,13 @@ export function depthButtonView(status){
   disabled:!status.requested && (!status.color_online || status.state==='stopping'),
   pressed:status.active===true,hint:(hints[status.state] || '深度状态未知')+(status.message?'：'+status.message:'')};
 }
+
+export function depthDetails(depth){
+ if(depth?.state!=='online')return '彩色预览 · 深度可按需开启';
+ const base=`深度：${depth.width} × ${depth.height} · 有效 ${(depth.valid_fraction*100).toFixed(0)}% · ${depth.aligned_to_color?'已对齐彩色':'独立深度，未对齐彩色'}`;
+ const calibration=depth.calibration;
+ if(calibration?.status==='required')return base+' · 标定参数不可用，需恢复或重新标定';
+ if(calibration?.status==='error')return base+' · 标定加载失败：'+calibration.message;
+ if(calibration?.validation==='pending_physical_check')return base+' · 对齐待实拍验证';
+ return base;
+}

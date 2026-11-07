@@ -101,6 +101,7 @@ class AstraTests(unittest.TestCase):
         buffer=bytearray(np.array([0,1000,2000,3000],np.uint16).tobytes())
         frame=SimpleNamespace(width=2,height=2,frameIndex=42,timestamp=1234000,get_buffer_as_uint16=lambda:buffer)
         capture=AstraDepth.__new__(AstraDepth);capture.sdk=Mock();capture.stream=Mock();capture.serial='astra-test'
+        capture.projector=None;capture.aligned_to_color=False;capture.registration='native_depth_unregistered';capture.calibration={'status':'required'}
         capture.stream.read_frame.return_value=frame
         raw,meta=capture.read();buffer[:]=bytes(len(buffer))
         np.testing.assert_array_equal(raw,[[0,1000],[2000,3000]])

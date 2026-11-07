@@ -1,4 +1,4 @@
-import {frameFresh,cameraImagePath,depthButtonView} from './camera-freshness.js';
+import {frameFresh,cameraImagePath,depthButtonView,depthDetails} from './camera-freshness.js';
 
 const panel=document.getElementById('camera-panel');
 const pause=document.getElementById('camera-pause');
@@ -40,7 +40,7 @@ async function show(c,meta){
  if(!detail){detail=document.createElement('p');detail.className='camera-vision-detail';c.card.append(detail);}
  const depth=meta.depth;
  detail.classList.toggle('valid',depth?.state==='online');
- detail.textContent=depth?.state==='online' ? `深度：${depth.width} × ${depth.height} · 有效 ${(depth.valid_fraction*100).toFixed(0)}% · ${depth.aligned_to_color?'已对齐彩色':'独立深度，未对齐彩色'}` : '彩色预览 · 深度可按需开启';
+ detail.textContent=depthDetails(depth);
 
 }
 async function loop(c){
