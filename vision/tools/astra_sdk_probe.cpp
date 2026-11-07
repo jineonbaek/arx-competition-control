@@ -1,4 +1,5 @@
-// Native OpenNI parameter audit. No firmware, emitter, flash, robot or CAN writes.
+// Native parameter audit; --stream applies normal camera streaming settings only.
+// No firmware/calibration flash updates, robot drivers or CAN access.
 #include <OpenNI.h>
 #include <algorithm>
 #include <array>
@@ -14,7 +15,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-static_assert(sizeof(OniDeviceInfo)==1028,"Use the matching Orbbec headers, not stock OpenNI headers");
+#ifdef ARX_OPENNI_LEGACY_60
+static_assert(sizeof(OniDeviceInfo)==772,"OpenNI 2.3.0.60 must use its own 2019 headers");
+#else
+static_assert(sizeof(OniDeviceInfo)==1028,"Use matching Orbbec headers, not stock OpenNI headers");
+#endif
 static_assert(sizeof(OBCameraParams)==120,"Unexpected calibration ABI");
 struct GuardedParams { OBCameraParams value; std::array<unsigned char,32> guard; };
 
@@ -53,6 +58,13 @@ int main(int argc,char** argv) {
     }
     if(argc==2 && std::string(argv[1])=="--stream")stream_frames=true;
     else if(argc!=1){std::cerr<<"Usage: astra_sdk_probe [--self-test|--stream]\n";return 2;}
+    auto version=openni::OpenNI::getVersion();
+#ifdef ARX_OPENNI_LEGACY_60
+    bool matching=version.major==2 && version.minor==3 && version.maintenance==0 && version.build==60;
+#else
+    bool matching=version.major==2 && version.minor==3 && version.maintenance==0 && (version.build==86 || version.build==88);
+#endif
+    if(!matching){std::cerr<<"SDK version does not match the audited header ABI; no SDK initialized.\n";return 2;}
     auto lock_path=std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()/"web/logs/camera-preview.lock";
     std::filesystem::create_directories(lock_path.parent_path());
     int lock_fd=open(lock_path.c_str(),O_CREAT|O_RDWR,0664);
@@ -60,7 +72,6 @@ int main(int argc,char** argv) {
         if(lock_fd>=0)close(lock_fd);
         std::cerr<<"Camera owner holds the capture lock; stop camera preview before this probe. No SDK initialized.\n";return 3;
     }
-    auto version=openni::OpenNI::getVersion();
     std::cout<<"SDK_VERSION "<<version.major<<"."<<version.minor<<"."<<version.maintenance<<"."<<version.build<<"\n"<<std::flush;
     if(openni::OpenNI::initialize()!=openni::STATUS_OK){std::cerr<<openni::OpenNI::getExtendedError()<<"\n";close(lock_fd);return 1;}
     int result=0;
