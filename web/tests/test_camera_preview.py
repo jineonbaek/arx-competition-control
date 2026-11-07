@@ -68,6 +68,11 @@ class PreviewTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
             parse_options(['--camera','unknown'])
 
+    def test_faulty_camera_can_be_left_unopened_during_astra_calibration(self):
+        from camera_preview import parse_options
+        self.assertEqual(parse_options(['--skip-camera','d435']).skip_camera,['d435'])
+        self.assertEqual(parse_options([]).skip_camera,[])
+
     def test_d405_only_mode_starts_one_worker_and_never_starts_detector(self):
         import contextlib,io
         from unittest.mock import Mock,patch

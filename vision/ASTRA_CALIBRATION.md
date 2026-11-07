@@ -65,3 +65,11 @@ Sources:
 - [Pinned 120-byte OBCameraParams declaration](https://github.com/orbbec/ros_astra_camera/blob/210f530144314da7c70072215bacba12130d9b20/include/openni2/OniCTypes.h)
 - [OpenCV camera and stereo calibration](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html)
 - [OpenCV depth registration](https://docs.opencv.org/4.x/d2/d3a/group__rgbd.html)
+
+## Stationary RGB/IR capture through the preview owner
+
+`camera_preview.py` now polls `web/hardware/runtime/astra-calibration/request.json`. A request must contain a new 32-character lowercase hex `token` and the current capture `session` from `camera-depth-control.json`. Stale-session, malformed and repeated requests are ignored. A capture is rejected while Astra depth is requested or active. It runs synchronously in the sole Astra worker, reuses its UVC RGB handle, opens only the IR stream, and closes/unloads OpenNI before resuming color preview. It never opens a second RGB pipeline or resets USB.
+
+`result.json` reports `captured` or `error`. Successful frames are lossless `color.png` and `infrared.png` under the token directory; IR is intensity, **not distance**. Host receipt times are logged separately and are not exposure synchronization. Both board and camera must stay stationary for a pair to be suitable for calibration. All samples and request/results are ignored runtime data.
+
+A camera-only reload with `python3 web/src/camera_preview.py --skip-camera d435` keeps the faulty D435 unopened and retains D405/Astra color. The original no-argument launcher behavior is unchanged. Three robot-driver PIDs were unchanged during this camera-only reload. The first real IR pair was captured successfully, but projected dots obscure the board: RGB detected 20 markers/15 ChArUco corners, IR detected none. This pair is diagnostic evidence, not a calibration solution.

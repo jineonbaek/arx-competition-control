@@ -68,6 +68,8 @@ def worker(spec,stop,control=None):
     import cv2
     from astra_depth import AstraDepth,error_message
     from camera_depth import write_depth
+    from astra_calibration import CalibrationCapture
+    calibration=CalibrationCapture(WEB/"hardware/runtime/astra-calibration",CAPTURE_SESSION)
     key=spec['id'];sequence=0;depth_files=collections.deque()
     for old in OUT.glob(f'{key}-z-*'):
         if time.time()-old.stat().st_mtime>60:old.unlink(missing_ok=True)
@@ -86,6 +88,7 @@ def worker(spec,stop,control=None):
             cap.set(cv2.CAP_PROP_FPS,15)
             warmup=10;last=0
             while not stop.is_set():
+                if calibration.poll(cap,depth_source is not None or control.enabled(key)):continue
                 ok,frame=cap.read()
                 captured_at=time.time()
                 if not ok or frame is None:raise RuntimeError('未收到相机画面')
@@ -130,13 +133,14 @@ def worker(spec,stop,control=None):
 def parse_options(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--camera',choices=[spec['id'] for spec in SPECS],help='Capture only this camera')
+    parser.add_argument('--skip-camera',choices=[spec['id'] for spec in SPECS],action='append',default=[],help='Leave a faulty camera unopened')
     parser.add_argument('--no-detector',action='store_true',default=True,help='Compatibility flag; recognition is disabled')
     return parser.parse_args(argv)
 
 def main(argv=None):
     global CAPTURE_SESSION
     options=parse_options(argv)
-    specs=[spec for spec in SPECS if options.camera is None or spec['id']==options.camera]
+    specs=[spec for spec in SPECS if (options.camera is None or spec['id']==options.camera) and spec['id'] not in options.skip_camera]
     logs=WEB/'logs';logs.mkdir(exist_ok=True)
     with (logs/'camera-preview.lock').open('a+') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
