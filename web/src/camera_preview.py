@@ -12,9 +12,12 @@ import subprocess
 import threading
 import time
 
+from camera_depth_control import DepthControl
+
 WEB=Path(__file__).resolve().parents[1]
 OUT=WEB/'public'/'camera-live'
 SESSION=uuid.uuid4().hex[:10]
+CAPTURE_SESSION=None
 RECENT={key:collections.deque() for key in ['d405','astra']}
 SPECS=[
  {'id':'d435','name':'RealSense D435','product':'Intel(R) RealSense(TM) Depth Camera 435','index':0,'interface_suffix':':1.3','fourcc':'YUYV'},
@@ -49,7 +52,7 @@ def publish(directory,key,jpeg,sequence,captured_at,state,message='',extra=None)
         atomic(image,jpeg)
     else:
         image.unlink(missing_ok=True)
-    metadata=dict(state=state,sequence=sequence,captured_at=captured_at,message=message)
+    metadata=dict(state=state,sequence=sequence,captured_at=captured_at,message=message,updated_at=time.time(),capture_session=CAPTURE_SESSION,recognition_enabled=False)
     if jpeg is not None and key in RECENT and not (extra or {}).get('image_file'):
         name=f'{key}-v-{SESSION}-{sequence}.jpg';p=directory/name
         atomic(p,jpeg);metadata['image_file']=name;RECENT[key].append(p)
@@ -57,10 +60,11 @@ def publish(directory,key,jpeg,sequence,captured_at,state,message='',extra=None)
     if extra:metadata.update(extra)
     atomic(directory/(key+'.json'),json.dumps(metadata,allow_nan=False).encode())
 
-def worker(spec,stop):
+def worker(spec,stop,control=None):
+    control=control or DepthControl()
     if spec['id'] in ('d435','d405'):
         from battery_rgbd import run
-        return run(spec,stop,publish,OUT)
+        return run(spec,stop,publish,OUT,control)
     import cv2
     from astra_depth import AstraDepth,error_message
     from camera_depth import write_depth
@@ -91,27 +95,30 @@ def worker(spec,stop):
                 ok,jpeg=cv2.imencode('.jpg',frame,[cv2.IMWRITE_JPEG_QUALITY,82])
                 if not ok:raise RuntimeError('图像编码失败')
                 sequence+=1
-                depth_meta={'state':'offline','message':depth_error}
-                if depth_source is None and time.monotonic()>=next_depth_retry:
+                requested=control.enabled(key)
+                if not requested and depth_source is not None:
+                    depth_source.close();depth_source=None
+                depth_meta={'requested':requested,'state':'starting' if requested else 'disabled','message':depth_error if requested else ''}
+                if requested and depth_source is None and time.monotonic()>=next_depth_retry:
                     try:depth_source=AstraDepth()
                     except Exception as error:
-                        depth_error=error_message(error);depth_meta['message']=depth_error;next_depth_retry=time.monotonic()+3
+                        depth_error=error_message(error);depth_meta.update(state='error',message=depth_error);control.request({'camera':key,'enabled':False});next_depth_retry=time.monotonic()+3
                 if depth_source is not None:
                     try:
                         raw,info=depth_source.read()
                         depth_meta,paths=write_depth(OUT,key,f'{SESSION}-{sequence}',raw,.001,depth_source.intrinsics,False,info['frame_number'],info['sensor_timestamp_ms'])
-                        depth_meta.update(info);depth_files.append(paths)
+                        depth_meta.update(info,requested=True);depth_files.append(paths)
                         while len(depth_files)>35:
                             for expired in depth_files.popleft():expired.unlink(missing_ok=True)
                     except Exception as error:
-                        depth_error=error_message(error);depth_meta={'state':'offline','message':depth_error}
+                        depth_error=error_message(error);depth_meta={'requested':False,'state':'error','message':depth_error};control.request({'camera':key,'enabled':False})
                         try:depth_source.close()
                         except Exception:pass
                         depth_source=None;next_depth_retry=time.monotonic()+3
-                publish(OUT,key,jpeg.tobytes(),sequence,captured_at,'online',extra={'depth':depth_meta})
+                publish(OUT,key,jpeg.tobytes(),sequence,captured_at,'online',extra={'depth':depth_meta,'active_streams':['color','depth'] if depth_meta['state']=='online' else ['color']})
                 last=time.monotonic()
         except Exception as error:
-            publish(OUT,key,None,sequence,None,'offline',str(error))
+            publish(OUT,key,None,sequence,None,'offline',str(error),extra={'depth':{'requested':control.enabled(key),'state':'error' if control.enabled(key) else 'disabled','message':str(error)}})
         finally:
             if cap is not None:cap.release()
             if depth_source is not None:
@@ -123,10 +130,11 @@ def worker(spec,stop):
 def parse_options(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--camera',choices=[spec['id'] for spec in SPECS],help='Capture only this camera')
-    parser.add_argument('--no-detector',action='store_true',help='Capture only; do not start visual recognition')
+    parser.add_argument('--no-detector',action='store_true',default=True,help='Compatibility flag; recognition is disabled')
     return parser.parse_args(argv)
 
 def main(argv=None):
+    global CAPTURE_SESSION
     options=parse_options(argv)
     specs=[spec for spec in SPECS if options.camera is None or spec['id']==options.camera]
     logs=WEB/'logs';logs.mkdir(exist_ok=True)
@@ -134,34 +142,22 @@ def main(argv=None):
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise SystemExit('Camera preview already running')
         lock.seek(0);lock.truncate();lock.write(str(os.getpid()));lock.flush()
+        control=DepthControl(WEB/'hardware/runtime/camera-depth-control.json',OUT)
+        CAPTURE_SESSION=control.reset()
+        for key in ['d435','d405','astra']:
+            OUT.mkdir(parents=True,exist_ok=True)
+            atomic(OUT/(key+'-battery.json'),json.dumps(dict(state='disabled',sequence=0,captured_at=None,message='YOLOE disabled',source_camera=key)).encode())
         stop=threading.Event()
         for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:stop.set())
         for spec in SPECS:
             if spec not in specs:publish(OUT,spec['id'],None,0,None,'offline','本次未启用')
-        workers=[threading.Thread(target=worker,args=(spec,stop),daemon=True) for spec in specs]
+        workers=[threading.Thread(target=worker,args=(spec,stop,control),daemon=True) for spec in specs]
         for t in workers:t.start()
-        print('Camera preview started:',','.join(spec['id'] for spec in specs),'RGB + depth, 640x480, up to 5 JPEG frames/s; detector',not options.no_detector,'; no robot interfaces',flush=True)
-        detector=None;next_retry=0.0
-        vision=WEB.parent/'vision'
-        command=[str(vision/'.venv-detector/bin/python'),str(WEB/'src/battery_boxes_service.py')]
+        print('Camera preview started:',','.join(spec['id'] for spec in specs),'color only; depth defaults OFF; YOLOE disabled',flush=True)
         try:
-            while not stop.is_set():
-                if not options.no_detector and (detector is None or detector.poll() is not None) and time.monotonic()>=next_retry:
-                    if all(Path(path).is_file() for path in command) and (vision/'models/yoloe-11s-seg.pt').is_file():
-                        detector=subprocess.Popen(command,cwd=WEB.parent,stdin=subprocess.DEVNULL,start_new_session=True)
-                        (vision/'runtime').mkdir(exist_ok=True)
-                        (vision/'runtime/battery-boxes.pid').write_text(str(detector.pid))
-                        print('Whole battery child started',detector.pid,flush=True)
-                    next_retry=time.monotonic()+10
-                stop.wait(1)
+            while not stop.is_set():stop.wait(1)
         finally:
             stop.set()
-            if detector is not None and detector.poll() is None:
-                detector.terminate()
-                try:detector.wait(timeout=4)
-                except subprocess.TimeoutExpired:
-                    detector.kill();detector.wait(timeout=2)
-            for t in workers:t.join(timeout=2)
-            for spec in specs:publish(OUT,spec['id'],None,0,None,'offline','视频采集已停止')
+            for t in workers:t.join(timeout=5)
 
 if __name__=='__main__':main()

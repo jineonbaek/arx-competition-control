@@ -38,6 +38,16 @@ class DepthTests(unittest.TestCase):
             (root/'4-3').mkdir()
             self.assertFalse(usb_camera_present('absent',root))
 
+    def test_color_only_never_enables_a_depth_transport_stream(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock,call
+        from battery_rgbd import configure_streams
+        rs=SimpleNamespace(stream=SimpleNamespace(color='color',depth='depth'),format=SimpleNamespace(bgr8='bgr8',z16='z16'))
+        config=Mock();configure_streams(rs,config,False)
+        config.enable_stream.assert_called_once_with('color',640,480,'bgr8',15)
+        config.reset_mock();configure_streams(rs,config,True)
+        self.assertEqual(config.enable_stream.call_args_list,[call('color',640,480,'bgr8',15),call('depth',640,480,'z16',15)])
+
     def test_rejects_invalid_depth_without_writing_a_frame(self):
         with tempfile.TemporaryDirectory() as tmp:
             for raw,scale in [(np.zeros((2,2),np.float32),.001),(np.zeros((2,2),np.uint16),0),(np.zeros((2,2),np.uint16),float("nan"))]:

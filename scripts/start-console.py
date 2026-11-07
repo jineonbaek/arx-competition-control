@@ -79,6 +79,8 @@ def camera_fault(not_before=0.0):
                 continue
             depth=meta.get("depth") or {}
             stamp=depth.get("captured_at")
+            if depth.get("requested") is False and depth.get("state")=="disabled":
+                continue
             if (depth.get("state")!="online" or type(stamp) not in (int,float)
                     or not math.isfinite(stamp) or stamp<not_before or not -1.5<=now-stamp<=3):
                 faults.append(label+"：深度未就绪（"+(depth.get("message") or "深度帧缺失或过期")+"）")
@@ -89,18 +91,8 @@ def camera_fault(not_before=0.0):
 
 
 def whole_battery_fault():
-    faults=[]
-    for key,label in [("d435","D435"),("d405","D405"),("astra","Astra Pro")]:
-        try:
-            meta=json.loads((CAMERA_OUTPUT/(key+"-battery.json")).read_text())
-            captured=meta.get("captured_at")
-            if (meta.get("state")!="online" or not isinstance(meta.get("whole_battery"),dict) or not isinstance(meta.get("whole_battery",{}).get("holes"),list)
-                    or type(captured) not in (int,float) or not math.isfinite(captured)
-                    or not -1.5<=time.time()-captured<=3):
-                faults.append(label+"："+(meta.get("message") or "整电池识别未更新"))
-        except (OSError,ValueError,TypeError,AttributeError):
-            faults.append(label+"：等待整电池识别")
-    return "\n".join(faults)
+    # YOLOE is intentionally disabled and is not a startup/recovery requirement.
+    return ""
 
 
 def ensure_cameras():
@@ -640,7 +632,7 @@ def component_status(snapshot, failed=None, reason=""):
     elif failed in ("body", "can5"):
         faults["chassis"] = faults["lift"] = reason
     arm_faults = [f"{LABELS[side]}\uff1a{faults[side]}" for side in ("left", "right") if faults[side]]
-    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault(), "电池框与孔洞": whole_battery_fault()}
+    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault()}
 
 
 class StartupError(RuntimeError):

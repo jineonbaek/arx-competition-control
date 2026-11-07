@@ -63,7 +63,7 @@ class PreviewTests(unittest.TestCase):
         self.assertTrue(options.no_detector)
         defaults=parse_options([])
         self.assertIsNone(defaults.camera)
-        self.assertFalse(defaults.no_detector)
+        self.assertTrue(defaults.no_detector)
         import contextlib,io
         with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
             parse_options(['--camera','unknown'])
