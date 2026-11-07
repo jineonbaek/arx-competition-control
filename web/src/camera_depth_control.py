@@ -57,16 +57,16 @@ class DepthControl:
 
     def request(self,data):
         if not isinstance(data,dict) or set(data)!={'camera','enabled'}:
-            raise ValueError('Expected camera and enabled only')
+            raise ValueError('仅接受 camera 和 enabled 参数')
         key=data['camera'];enabled=data['enabled']
         if key not in KEYS or type(enabled) is not bool:
-            raise ValueError('Unknown camera or non-boolean enabled')
+            raise ValueError('相机名称或深度开关参数无效')
         with self._lock():
             settings=self._read()
-            if type(settings.get('pid')) is not int:raise RuntimeError('Camera service is not running')
+            if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             try:os.kill(settings['pid'],0)
-            except OSError:raise RuntimeError('Camera service is not running')
+            except OSError:raise RuntimeError('相机采集服务未运行')
             if enabled and not self.snapshot()['cameras'][key]['color_online']:
-                raise ValueError('Color camera is offline; depth was not started')
+                raise ValueError('彩色相机未就绪，未开启深度')
             settings['requested'][key]=enabled;self._write(settings)
         return self.snapshot()

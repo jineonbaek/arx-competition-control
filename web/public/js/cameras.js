@@ -1,4 +1,4 @@
-import {frameFresh,cameraImagePath,chooseCameraFrame} from './camera-freshness.js';
+import {frameFresh,cameraImagePath,depthButtonView} from './camera-freshness.js';
 
 const panel=document.getElementById('camera-panel');
 const pause=document.getElementById('camera-pause');
@@ -7,12 +7,12 @@ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const cards=[...panel.querySelectorAll('[data-camera]')].map(card=>({
  card,key:card.dataset.camera,img:card.querySelector('img'),
  status:card.querySelector('.camera-status'),detail:card.querySelector('.camera-detail'),
- message:card.querySelector('.camera-message'),displayed:null,anchor:null,sequence:null
+ message:card.querySelector('.camera-message'),depthButton:card.querySelector('[data-depth-toggle]'),depthStatus:card.querySelector('.camera-depth-status'),displayed:null,anchor:null,sequence:null
 }));
 function unavailable(c,text){
  c.card.classList.remove('camera-online');c.status.textContent=text;
  c.message.textContent=text;c.img.hidden=true;c.message.hidden=false;
- const detail=c.card.querySelector('.camera-vision-detail');if(detail){detail.textContent='定位结果已隐藏';detail.classList.remove('valid');}
+ const detail=c.card.querySelector('.camera-vision-detail');if(detail){detail.textContent='画面已暂停显示';detail.classList.remove('valid');}
 }
 function serverNow(c){return c.anchor ? c.anchor.server+performance.now()-c.anchor.local : NaN;}
 async function json(url){
@@ -38,35 +38,16 @@ async function show(c,meta){
  c.detail.textContent='640 × 480 · 更新 '+new Date(meta.captured_at*1000).toLocaleTimeString('zh-CN',{hour12:false});
  let detail=c.card.querySelector('.camera-vision-detail');
  if(!detail){detail=document.createElement('p');detail.className='camera-vision-detail';c.card.append(detail);}
- const features=meta.whole_battery;const location=meta.battery?.location;
- detail.classList.toggle('valid',Boolean(features) || location?.status==='surface_valid');
- const lines=[];
  const depth=meta.depth;
- if(depth?.state==='online')lines.push(`深度：${depth.width} × ${depth.height} · 有效 ${(depth.valid_fraction*100).toFixed(0)}% · ${depth.aligned_to_color?'已对齐彩色':'独立深度，未对齐彩色'}`);
- else lines.push('深度未就绪'+(depth?.message?'：'+depth.message:''));
- if(features){
-  lines.push(`电池外框：${features.count} · 可见把手孔：${features.hole_count ?? 0}`+(features.partial_count?` · ${features.partial_count} 个目标被截断`:''));
-  lines.push((features.hole_count ?? 0)>0?'蓝色 H：图像中实际检出的孔洞':'孔洞未检出或不可见，不推断孔洞位置');
- }else lines.push('孔洞与外框识别未更新 · 当前显示相机预览');
- if(c.key==='d435' && location?.status==='surface_valid' && location.bar_surface_xyz_m?.length===3){
-  const [x,y,z]=location.bar_surface_xyz_m.map(v=>(v*1000).toFixed(0));
-  lines.push(`G 实体表面：X ${x} / Y ${y} / Z ${z} mm（D435 相机坐标）`);
- }else if(c.key==='d435')lines.push('实体表面深度无效，未输出三维坐标');
- else lines.push('二维识别 · 未输出三维坐标');
- detail.textContent=lines.join('\n');
+ detail.classList.toggle('valid',depth?.state==='online');
+ detail.textContent=depth?.state==='online' ? `深度：${depth.width} × ${depth.height} · 有效 ${(depth.valid_fraction*100).toFixed(0)}% · ${depth.aligned_to_color?'已对齐彩色':'独立深度，未对齐彩色'}` : '彩色预览 · 深度可按需开启';
 
 }
 async function loop(c){
  for(;;){
   if(paused || document.hidden){await wait(250);continue;}
   try{
-   let selected=await json(`/camera-live/${c.key}.json?t=${Date.now()}`);
-   {
-    try{
-     const boxed=await json(`/camera-live/${c.key}-battery.json?t=${Date.now()}`);
-     if(chooseCameraFrame(c.key,selected.meta,boxed.meta,boxed.server)===boxed.meta)selected=boxed;
-    }catch(error){/* Raw preview remains available while inference is unavailable. */}
-   }
+   const selected=await json(`/camera-live/${c.key}.json?t=${Date.now()}`);
    const {meta,server}=selected;
    c.anchor={server,local:performance.now()};
    if(!frameFresh(meta,serverNow(c))){
@@ -88,3 +69,33 @@ setInterval(()=>{
  }
 },300);
 for(const c of cards)loop(c);
+
+let depthStates={};const depthBusy=new Set();const depthErrors={};
+function renderDepth(){
+ for(const c of cards){
+  const view=depthButtonView(depthStates[c.key]);
+  c.depthButton.textContent=view.label;
+  c.depthButton.disabled=view.disabled || depthBusy.has(c.key);
+  c.depthButton.setAttribute('aria-pressed',String(view.pressed));
+  c.depthStatus.textContent=depthBusy.has(c.key)?'正在提交深度开关请求':(depthErrors[c.key] || view.hint);
+ }
+}
+for(const c of cards)c.depthButton.addEventListener('click',async()=>{
+ const status=depthStates[c.key];if(!status || depthBusy.has(c.key))return;
+ delete depthErrors[c.key];depthBusy.add(c.key);renderDepth();
+ const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),3000);
+ try{
+  const response=await fetch('/api/camera/depth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({camera:c.key,enabled:!status.requested}),signal:controller.signal});
+  const data=await response.json();if(!response.ok)throw new Error(data.message || '深度开关请求失败');
+  depthStates=data.cameras;
+ }catch(error){depthErrors[c.key]=error.message;}
+ finally{clearTimeout(timer);depthBusy.delete(c.key);renderDepth();}
+});
+async function depthLoop(){
+ for(;;){
+  try{const {meta}=await json('/api/camera/depth');depthStates=meta.cameras;}
+  catch(error){depthStates={};}
+  renderDepth();await wait(700);
+ }
+}
+depthLoop();

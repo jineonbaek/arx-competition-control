@@ -1,3 +1,9 @@
+# Camera preview and optional depth
+
+YOLOE is disabled and no longer auto-started. All cameras now start with color preview only. Use the per-camera depth buttons in 9983 to enable or disable actual depth streams. Every capture-process start resets depth OFF. See DEPTH.md for controls, installation and limitations.
+
+The older battery-recognition notes below are retained as background and are not the active preview path.
+
 # 左侧电池把手只读识别
 
 此版本针对提供的白色打印电池、暗色桌面和当前可见把手，使用多亮度阈值、孔形几何与模型尺寸约束自动选择图像最左侧的候选。它不是训练完成的通用电池分类器，也不执行完整 CAD 六维位姿配准；换颜色、强遮挡或其他带孔白色物体可能导致漏检或误检。

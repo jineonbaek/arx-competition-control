@@ -1,6 +1,6 @@
 # Three-camera depth acquisition (ROG)
 
-The existing `web/src/camera_preview.py` is the only camera owner. It never imports ROS, robot SDKs, or CAN. Keep its lock; do not open another camera pipeline beside it.
+The existing camera_preview.py is the only camera owner. All cameras start COLOR ONLY. Depth defaults OFF on every capture-process start. YOLOE is disabled and is never started automatically. It never imports ROS, robot SDKs, or CAN. Keep its lock; do not open another camera pipeline beside it.
 
 | Camera | Color / depth acquisition | Export | Color registration |
 | --- | --- | --- | --- |
@@ -8,7 +8,7 @@ The existing `web/src/camera_preview.py` is the only camera owner. It never impo
 | D405 | Same RealSense worker, 640x480 at 15 FPS | up to 5 frames/s | SDK depth-to-color alignment, factory intrinsics |
 | Astra Pro | Existing UVC color + OpenNI native depth 640x480 at 30 FPS | up to 5 frames/s | **Unregistered** separate streams; no hardware synchronization claimed |
 
-Existing color previews and battery detections stay available. Camera cards report depth state, valid-pixel fraction, and alignment. Color remaining online cannot hide a missing or stale depth stream in the one-click self-check.
+Color previews stay available. Recognition is disabled. Each camera card has an independent depth control. Camera cards report depth state, valid-pixel fraction, and alignment. Color remaining online cannot hide a missing or stale depth stream in the one-click self-check.
 
 ## Data contract
 
@@ -50,7 +50,7 @@ To enable only D405 RGB-D, without touching D435/Astra or starting the detector:
 python3 web/src/camera_preview.py --camera d405 --no-detector
 ```
 
-This uses the same exclusive capture lock and existing HTTP camera metadata. Unselected cameras are reported offline; robot processes stay untouched. The normal desktop launcher still defaults to all cameras: do not request camera recovery there during this isolated D405 check. This mode does not claim the shared USB fault is fixed.
+This uses the same exclusive capture lock and existing HTTP camera metadata. Unselected cameras are reported offline; robot processes stay untouched. The desktop launcher starts all COLOR previews with depth OFF and no YOLOE. This mode does not claim the shared USB fault is fixed.
 
 ## Start / verify
 
@@ -64,3 +64,15 @@ python3 -m unittest discover -s web/tests -p 'test_camera*.py'
 Check all three JSON depth objects are online, timestamps and frame numbers advance, the referenced PNG decodes as uint16 480x640, and the color and detector outputs remain fresh. Do not interpret this stream verification as a physical distance accuracy or grasping test.
 
 Sources: [RealSense alignment example](https://github.com/realsenseai/librealsense/blob/master/wrappers/python/examples/align-depth2color.py), [Orbbec OpenNI SDK](https://www.orbbec.com/developers/openni-sdk/), [pinned Orbbec runtime](https://github.com/orbbec/ros_astra_camera/tree/210f530144314da7c70072215bacba12130d9b20/include/openni2_redist/x64), [OpenCV Astra tutorial](https://docs.opencv.org/4.x/d0/db6/tutorial_orbbec_astra_openni.html).
+
+## On-demand depth controls (2026-11-07)
+
+Each 9983 camera card now has an independent depth button. Requests require the existing session cookie and same Origin. The HTTP response only acknowledges a request; the button waits for fresh capture metadata before confirming success. Offline color cameras cannot enable depth.
+
+Disabling RealSense depth reconnects that camera with only its color stream enabled, without a depth transport stream. Astra stops its separate OpenNI depth stream while retaining UVC color. Switching RealSense mode may briefly pause that camera's color image. Failed depth starts are disabled automatically instead of continuously retrying depth.
+
+All depth requests reset OFF on capture startup. A locked, atomically replaced request file lives in ignored web/hardware/runtime. Pausing or closing the page does not stop enabled depth: use the depth button.
+
+YOLOE weights and source remain on disk, but capture never starts recognition and the page no longer reads its overlays. Recognition is removed from desktop recovery requirements. Intentional depth OFF is healthy in camera self-checks.
+
+On-demand depth reduces unnecessary USB traffic. It does not prove the cause of the earlier shared-USB fault has been fixed.

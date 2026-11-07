@@ -37,3 +37,17 @@ test('all three cameras prefer a fresh joint body-and-hole frame',async()=>{
   assert.equal(m.chooseCameraFrame(key,raw,combined,101000),combined);
  }
 });
+
+test('depth button distinguishes requested enable, active stream and confirmed shutdown',async()=>{
+ const {depthButtonView}=await import('../public/js/camera-freshness.js');
+ assert.equal(depthButtonView().disabled,true);
+ const off=depthButtonView({requested:false,state:'disabled',active:false,color_online:true});
+ assert.equal(off.label,'开启深度');assert.equal(off.disabled,false);assert.equal(off.pressed,false);
+ const pending=depthButtonView({requested:true,state:'starting',active:false,color_online:true});
+ assert.equal(pending.label,'关闭深度');assert.equal(pending.pressed,false);assert.equal(pending.disabled,false);
+ assert.equal(depthButtonView({requested:true,state:'online',active:true,color_online:true}).pressed,true);
+ const closing=depthButtonView({requested:false,state:'stopping',active:true,color_online:true});
+ assert.equal(closing.disabled,true);assert.equal(closing.pressed,true);
+ const lost=depthButtonView({requested:true,state:'unavailable',active:false,color_online:false});
+ assert.equal(lost.disabled,false);assert.equal(lost.pressed,false);
+});
