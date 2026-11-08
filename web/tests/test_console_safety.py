@@ -191,7 +191,7 @@ class RecoveryFlowTests(unittest.TestCase):
             self.assertEqual(launcher.recovery_plan(state), ["web"])
 
     def test_launch_check_never_starts_or_restarts_hardware(self):
-        with patch.object(launcher, "ensure_cameras"), \
+        with patch.object(launcher, "request_gamepad_start", return_value=""), patch.object(launcher, "ensure_cameras"), \
              patch.object(launcher, "processes", return_value=[["python", str(launcher.SERVER)]]), \
              patch.object(launcher.Path, "is_file", return_value=True), \
              patch.object(launcher.subprocess, "check_output", return_value=""), \

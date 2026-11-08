@@ -15,6 +15,9 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen, Request, build_opener, HTTPCookieProcessor
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gamepad_services import ensure_gamepad_services, gamepad_status, gamepad_restart_needed, repair_gamepad_services, request_gamepad_start
+
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "web/hardware/runtime"
 URL = "http://127.0.0.1:9983"
@@ -618,6 +621,24 @@ def restart_faults(physical_bottom=False, manual=False, selected=None, progress=
     return component_status(state())
 
 
+OPTIONAL_COMPONENTS = frozenset(('手柄可视化', '手柄底盘控制'))
+GAMEPAD_START_WARNING = ''
+
+
+def required_faults(values):
+    return any(fault for name, fault in values.items() if name not in OPTIONAL_COMPONENTS)
+
+
+def optional_gamepad_status():
+    try:
+        values = gamepad_status()
+        if GAMEPAD_START_WARNING and any(values.values()):
+            values['手柄可视化'] = GAMEPAD_START_WARNING + '\n' + values['手柄可视化']
+        return values
+    except Exception as exc:
+        return {name: '手柄可选任务自检失败：' + str(exc) for name in OPTIONAL_COMPONENTS}
+
+
 def component_status(snapshot, failed=None, reason=""):
     buses, _ = can_health()
     faults = {}
@@ -632,7 +653,7 @@ def component_status(snapshot, failed=None, reason=""):
     elif failed in ("body", "can5"):
         faults["chassis"] = faults["lift"] = reason
     arm_faults = [f"{LABELS[side]}\uff1a{faults[side]}" for side in ("left", "right") if faults[side]]
-    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault()}
+    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault(), **optional_gamepad_status()}
 
 
 class StartupError(RuntimeError):
@@ -642,6 +663,12 @@ class StartupError(RuntimeError):
 
 
 def launch():
+    # These user services do not initialize CAN or restart robot hardware.
+    global GAMEPAD_START_WARNING
+    try:
+        GAMEPAD_START_WARNING = request_gamepad_start(RUNTIME)
+    except Exception as exc:
+        GAMEPAD_START_WARNING = str(exc)
     ensure_cameras()
     children = {}
     commands = processes()
@@ -663,6 +690,28 @@ def launch():
     # Never restart or re-enable hardware during status checks.
     # All hardware starts, including cold boots, go through confirmed recovery.
     return component_status(snapshot)
+
+
+def choose_recovery(snapshot):
+    selected = recovery_plan(snapshot)
+    if selected:
+        return selected, False
+    try:
+        return selected, gamepad_restart_needed()
+    except Exception:
+        return selected, False
+
+
+def restart_gamepad_services():
+    try:
+        fault = repair_gamepad_services()
+    except Exception as exc:
+        fault = str(exc)
+    values = component_status(state())
+    if fault:
+        for name in OPTIONAL_COMPONENTS:
+            values[name] = fault
+    return values
 
 
 def show_status(statuses, warning):
@@ -710,14 +759,15 @@ def show_status(statuses, warning):
         state_ui["statuses"] = values
         for name, fault in values.items():
             status_label, detail = rows[name]
-            status_label.set_markup('<span foreground="#b42318"><b>不好</b></span>' if fault else
+            status_label.set_markup(('<span foreground="#b7791f"><b>可选任务告警</b></span>' if name in OPTIONAL_COMPONENTS else '<span foreground="#b42318"><b>不好</b></span>') if fault else
                                     '<span foreground="#067647"><b>好</b></span>')
             detail.set_text(fault)
             detail.set_visible(bool(fault))
         retry.set_sensitive(any(values.values()) and not state_ui["busy"])
         note.set_text(state_ui["warning"] or
                       ("检测到异常，是否恢复 / 重启故障服务？正常服务继续运行。"
-                       if any(values.values()) else "各项检查通过；每 2 秒更新。关闭窗口后服务继续运行。"))
+                       if required_faults(values) else "手柄为可选任务，当前告警不影响其他任务运行。"
+                       if any(values.values()) else "各项检查通过；每 2 秒更新。关闭窗口后服务继续运行。手柄：先回中，再按住 LT 使能，松开停车。"))
 
     def message(text, confirm=False):
         popup = Gtk.MessageDialog(transient_for=dialog, modal=True,
@@ -765,7 +815,14 @@ def show_status(statuses, warning):
         threading.Thread(target=run, daemon=True).start()
 
     def recover():
-        selected = recovery_plan(state())
+        selected, gamepad_only = choose_recovery(state())
+        if gamepad_only:
+            def gamepad_completed(values):
+                state_ui["warning"] = ""
+                state_ui["statuses"] = values
+                idle()
+            worker(restart_gamepad_services, gamepad_completed)
+            return
         if not selected:
             return
         labels = [LABELS.get(name, {"web": "网页", "cameras": "相机及识别"}.get(name, name))
@@ -788,7 +845,7 @@ def show_status(statuses, warning):
                 idle()
                 return
             def completed(values):
-                state_ui["warning"] = "" if not any(values.values()) else "仍有异常，见各项原因；未自动反复重启。"
+                state_ui["warning"] = "" if not required_faults(values) else "仍有异常，见各项原因；未自动反复重启。"
                 state_ui["statuses"] = values
                 idle()
             worker(lambda: restart_faults(True, manual=not automatic,
@@ -844,7 +901,7 @@ def main():
     if sys.argv[1:] == ["--check-only"]:
         statuses = component_status(state())
         print(json.dumps(statuses, ensure_ascii=False))
-        return int(any(statuses.values()))
+        return int(required_faults(statuses))
     desktop = sys.argv[1:] == ["--desktop"]
     progress = None
     warning = ""
@@ -869,7 +926,7 @@ def main():
             progress.communicate()
     if desktop:
         statuses, warning = show_status(statuses, warning)
-    return int(bool(warning) or any(statuses.values()))
+    return int(bool(warning) or required_faults(statuses))
 
 
 if __name__ == "__main__":

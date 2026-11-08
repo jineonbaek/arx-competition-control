@@ -56,7 +56,7 @@ class CameraLauncherTests(unittest.TestCase):
             self.assertTrue(launcher.ensure_cameras());start.assert_not_called()
 
     def test_full_launcher_requests_cameras_before_hardware_preflight(self):
-        with patch.object(launcher,'ensure_cameras',return_value='') as ensure,patch.object(launcher,'ARM',Path('/missing-camera-test/arm')),patch.object(launcher,'ensure_can',side_effect=AssertionError('CAN must not run in this test')):
+        with patch.object(launcher,'request_gamepad_start',return_value=''),patch.object(launcher,'ensure_cameras',return_value='') as ensure,patch.object(launcher,'ARM',Path('/missing-camera-test/arm')),patch.object(launcher,'ensure_can',side_effect=AssertionError('CAN must not run in this test')):
             with self.assertRaises(RuntimeError):launcher.launch()
             ensure.assert_called_once()
 
