@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>视觉识别 · ARX</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/vision.css">
+<script type="module" src="js/vision.js"></script></head>
+<body><header class="topbar"><div class="brand"><span class="brand-mark">A</span><div><strong>ARX / VISION</strong><small>电池目标识别</small></div></div><a class="button secondary" href="/">返回控制台</a></header>
+<main>
+<div class="page-heading"><div><h1>视觉识别</h1><p>实时查看候选与分割，后台复核抽样画面。</p></div></div>
+<div class="vision-controls"><label for="camera">相机</label><select id="camera"><option value="d435">RealSense D435</option><option value="d405">RealSense D405</option></select><button id="start" class="button primary">开始识别</button><button id="stop" class="button danger" disabled>停止识别</button><span id="status" role="status">尚未开始，模型未运行</span></div>
+<div class="vision-grid">
+<section class="panel"><div class="panel-heading"><h2 id="stream-title">实时识别</h2><span id="metrics" class="subtle-tag">等待开始</span></div><div class="vision-image"><img id="stream" alt="实时目标候选与分割视频流" hidden><p id="stream-empty">点击开始识别</p></div><p class="hint">黄色框为候选，绿色为候选分割。Qwen复核结果显示在右侧对应画面中。</p></section>
+<section class="panel"><div class="panel-heading"><h2>Qwen 抽样复核</h2><span id="review-time" class="subtle-tag">尚未复核</span></div><div class="vision-image"><img id="review" alt="Qwen复核对应的冻结画面" hidden><p id="review-empty">开始后自动复核抽样画面</p></div><p id="review-status" role="status" class="review-status">等待识别</p><p id="review-reason" class="hint"></p></section>
+</div><p class="hint">停止后释放模型资源。关闭本页约18秒后自动停止。</p>
+</main></body></html>

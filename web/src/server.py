@@ -16,6 +16,7 @@ import uuid
 from control import Controller, Rejected
 from handeye_steps import Steps
 from grasp_preview import GraspPreview
+from vision_preview import VisionPreview
 from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
@@ -24,10 +25,11 @@ WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_handler(controller, arxgent=None, depth_control=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None):
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
+    vision = vision or VisionPreview()
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -61,6 +63,39 @@ def make_handler(controller, arxgent=None, depth_control=None):
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == "/api/vision":
+                if not self.client(): return self.json(403, {"message":"请先打开视觉识别页"})
+                return self.json(200, vision.snapshot())
+            if path in ("/api/vision/stream", "/api/vision/review"):
+                if not self.client(): return self.json(403, {"message":"请先打开视觉识别页"})
+                from urllib.parse import parse_qs
+                ident=parse_qs(urlsplit(self.path).query).get("run", [""])[0]
+                if path.endswith("/review"):
+                    frame=vision.frame(ident, review=True)
+                    if frame is None: return self.json(404, {"message":"复核画面尚未生成"})
+                    self.response_headers(200,"image/jpeg",len(frame[1]))
+                    self.end_headers()
+                    self.wfile.write(frame[1])
+                    return
+                self.response_headers(200, "multipart/x-mixed-replace; boundary=frame")
+                self.send_header("Connection","close")
+                self.end_headers()
+                previous=None
+                try:
+                    while not self.server.stopping.is_set():
+                        state=vision.snapshot()
+                        if not state["running"] or state.get("run_id")!=ident: break
+                        frame=vision.frame(ident)
+                        if frame is not None and frame[0]!=previous:
+                            previous=frame[0]
+                            self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "+str(len(frame[1])).encode()+b"\r\n\r\n"+frame[1]+b"\r\n")
+                            self.wfile.flush()
+                        self.server.stopping.wait(.1)
+                except (BrokenPipeError,ConnectionResetError,OSError):
+                    pass
+                finally:
+                    self.close_connection=True
+                return
             if path == "/api/grasp-preview":
                 if not self.client():return self.json(403, {"message":"请先打开抓取预览页"})
                 return self.json(200, grasps.latest())
@@ -104,14 +139,14 @@ def make_handler(controller, arxgent=None, depth_control=None):
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/grasp.html") and not self.client():
+            if path in ("/", "/handeye.html", "/grasp.html", "/vision.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/grasp-preview'):
+            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/grasp-preview', '/api/vision'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -124,6 +159,8 @@ def make_handler(controller, arxgent=None, depth_control=None):
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/vision':
+                    return self.json(200, vision.action(self.client(), strict_json(raw)))
                 if path == '/api/grasp-preview':
                     return self.json(200, grasps.action(strict_json(raw)))
                 if path == '/api/handeye':
@@ -164,7 +201,8 @@ def main():
     adapter = RosAdapter(config)
     controller = Controller(config, adapter)
     arxgent = ArxgentChat.from_repository(WEB_ROOT.parent, args.port)
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent))
+    vision = VisionPreview()
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -179,6 +217,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        vision.close()
         arxgent.close()
         adapter.close()
         server.server_close()
