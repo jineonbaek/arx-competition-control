@@ -36,7 +36,10 @@ def checked_box(value, size):
     w,h = size
     if not 0<=x1<x2<=w or not 0<=y1<y2<=h:
         raise ValueError("BBox outside original image")
-    return list(map(int,value))
+    rounded=[int(x1),int(y1),int(x2),int(y2)]
+    if rounded[2]<=rounded[0] or rounded[3]<=rounded[1]:
+        raise ValueError("BBox collapses after pixel rounding")
+    return rounded
 
 def validate_choice(choice, candidates, size, coarse):
     if choice["status"]!="selected":
@@ -189,7 +192,7 @@ def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
               threshold=.20,force_fallback=False):
     candidates=models.detect(image,"a white plastic object. a battery. a white plastic handle.",threshold)
     (output/"candidates.png").write_bytes(_png(overlay_candidates(image,candidates)))
-    report={"observation_id":output.name,"image_size_px":list(image.size),
+    report={"observation_id":output.parent.name+"-"+output.name,"image_size_px":list(image.size),
             "candidates":candidates,"forced_fallback_test":force_fallback,"read_only":True}
     choice=None
     if candidates and not force_fallback:
@@ -244,7 +247,10 @@ def main():
     if args.reference:
         reference=Image.open(args.reference).convert("RGB")
     else:
-        reference=Image.open(REPO/"vision/config/d435-reference.jpg").convert("RGB").crop((394,73,487,230))
+        config_path=REPO/"vision/config/whole-battery-references.json"
+        spec=json.loads(config_path.read_text())["references"]["d435"]
+        index=spec["classes"].index(0)
+        reference=Image.open(config_path.parent/spec["image"]).convert("RGB").crop(spec["boxes"][index])
     session=ROOT/"runtime"/("run-"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"-"+uuid.uuid4().hex[:6])
     session.mkdir(parents=True)
     reference.save(session/"reference.png")

@@ -76,7 +76,7 @@ class PipelineTests(unittest.TestCase):
             validate_choice({"status":"selected","candidate_id":9},self.candidates,(80,60),False)
 
     def test_coordinate_rejection(self):
-        for box in [[0,0,90,20],[0,0,float("nan"),20],[1,1,1,5],[True,0,4,5]]:
+        for box in [[0,0,90,20],[0,0,float("nan"),20],[1,1,1,5],[True,0,4,5],[1.1,1.1,1.2,2.0]]:
             with self.subTest(box=box),self.assertRaises(ValueError):
                 checked_box(box,(80,60))
         for point in [[80,3],[-1,2],[float("inf"),3]]:
