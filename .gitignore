@@ -53,3 +53,7 @@ logs/
 
 # Generated live camera frames and per-frame metadata
 /web/public/camera-live/
+
+# Downloaded display-only CAD and browser dependencies
+/web/public/models/lift2/
+/web/public/vendor/lift2-preview/

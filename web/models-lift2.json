@@ -1,0 +1,41 @@
+{
+  "model": {
+    "repository": "ARXroboticsX/ARX_Model",
+    "ref": "7bf64651dd535065a2b9f0f1176e82755e3c1734",
+    "archive": "LIFT2/lift2.7z",
+    "git_blob": "165a6f860ca5f9f8444d23bfa3d231ff9d0418aa",
+    "robot": "lift2"
+  },
+  "rendering": {
+    "repository": "Chenxi-Li24/UIEAclub_ThirdHand_VLA",
+    "ref": "0db371bdae9ca43efac8fe902360f569641228e1",
+    "files": [
+      {
+        "source": "apps/web/public/js/lib/three.module.js",
+        "target": "three.module.js",
+        "git_blob": "bce3cc2159c9af422353b3b36c50970cb0e79bb7"
+      },
+      {
+        "source": "apps/web/public/js/lib/URDFLoader.js",
+        "target": "URDFLoader.js",
+        "git_blob": "d47b98cb72a6956857e76b2643bbf459b813d9ea"
+      },
+      {
+        "source": "apps/web/public/js/lib/controls/OrbitControls.js",
+        "target": "OrbitControls.js",
+        "git_blob": "d21c1eb9d05d262537738ccd75e0ec67fc876418"
+      },
+      {
+        "source": "apps/web/public/js/lib/loaders/STLLoader.js",
+        "target": "STLLoader.js",
+        "git_blob": "75d4f84586b83c46f982b972eeb94ef5a0461b1b"
+      }
+    ]
+  },
+  "display": {
+    "lift_rad_per_m": 41.54,
+    "lift_conversion": "nominal, not physically calibrated",
+    "arm_mapping": "direct radians to corresponding six official joints; mounting/axis comparison pending",
+    "gripper_mapping": "not calibrated; model fingers remain at CAD zero"
+  }
+}
