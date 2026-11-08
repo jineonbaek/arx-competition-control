@@ -18,14 +18,21 @@ def board_spec(data):
         raise ValueError("请填写板上同一枚 ArUco 的实际字典、编号和黑色外框边长（毫米）")
     return {"dictionary":name,"marker":marker,"mm":mm}
 
-def observe(spec, after, arm, model):
+class WaitForFrame(ValueError):
+    """No time-matched post-settle frame yet."""
+
+
+def observe(spec, after, arm, model, history=None):
     if not spec:raise ValueError("尚未设定标记字典、编号和实际边长")
     folder=PUBLIC/"camera-live"
     meta=json.loads((folder/"d405.json").read_text())
     stamp=meta.get("captured_at",0)
     name=meta.get("raw_image_file","")
+    if history:
+        ts,q=min(history,key=lambda item:abs(item[0]-stamp))
+        arm={"timestamp":ts,"joints":q.tolist()}
     if meta.get("state")!="online" or not after<=stamp<=time.time()+.05 or time.time()-stamp>.8 or abs(stamp-arm["timestamp"])>.20 or not re.fullmatch(r"d405-v-[a-f0-9]+-\d+\.jpg",name):
-        raise ValueError("等待停稳后的新 D405 帧与同一时刻右臂反馈")
+        raise WaitForFrame("等待停稳后的新 D405 帧与同一时刻右臂反馈")
     if meta.get("depth",{}).get("state")!="disabled":
         raise ValueError("等待 D405 采集程序确认已切至彩色模式")
     data=(folder/name).read_bytes()

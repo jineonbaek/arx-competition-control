@@ -1,6 +1,7 @@
 import json,sys,tempfile,time,unittest
 from pathlib import Path
 from unittest.mock import patch
+import numpy as np
 import cv2
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
@@ -24,6 +25,10 @@ class ObservationTests(unittest.TestCase):
             meta["color_intrinsics"]=dict(width=640,height=480,fx=400,fy=400,cx=320,cy=240,model="none",coeffs=[0]*5)
             p.write_text(json.dumps(meta))
             sample,_=h.observe(spec,t-.5,arm,model)
+            near_q=np.radians([0,0,0,0,0,7.3])
+            paired,_=h.observe(spec,t-.5,arm,model,[(t-.14,np.zeros(6)),(t-.008,near_q),(t+.08,np.zeros(6))])
+            self.assertEqual(paired["joints_rad"],near_q.tolist())
+            self.assertEqual(paired["arm_time"],t-.008)
             self.assertLess(sample["rms_px"],2)
             self.assertGreater(sample["T_camera_from_marker"][2][3],0)
             with self.assertRaises(ValueError):h.observe(dict(spec,marker=3),t-.5,arm,model)

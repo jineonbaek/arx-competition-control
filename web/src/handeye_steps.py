@@ -5,13 +5,23 @@ import time
 from pathlib import Path
 import numpy as np
 from handeye_column import ColumnModel
-from handeye_observation import board_spec, observe
+from handeye_observation import WaitForFrame, board_spec, observe
 
 # Small wrist rotations relative to one measured session anchor, in degrees.
 OFFSETS = [(0,0,0,0,0,8),(0,0,0,0,8,0),(0,0,0,0,0,-8),(0,0,0,0,-8,0),
            (0,0,0,6,0,5),(0,0,0,-6,0,-5),(0,0,0,0,10,8),(0,0,0,0,-10,8),
            (0,0,0,5,8,-6),(0,0,0,-5,-8,-6),(0,0,0,6,-6,8),(0,0,0,-6,6,8)]
 OUT=Path(__file__).resolve().parents[1]/"hardware/runtime/handeye"
+
+def capture_position(start, target, actual, *, motion):
+    """Sampling proximity only. Motion limits and collision checks are independent."""
+    travel_deg = float(np.max(np.abs(np.degrees(target - start))))
+    errors_deg = np.abs(np.degrees(target - actual))
+    worst = int(np.argmax(errors_deg))
+    tolerance = min(2.0, 0.25 * travel_deg) if motion else 0.5
+    eligible = (not motion or travel_deg >= 0.5) and errors_deg[worst] <= tolerance
+    return bool(eligible), worst + 1, float(errors_deg[worst])
+
 
 class Steps:
     def __init__(self, controller, depth_control):
@@ -126,6 +136,7 @@ class Steps:
             if s2["arms"]["right"]["timestamp"]<=stamp or np.max(abs(q2-q))>np.radians(.15) or abs(h2-h)>.03 or not self.assess(s2,q2,h2,target)["clear"]:
                 raise ValueError("机械臂或升降尚未停稳，请重新预览")
             token=self.depth_control.acquire_handeye(False)
+            p=dict(p, start=q2.tolist())
             self.active=True;self.motion=True;self.cancelled=False
             try:
                 self.ctrl.submit({"type":"arm.joints","arm":"right","joints":np.degrees(target).tolist()},client)
@@ -158,7 +169,7 @@ class Steps:
 
     def finish(self, client,p,target,token):
         deadline=time.monotonic()+12
-        stable=[];frames=[];reason="未到位或未停稳";settled=False
+        stable=[];frames=[];reason="等待新鲜反馈";position_note=""
         try:
             while time.monotonic()<deadline:
                 time.sleep(.08)
@@ -168,30 +179,46 @@ class Steps:
                     if abs(h-p["lift"])>.05:raise ValueError("升降反馈已变化")
                     if not self.assess(s,q,h,target)["clear"]:raise ValueError("实际路径重新检查未通过")
                     arm=s["arms"]["right"]
-                    if np.max(abs(q-target))>np.radians(.5):
-                        stable=[];frames=[];settled=False;continue
+                    start=np.asarray(p["start"]) if self.motion else target
+                    near,joint,error=capture_position(start,target,q,motion=self.motion)
+                    position_note=f"J{joint} 目标 {np.degrees(target[joint-1]):.2f}°，实测 {np.degrees(q[joint-1]):.2f}°，差 {error:.2f}°"
+                    if not near:
+                        reason="未进入参考姿态附近"
+                        stable=[];frames=[];continue
                     if not stable or arm["timestamp"]>stable[-1][0]:stable.append((arm["timestamp"],q.copy()))
                     stable=[x for x in stable if arm["timestamp"]-x[0]<.65]
-                    if len(stable)<4 or stable[-1][0]-stable[0][0]<.40 or np.max(np.ptp([x[1] for x in stable],axis=0))>np.radians(.18):
-                        frames=[];continue
-                    settled=True
-                    try:sample,image=observe(self.spec,stable[0][0],arm,self.model)
+                    if len(stable)<4 or stable[-1][0]-stable[0][0]<.40:
+                        reason="等待连续停稳反馈";frames=[];continue
+                    jitter=float(np.max(np.ptp(np.degrees([x[1] for x in stable]),axis=0)))
+                    if jitter>.18 or np.max(np.diff([x[0] for x in stable]))>.25:
+                        reason=f"停稳窗口反馈间隔过长或关节波动 {jitter:.2f}°";frames=[];continue
+                    try:sample,image=observe(self.spec,stable[0][0],arm,self.model,stable)
+                    except WaitForFrame:
+                        if not frames and reason.startswith(("等待连续","等待新鲜","未进入","停稳窗口")):
+                            reason="已接近参考姿态并停稳，等待相机与关节反馈配对"
+                        continue
                     except (ValueError,OSError) as err:
                         reason=str(err);frames=[];continue
-                    if frames and frames[-1][0]["camera_session"]!=sample["camera_session"]:frames=[]
+                    if frames and (frames[-1][0]["camera_session"]!=sample["camera_session"] or sample["image_time"]-frames[-1][0]["image_time"]>.65):frames=[]
                     if frames and frames[-1][0]["frame"]==sample["frame"]:continue
                     frames.append((sample,image));frames=frames[-3:]
-                    if len(frames)<3:continue
+                    if len(frames)<3:
+                        reason=f"已停稳，标记有效帧 {len(frames)}/3";continue
                     transforms=np.array([f[0]["T_camera_from_marker"] for f in frames])
                     if np.max(np.linalg.norm(transforms[:,:3,3]-transforms[-1,:3,3],axis=1))>.005 or np.max(np.abs(transforms[:,:3,:3]-transforms[-1,:3,:3]))>.05:
                         reason="连续三帧标记位姿不稳定";continue
+                    measured=np.array([f[0]["joints_rad"] for f in frames])
+                    if np.max(np.ptp(measured,axis=0))>np.radians(.18):
+                        reason="三帧对应的实测关节仍在移动";continue
+                    sample["reference_joints_rad"]=target.tolist()
+                    sample["max_reference_error_deg"]=float(np.max(np.abs(np.degrees(measured[-1]-target))))
                     folder=OUT/self.session/f"point-{p['point']:02d}"
                     folder.mkdir(parents=True,exist_ok=True)
                     (folder/"color.jpg").write_bytes(image)
                     (folder/"sample.json").write_text(json.dumps(sample,indent=2))
-                    self.record("可用",f"已保存图像及成对位姿，重投影 RMS {sample['rms_px']:.2f} px",p["point"])
+                    self.record("可用",f"已保存图像及成对位姿，重投影 RMS {sample['rms_px']:.2f} px，按实测姿态保存（最大参考偏差 {sample['max_reference_error_deg']:.2f}°）",p["point"])
                     return
-            raise ValueError(reason)
+            raise ValueError(f"{reason}；{position_note}" if position_note else reason)
         except Exception as err:
             with self.lock:
                 if self.motion and not self.cancelled:
