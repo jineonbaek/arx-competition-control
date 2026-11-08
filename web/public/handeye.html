@@ -47,9 +47,9 @@
 <section class="panel" aria-labelledby="step-title">
  <div class="panel-heading"><h2 id="step-title">右臂逐点采集</h2></div>
  <p>板固定在桌面，底盘、升降和左臂停稳。候选从开始时的右臂姿态生成，J1 保持起始角，仅改变腕部姿态。</p>
- <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option>5X5_100</option><option>5X5_250</option><option>6X6_250</option></select></label>
- <label>同一枚标记 ID<input id="board-id" type="number" min="0" step="1"></label>
- <label>标记黑框边长 mm<input id="board-mm" type="number" min="1" step=".01"></label></div>
+ <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option selected>5X5_100</option><option>5X5_250</option><option>6X6_250</option></select></label>
+ <label>同一枚标记 ID<input id="board-id" value="9" type="number" min="0" step="1"></label>
+ <label>标记黑框边长 mm<input id="board-mm" value="11.25" type="number" min="1" step=".01"></label></div>
  <button type="button" class="button secondary" id="step-probe">原地试采</button>
  <button type="button" class="button secondary" id="step-begin">生成首个候选</button>
  <button type="button" class="button secondary" id="step-next" disabled>下一候选</button>

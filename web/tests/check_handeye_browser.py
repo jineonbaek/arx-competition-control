@@ -25,6 +25,7 @@ def main():
             if route.request.method=="POST":
                 op=route.request.post_data_json["op"];ops.append(op)
                 if op=="begin":
+                    assert route.request.post_data_json["marker"]==9
                     state.update(session="fixture",board_configured=True,cursor=1,pending=dict(
                         point=1,start=[0]*6,target=[0,0,0,0,0,.1],ticket="fake",expires=time.time()+60,
                         check=dict(clear=True,lower_mm=115,margin_mm=20,link="right_link23")),
@@ -48,7 +49,7 @@ def main():
         page.locator('#robot-preview[data-loaded=true]').wait_for(timeout=60000)
         assert page.locator('#handeye-start').is_disabled()
         assert ops == [], 'Opening the page must not start a calibration operation'
-        page.select_option('#board-dict','5X5_100');page.fill('#board-id','1');page.fill('#board-mm','11.25')
+        assert [page.input_value('#'+key) for key in ('board-dict','board-id','board-mm')]==['5X5_100','9','11.25']
         page.click('#step-begin')
         page.locator('#step-detail').filter(has_text='115 mm').wait_for()
         assert ops==["begin"] and page.locator('#handeye-start').is_disabled()
