@@ -10,11 +10,13 @@ template<class Config> inline void apply_slow_lift_config(Config& c) {
 inline bool valid_lift_target(double x) {
   return std::isfinite(x) && x >= 0.0 && x <= 18.0;
 }
-inline bool valid_chassis_target(double x, double y, double yaw, int mode) {
+inline bool valid_chassis_target(double x, double y, double yaw, int mode,
+                                 double linear_limit = WEB_MAX_LINEAR,
+                                 double yaw_limit = WEB_MAX_YAW) {
   if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(yaw)) return false;
   if (mode == 2) return x == 0.0 && y == 0.0 && yaw == 0.0;
-  return mode == 1 && std::hypot(x,y) <= WEB_MAX_LINEAR + 1e-9 &&
-         std::abs(yaw) <= WEB_MAX_YAW + 1e-9;
+  return mode == 1 && std::hypot(x,y) <= linear_limit + 1e-9 &&
+         std::abs(yaw) <= yaw_limit + 1e-9;
 }
 inline bool chassis_expired(double age) {
   return !std::isfinite(age) || age < 0.0 || age >= WEB_CHASSIS_TIMEOUT;

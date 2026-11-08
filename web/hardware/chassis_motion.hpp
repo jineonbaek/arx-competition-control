@@ -16,6 +16,9 @@ class ChassisMotion {
  public:
   using Velocity = std::array<double, 3>;
 
+  explicit ChassisMotion(double linear_limit = WEB_MAX_LINEAR, double yaw_limit = WEB_MAX_YAW)
+      : linear_limit_(linear_limit), yaw_limit_(yaw_limit) {}
+
   void protect() {
     target_ = {};
     output_ = {};
@@ -33,7 +36,7 @@ class ChassisMotion {
 
   void request(const Velocity &target, int mode, double now) {
     if (!std::isfinite(now) ||
-        !valid_chassis_target(target[0], target[1], target[2], mode)) {
+        !valid_chassis_target(target[0], target[1], target[2], mode, linear_limit_, yaw_limit_)) {
       protect();
       return;
     }
@@ -98,6 +101,7 @@ class ChassisMotion {
   int mode() const { return phase_ == Phase::Protect ? 2 : 1; }
 
  private:
+  double linear_limit_, yaw_limit_;
   enum class Phase { Protect, Drive, Decelerate, Hold, Brake };
   Velocity target_{}, output_{};
   Phase phase_ = Phase::Protect;

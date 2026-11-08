@@ -220,6 +220,12 @@ class RosAdapter:
                 self.pending_arm_commands.pop(request_id, None)
         return confirmed() if wait else confirmed
 
+    def nav_chassis_sdk(self, x, y, yaw):
+        msg = self.PosCmd()
+        msg.chx, msg.chy, msg.chz = x, y, yaw
+        msg.mode1 = 1
+        self._publisher("/web/nav/sdk_command", self.PosCmd).publish(msg)
+
     def chassis(self, x, y, yaw, body):
         msg = self.PosCmd()
         msg.height = body["height"]

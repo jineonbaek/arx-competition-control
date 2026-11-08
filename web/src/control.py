@@ -155,6 +155,7 @@ class Controller:
                                "linear": self.config["body"]["max_linear_m_s"],
                                "angular": self.config["body"]["max_angular_rad_s"]},
                     "chassis_active": self.chassis_owner is not None,
+                    "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
                     "logs": list(self.logs)}
 
     def submit(self, data, client):
@@ -170,7 +171,7 @@ class Controller:
                 if data["type"] == "arm.mode":
                     self.log(result["message"], "warning" if data["mode"] in (0, 1) else "info")
                     return {"ok": True, **result}
-                if data["type"] != "chassis" or not was_moving:
+                if data["type"] not in ("chassis","chassis.nav_sdk") or not was_moving:
                     self.log("已下发：" + json.dumps(data, ensure_ascii=False, allow_nan=False) + "（未确认到位）")
                 return {"ok": True, "message": "已下发，等待实际反馈；不代表已到位", **(result or {})}
         except Rejected as e:
@@ -186,7 +187,8 @@ class Controller:
                    "chassis": {"type", "direction", "speed", "turn_speed", "sequence"},
                    "chassis.stop": {"type", "sequence"}, "lift": {"type", "target"}, "lift.stop": {"type"}}
         kind = data.get("type")
-        chassis_vector = kind == "chassis" and set(data) == {"type", "x", "y", "omega", "sequence"}
+        nav_sdk = kind == "chassis.nav_sdk"
+        chassis_vector = kind in ("chassis","chassis.nav_sdk") and set(data) == {"type", "x", "y", "omega", "sequence"}
         if not chassis_vector and (kind not in schemas or set(data) != schemas[kind]):
             raise Rejected("指令类型或字段无效")
         if "arm" in data:
@@ -260,11 +262,15 @@ class Controller:
             return
         c = self.config["body"]
         max_linear, max_angular = c["max_linear_m_s"], c["max_angular_rad_s"]
+        if nav_sdk:
+            if not self.adapter.has_subscriber("/web/nav/sdk_command", "body"):
+                raise Rejected("导航 SDK 接收端未启动")
+            max_linear, max_angular = 1.0, .112
         if chassis_vector:
             x, y, omega = data["x"], data["y"], data["omega"]
             if (not all(type(v) in (int, float) and -limit <= v <= limit
                         for v, limit in ((x, max_linear), (y, max_linear), (omega, max_angular)))
-                    or math.hypot(x, y) > max_linear or (x, y, omega) == (0, 0, 0)):
+                    or math.hypot(x, y) > max_linear + (1e-12 if nav_sdk else 0.) or (x, y, omega) == (0, 0, 0)):
                 raise Rejected("底盘三轴速度无效或超出已配置范围")
         else:
             direction, speed, turn = data["direction"], data["speed"], data["turn_speed"]
@@ -273,7 +279,10 @@ class Controller:
             dx, dy, rotation = DIRECTIONS[direction]
             x, y, omega = dx * speed, dy * speed, rotation * turn
         self.chassis_message = copy.deepcopy(self.body)
-        self.adapter.chassis(x, y, omega, self.chassis_message)
+        if nav_sdk:
+            self.adapter.nav_chassis_sdk(x, y, omega)
+        else:
+            self.adapter.chassis(x, y, omega, self.chassis_message)
         self.chassis_owner = client
         self.chassis_deadline = self.clock() + self.config["chassis_lease_s"]
 

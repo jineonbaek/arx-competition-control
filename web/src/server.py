@@ -141,6 +141,8 @@ def make_handler(controller, arxgent=None, depth_control=None):
                     data = strict_json(raw)
                     return self.json(202, arxgent.handle(self.client(), data))
                 data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
+                if isinstance(data,dict) and data.get("type")=="chassis.nav_sdk" and self.client_address[0] not in ("127.0.0.1","::1"):
+                    raise Rejected("导航 SDK 入口仅接受本机执行器")
                 return self.json(200, steps.manual_submit(data, self.client()))
             except ChatError as error:
                 return self.json(error.status, {'ok': False, 'message': error.message})

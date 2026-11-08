@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include "slow_lift_config.hpp"
 #include "chassis_motion.hpp"
+#include "command_lease.hpp"
+#include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <sys/file.h>
@@ -72,7 +74,12 @@ int main(int argc, char **argv) {
   auto imu_pub = node->create_publisher<sensor_msgs::msg::Imu>("/arx_imu", 1);
   auto ready_pub = node->create_publisher<std_msgs::msg::Bool>("/web/body/calibrated", 1);
   auto last_command = std::chrono::steady_clock::time_point{};
-  ChassisMotion chassis_motion;
+  ChassisMotion chassis_motion(2.0, 2.0);
+  CommandLease command_lease;
+  auto gamepad_status_pub = node->create_publisher<std_msgs::msg::String>("/web/gamepad/status", 10);
+  auto gamepad_status = [&](const std::string &status) {
+    std_msgs::msg::String msg; msg.data = status; gamepad_status_pub->publish(msg);
+  };
   auto chassis_sub = node->create_subscription<arm_control::msg::PosCmd>(
       "/web/body/command", 1, [&](const arm_control::msg::PosCmd &msg) {
         const double x = msg.chx / 2.5, y = -msg.chy / 2.5, yaw = msg.chz / 2.5;
@@ -82,9 +89,42 @@ int main(int argc, char **argv) {
           RCLCPP_WARN(node->get_logger(), "Rejected chassis target: invalid range/mode or body not ready");
           return;
         }
-        last_command = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        if (!command_lease.accept(CommandSource::Web, msg.mode1,
+              std::chrono::duration<double>(now.time_since_epoch()).count())) return;
+        if (msg.mode1 == 2) gamepad_status("stop:web");
+        last_command = now;
         chassis_motion.request({x, y, yaw}, msg.mode1,
             std::chrono::duration<double>(last_command.time_since_epoch()).count());
+      });
+  // Console owns both web and navigation leases. Navigation vectors arrive in SDK units.
+  auto nav_sub = node->create_subscription<arm_control::msg::PosCmd>(
+      "/web/nav/sdk_command", 1, [&](const arm_control::msg::PosCmd &msg) {
+        if (msg.mode1 != 1 || !control_loop->calibrated() ||
+            !valid_chassis_target(msg.chx, msg.chy, msg.chz, 1, 1.0000001, 0.1120001)) return;
+        const auto now = std::chrono::steady_clock::now();
+        const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
+        if (!command_lease.accept(CommandSource::Web, 1, stamp)) return;
+        last_command = now;
+        chassis_motion.request({msg.chx, msg.chy, msg.chz}, 1, stamp);
+      });
+  // Dedicated gamepad entry is already in SDK units, unlike the legacy web entry.
+  auto gamepad_sub = node->create_subscription<arm_control::msg::PosCmd>(
+      "/web/gamepad/command", 1, [&](const arm_control::msg::PosCmd &msg) {
+        if (!valid_chassis_target(msg.chx, msg.chy, msg.chz, msg.mode1, 2.0, 2.0) ||
+            (msg.mode1 == 1 && !control_loop->calibrated())) {
+          gamepad_status("rejected:invalid_or_not_ready");
+          return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
+        if (!command_lease.accept(CommandSource::Gamepad, msg.mode1, stamp)) {
+          gamepad_status("rejected:busy");
+          return;
+        }
+        last_command = now;
+        chassis_motion.request({msg.chx, msg.chy, msg.chz}, msg.mode1, stamp);
+        gamepad_status("accepted:gamepad");
       });
   auto stop_lift_service = node->create_service<std_srvs::srv::Trigger>(
       "/web/body/stop_lift", [&](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
