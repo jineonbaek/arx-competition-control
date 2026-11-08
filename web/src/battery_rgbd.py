@@ -43,6 +43,9 @@ def run(spec,stop,publish,out,control=None):
             configure_streams(rs,config,enabled)
             profile=pipeline.start(config);started=True
             streams=[str(p.stream_type()) for p in profile.get_streams()]
+            color_profile=profile.get_stream(rs.stream.color).as_video_stream_profile().intrinsics
+            color_k=dict(width=color_profile.width,height=color_profile.height,fx=color_profile.fx,fy=color_profile.fy,
+                         cx=color_profile.ppx,cy=color_profile.ppy,model=str(color_profile.model),coeffs=list(color_profile.coeffs),serial=serial)
             scale=profile.get_device().first_depth_sensor().get_depth_scale() if enabled else None
             align=rs.align(rs.stream.color) if enabled else None
             warmup=15;last=0
@@ -75,7 +78,7 @@ def run(spec,stop,publish,out,control=None):
                 if not ok:raise RuntimeError('Color encoding failed')
                 name=f'{key}-v-{token}.jpg';path=out/name;path.write_bytes(jpeg.tobytes())
                 recent.append((path,*depth_paths))
-                publish(out,key,jpeg.tobytes(),sequence,captured,'online',extra={'image_file':name,'raw_image_file':name,'depth':depth_meta,'active_streams':streams})
+                publish(out,key,jpeg.tobytes(),sequence,captured,'online',extra={'image_file':name,'raw_image_file':name,'depth':depth_meta,'active_streams':streams,'color_intrinsics':color_k})
                 while len(recent)>35:
                     for old in recent.popleft():old.unlink(missing_ok=True)
                 last=time.monotonic()

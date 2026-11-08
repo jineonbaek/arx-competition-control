@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlsplit
 import uuid
 
 from control import Controller, Rejected
+from handeye_steps import Steps
 from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
@@ -24,6 +25,7 @@ PUBLIC = WEB_ROOT / "public"
 
 def make_handler(controller, arxgent=None, depth_control=None):
     depth_control=depth_control or DepthControl()
+    steps = Steps(controller)
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -59,6 +61,8 @@ def make_handler(controller, arxgent=None, depth_control=None):
             path = urlsplit(self.path).path
             if path == "/api/camera/depth":
                 return self.json(200, depth_control.snapshot())
+            if path == "/api/handeye":
+                return self.json(200, steps.state(self.client()))
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
             if path == '/api/arxgent':
@@ -95,14 +99,14 @@ def make_handler(controller, arxgent=None, depth_control=None):
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path == "/" and not self.client():
+            if path in ("/", "/handeye.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth'):
+            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -115,6 +119,8 @@ def make_handler(controller, arxgent=None, depth_control=None):
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/handeye':
+                    return self.json(200, steps.action(self.client(), strict_json(raw)))
                 if path == '/api/camera/depth':
                     data=strict_json(raw)
                     try:result=depth_control.request(data)
@@ -128,7 +134,7 @@ def make_handler(controller, arxgent=None, depth_control=None):
                     data = strict_json(raw)
                     return self.json(202, arxgent.handle(self.client(), data))
                 data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
-                return self.json(200, controller.submit(data, self.client()))
+                return self.json(200, steps.manual_submit(data, self.client()))
             except ChatError as error:
                 return self.json(error.status, {'ok': False, 'message': error.message})
             except (ValueError, TypeError, Rejected) as e:
