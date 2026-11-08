@@ -1,10 +1,37 @@
 {
   "model": {
-    "repository": "ARXroboticsX/ARX_Model",
-    "ref": "7bf64651dd535065a2b9f0f1176e82755e3c1734",
-    "archive": "LIFT2/lift2.7z",
-    "git_blob": "165a6f860ca5f9f8444d23bfa3d231ff9d0418aa",
-    "robot": "lift2"
+    "delivery": "LIFT2S 20261105 DIY",
+    "public_path": "models/lift2/diy-20261105",
+    "urdf": "urdf/lift2_with_sensors.urdf",
+    "sha256": {
+      "meshes/added_113_head.STL": "cbf0d144a98c57834c323e1da5ecd1ede19168b0d94f2ebff8b196f8ae09d226",
+      "meshes/added_front_hang_mount.STL": "f2ab28b193d8ad927acddea03d0e9277759c5fe6df5e1c544a19910381509e5c",
+      "meshes/base_link.STL": "b7a416b41e01eebef98bbca7c1aa3616da60a1c0df81f93713fa81426a75b929",
+      "meshes/body4.STL": "14f42d14e05d9618241396677a47d7913fc3dc2f452a3f58351df4ff01bafc9a",
+      "meshes/left_link11.STL": "e7af064b14d7020b9261e18a16a41accc3f0c1dfa6c280ae2244dbc730ce348c",
+      "meshes/left_link12.STL": "f6e8062e0b28d166304b805e936353c30d2c9e7b4d8f2fb089c93a9e522d3dec",
+      "meshes/left_link13.STL": "7cea9b0622cf2397bbbc9930a2f60cdf7291f249bf1412242629f6abc6f94b06",
+      "meshes/left_link14.STL": "9235ae2571892d0838507e3327d23a882420d63675cf0a73028e25b7c954d673",
+      "meshes/left_link15.STL": "08747a4753ab52247e2f71500660647fef391e5b7a3f94b9fb0d447ff6c680fe",
+      "meshes/left_link16.STL": "d61fff9fc22912d6d58852501b8405b76c009589af9cc173c4bef8682221cfac",
+      "meshes/left_link17.STL": "5aeb93355602e61df81584cd98ed6ceda6c0fd68d331971f920a3adb6a2d54c9",
+      "meshes/left_link18.STL": "e7264a85a9d3a8a5f83ebea631497a040553f20c8d107a75db181d0186c28a35",
+      "meshes/right_link21.STL": "acf6803b96553812b62df4f1d0b71f501ca692786c25419ef4fc6f8f48c85045",
+      "meshes/right_link22.STL": "c7f50b402ed95189b161f99dc567d9d870a0342aab9b603f4b20db91295b9169",
+      "meshes/right_link23.STL": "3a629544f67eb46fec8bd2af1215b28bcfc979f3e9248da46a8fcab62b3860eb",
+      "meshes/right_link24.STL": "e0e73423d346abf17082c20fb0cea0165b46ac25693eab7621eb220884a58ad6",
+      "meshes/right_link25.STL": "3b5b46cfe8d8a87f65c70480eaa1260dab5e0588d8be285da98f7793f84a0852",
+      "meshes/right_link26.STL": "8aec01a9ab9c86b95682863eef860e583c6039cc5679238266a5811e00e8d817",
+      "meshes/right_link27.STL": "9af488e36fac2cd6aa5c39351afad8c5065be84f8636fd7178fa29486f6b5c3d",
+      "meshes/right_link28.STL": "3671b257d78e21961388b8bfab09caeb3657e4596b96b0ceb4bf3403dfcdb522",
+      "meshes/sensor_astra_pro_mm.STL": "27e4f93e73d04ac592fc3096fceed28da8ca2072e8c12e3b8d593c37978b4c17",
+      "meshes/sensor_d435i_mm.STL": "ce8dfd4f1473fc8cdd0d1bb5377b25c2af13c9fb05882efcf63ac3480c1bad84",
+      "meshes/sensor_mid360_mm.STL": "5c672b090fa9cb3108577b491522092aa1268a9fe412d7f7f9a8c1aad5de3e93",
+      "meshes/wheel1.STL": "bf2ecdd37c10f68e20e32f80ea2f0ab3c478860de5c401c3516124ec481388b8",
+      "meshes/wheel2.STL": "a75541a82cb10ae25085bf6e9e3b232307d3a82eaf662580a23272a13fe29657",
+      "meshes/wheel3.STL": "604c42765b3ea20abfc7f74c658c17af20893085095a58489881c179c91db1c1",
+      "urdf/lift2_with_sensors.urdf": "7edd4ce7daa1d8132eb18fb16fb5b77fe8fa9dada6e40622d26103023d3c00fa"
+    }
   },
   "rendering": {
     "repository": "Chenxi-Li24/UIEAclub_ThirdHand_VLA",
@@ -13,22 +40,26 @@
       {
         "source": "apps/web/public/js/lib/three.module.js",
         "target": "three.module.js",
-        "git_blob": "bce3cc2159c9af422353b3b36c50970cb0e79bb7"
+        "git_blob": "bce3cc2159c9af422353b3b36c50970cb0e79bb7",
+        "installed_sha256": "ca330dc6b8e6a0a88a0b707e40a5191110c3e86842c7c6431a7a7a2e972f08f5"
       },
       {
         "source": "apps/web/public/js/lib/URDFLoader.js",
         "target": "URDFLoader.js",
-        "git_blob": "d47b98cb72a6956857e76b2643bbf459b813d9ea"
+        "git_blob": "d47b98cb72a6956857e76b2643bbf459b813d9ea",
+        "installed_sha256": "1eeda5b0d2085fd18266d14481f33ce9a96c15745107a699916406e24ccacdbf"
       },
       {
         "source": "apps/web/public/js/lib/controls/OrbitControls.js",
         "target": "OrbitControls.js",
-        "git_blob": "d21c1eb9d05d262537738ccd75e0ec67fc876418"
+        "git_blob": "d21c1eb9d05d262537738ccd75e0ec67fc876418",
+        "installed_sha256": "3050ae4800eb865eb2d10fce4cd563130b53ac60318333694633156a23b66c0a"
       },
       {
         "source": "apps/web/public/js/lib/loaders/STLLoader.js",
         "target": "STLLoader.js",
-        "git_blob": "75d4f84586b83c46f982b972eeb94ef5a0461b1b"
+        "git_blob": "75d4f84586b83c46f982b972eeb94ef5a0461b1b",
+        "installed_sha256": "3b4bcbccae8ea29cb31202ff2d8900dbd36be7e7eb763b17b8a0c0b9f2ed181e"
       }
     ]
   },

@@ -1,65 +1,42 @@
+import hashlib
 import json
-import importlib.util
-import unittest
-from unittest.mock import patch
-import tempfile
 import struct
-import contextlib
-import io
+import unittest
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("prepare_lift2_preview", ROOT / "scripts/prepare_lift2_preview.py")
+MODEL = json.loads((ROOT / 'web/models-lift2.json').read_text())['model']
+PACKAGE = ROOT / 'web/public' / MODEL['public_path']
+
 
 class Lift2AssetsTests(unittest.TestCase):
-    def loader(self):
-        self.assertTrue(Path(SPEC.origin).is_file(), "Missing pinned LIFT2 asset preparation script")
-        module = importlib.util.module_from_spec(SPEC)
-        SPEC.loader.exec_module(module)
-        return module
+    def test_installed_delivery_is_complete_and_byte_exact(self):
+        robot = ET.parse(PACKAGE / MODEL['urdf']).getroot()
+        meshes = {m.get('filename').removeprefix('package://lift2/') for m in robot.findall('.//mesh')}
+        self.assertEqual(meshes | {MODEL['urdf']}, set(MODEL['sha256']))
+        for name, digest in MODEL['sha256'].items():
+            self.assertEqual(hashlib.sha256((PACKAGE / name).read_bytes()).hexdigest(), digest, name)
 
-    def test_preparing_twice_never_hashes_the_integrity_file_itself(self):
-        m = self.loader()
-        source = b'<robot name="lift2">' + b'<link name="part"><visual><geometry><mesh filename="package://lift2/meshes/base_link.STL"/></geometry></visual></link>' * 21 + b'</robot>'
-        mesh = b'0' * 80 + struct.pack('<I', 1) + struct.pack('<12fH', *([0.] * 12), 0)
-        manifest = json.loads((ROOT / 'web/models-lift2.json').read_text())
-        with tempfile.TemporaryDirectory() as temp, patch.object(m.shutil, 'which', return_value='/usr/bin/7z'), patch.object(m, 'fetch', return_value=b'fixture'), patch.object(m, 'read_member', side_effect=lambda archive, name, extractor: source if name.endswith('.urdf') else mesh), contextlib.redirect_stdout(io.StringIO()):
-            output = Path(temp)
-            m.prepare(manifest, output)
-            record = output / 'models/lift2/asset-integrity.json'
-            first = json.loads(record.read_text())['sha256']
-            m.prepare(manifest, output)
-            second = json.loads(record.read_text())['sha256']
-            self.assertEqual(first, second)
-            self.assertNotIn('models/lift2/asset-integrity.json', second)
+    def test_corrected_mesh_serves_visual_and_collision(self):
+        body = ET.parse(PACKAGE / MODEL['urdf']).find("link[@name='body4']")
+        for kind in ['visual','collision']:
+            self.assertEqual(body.find(kind+'/geometry/mesh').get('filename'), 'package://lift2/meshes/body4.STL')
+        data = (PACKAGE / 'meshes/body4.STL').read_bytes()
+        self.assertEqual(struct.unpack_from('<I', data, 80)[0], 66836)
+        self.assertEqual(len(data), 84 + 50 * 66836)
 
-    def test_git_blob_integrity_rejects_corruption(self):
-        m = self.loader()
-        m.check_blob(b"hello\n", "ce013625030ba8dba906f756967f9e9ca394464a")
-        with self.assertRaises(ValueError):
-            m.check_blob(b"changed", "ce013625030ba8dba906f756967f9e9ca394464a")
-
-    def test_asset_record_paths_work_across_windows_and_linux(self):
-        record = json.loads((ROOT / "web/public/models/lift2/asset-integrity.json").read_text())
-        for name in record["sha256"]:
-            self.assertNotIn(chr(92), name)
-            self.assertTrue((ROOT / "web/public" / name).is_file(), name)
-
-    def test_official_model_contains_both_arms_and_lift(self):
-        self.loader()
-        public = ROOT / "web/public"
-        model = ET.parse(public / "models/lift2/urdf/lift2.urdf").getroot()
-        self.assertEqual(len(model.findall("link")), 21)
-        joints = {j.get("name"): j for j in model.findall("joint")}
-        self.assertEqual(joints["joint4"].get("type"), "prismatic")
-        self.assertAlmostEqual(float(joints["joint4"].find("limit").get("upper")), .46)
-        for side, first in (("left", 11), ("right", 21)):
-            for n in range(first, first + 6):
-                self.assertIn(f"{side}_joint{n}", joints)
-        for mesh in model.findall(".//mesh"):
-            relative = mesh.get("filename").removeprefix("package://lift2/")
-            self.assertTrue((public / "models/lift2" / relative).is_file(), relative)
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_fixed_sensors_and_feedback_joint_names(self):
+        root = ET.parse(PACKAGE / MODEL['urdf']).getroot()
+        self.assertEqual(len(root.findall('link')), 27)
+        joints = {j.get('name'): j for j in root.findall('joint')}
+        self.assertEqual(len(joints), 26)
+        self.assertEqual(joints['joint4'].get('type'), 'prismatic')
+        for side, start in [('left',11),('right',21)]:
+            for i in range(6):
+                self.assertEqual(joints[f'{side}_joint{start+i}'].get('type'), 'revolute')
+        fixed = {j.find('child').get('link'):j.find('parent').get('link') for j in joints.values() if j.get('type')=='fixed'}
+        self.assertEqual(fixed, {'head_113_link':'base_link','upper_mid360_link':'head_113_link','d435i_link':'head_113_link','astra_pro_link':'head_113_link','front_hang_mount_link':'base_link','lower_mid360_link':'front_hang_mount_link'})
+        for name in fixed:
+            mesh = root.find(f"link[@name='{name}']/visual/geometry/mesh")
+            self.assertEqual([float(x) for x in mesh.get('scale').split()], [.001]*3)
