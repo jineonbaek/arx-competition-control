@@ -24,6 +24,11 @@ def main():
         if path=="/api/handeye":
             if route.request.method=="POST":
                 op=route.request.post_data_json["op"];ops.append(op)
+                if op=="verify_point":
+                    assert route.request.post_data_json["reference_mm"]==[123,None,None]
+                    route.fulfill(json=dict(shoulder_mm=[124,5,10],spread_mm=.3,delta_mm=[1,None,None],
+                                            error_mm=None,check_id="fixture"))
+                    return
                 if op=="begin":
                     assert route.request.post_data_json["marker"]==26
                     assert route.request.post_data_json["layout"]=="CC200-15-11.25"
@@ -52,6 +57,11 @@ def main():
         assert page.locator('#handeye-start').is_disabled()
         assert ops == [], 'Opening the page must not start a calibration operation'
         assert [page.input_value('#'+key) for key in ('board-dict','board-id','board-mm')]==['5X5_100','26','11.25']
+        page.fill('#check-x','123')
+        page.click('#measure-check')
+        page.locator('#physical-result').filter(has_text='X 1.0 / Y — / Z —').wait_for()
+        assert ops==['verify_point']
+        ops.clear()
         page.click('#step-begin')
         page.locator('#step-detail').filter(has_text='115 mm').wait_for()
         assert '当前腕姿补采' in page.inner_text('#step-detail')

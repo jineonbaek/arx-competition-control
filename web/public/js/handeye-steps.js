@@ -6,7 +6,7 @@ async function request(data) {
   const response=await fetch('/api/handeye',data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(10000)}:{cache:'no-store',signal:AbortSignal.timeout(3000)});
   const json=await response.json();
   if(!response.ok)throw Error(json.message||'标定服务不可用');
-  clock=performance.now()-json.time*1000;
+  if(Number.isFinite(json.time))clock=performance.now()-json.time*1000;
   return json;
 }
 function display() {
@@ -14,6 +14,7 @@ function display() {
   const valid=p && p.ticket && performance.now()-clock < p.expires*1000;
   if(approvedSession!==state?.session){el('step-confirm').checked=false;approvedSession=state?.session;}
   el('handeye-start').disabled=busy || state?.active || !state?.board_configured || !p?.profile || !Number.isFinite(p?.wrist_rise_mm) || !valid || !el('step-confirm').checked || el('robot-preview').dataset.loaded!=='true';
+  el('measure-check').disabled=checking || busy || !state || state.active || Boolean(p);
   el('step-next').disabled=busy || state?.active || !state?.session || state.cursor>=state.total;
   el('step-begin').disabled=el('step-probe').disabled=busy || state?.active;
   el('step-stop').disabled=!state?.session || (!state.active && !p);
@@ -59,4 +60,33 @@ async function poll(){
   }
   setTimeout(poll,450);
 }
+
+let checking=false;
+const axes=['x','y','z'];
+const xyz=values=>axes.map((axis,i)=>axis.toUpperCase()+' '+(values[i]==null?'—':values[i].toFixed(1))).join(' / ');
+el('measure-check').addEventListener('click',async()=>{
+  if(checking)return;
+  checking=true;
+  display();
+  const output=el('physical-result');
+  output.textContent='正在配对 D405 彩色帧与右臂反馈…';
+  try{
+    const reference=axes.map(axis=>{
+      const input=el('check-'+axis);
+      if(input.validity.badInput)throw Error('实测值需要填写数字');
+      return input.value===''?null:input.valueAsNumber;
+    });
+    const result=await request({op:'verify_point',reference_mm:reference});
+    const lines=['标记中心相对右肩（mm） '+xyz(result.shoulder_mm),
+                 '三帧位置最大差 '+result.spread_mm.toFixed(1)+' mm'];
+    if(result.delta_mm){
+      lines.push('预测减实测（mm） '+xyz(result.delta_mm));
+      if(result.error_mm!==null)lines.push('三维位置误差 '+result.error_mm.toFixed(1)+' mm');
+      lines.push('实测记录 '+result.check_id);
+    }else lines.push('预览 · 等待独立实测值');
+    output.textContent=lines.join('\n');
+  }catch(err){output.textContent=err.message;}
+  finally{checking=false;display();}
+});
+
 poll();

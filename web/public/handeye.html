@@ -59,7 +59,21 @@
  <label><input type="checkbox" id="step-confirm"> 本会话已核对右臂方向与现场状态；每个点由我点击执行</label>
  <div class="section-actions"><button id="handeye-start" class="button primary" type="button" disabled>执行当前点</button><button id="step-stop" class="button stop-button" type="button" disabled>取消／停止本点</button></div>
  <p id="step-error" role="alert"></p><h3>本次结果</h3><p id="step-history">尚无采样记录</p>
- </section>        <section class="panel" aria-labelledby="reference-title">
+ </section>
+<section id="physical-check" class="panel" aria-labelledby="physical-check-title">
+  <div class="panel-heading"><h2 id="physical-check-title">实物点验收</h2></div>
+  <p>把 CC200 板固定在新的测量位置，让 D405 看见多个标记。保持机械臂、升降和底盘静止。测量点是中间一行最靠近板中心的那枚码（ID 26）的黑框中心。</p>
+  <p>用尺测中心相对右肩 J1 轴心的偏移（毫米）。X 向车头、Y 向车左、Z 向上。沿每个方向量投影距离，Z 从 J1 模型原点所在水平面起算。只填写能独立测准的方向。</p>
+  <div class="board-fields">
+    <label>实测 X（mm）<input id="check-x" type="number" step="any"></label>
+    <label>实测 Y（mm）<input id="check-y" type="number" step="any"></label>
+    <label>实测 Z（mm）<input id="check-z" type="number" step="any"></label>
+  </div>
+  <button id="measure-check" class="button primary" type="button">读取并对比</button>
+  <p class="hint">全部留空时只预览。填入实测值后保存对应轴的偏差，三轴齐全时计算空间误差。</p>
+  <p id="physical-result" role="status" aria-live="polite"></p>
+</section>
+        <section class="panel" aria-labelledby="reference-title">
           <div class="panel-heading"><div><span class="section-index">03 / REFERENCE</span><h2 id="reference-title">参考流程已下载</h2></div></div>
           <p>Seeed 自动采集 → 成对位姿 → 手眼求解。固定版本 <code>52714f6</code>。</p>
           <p class="hint">参考代码在本工作区 references 下。上游点位属于另一型号机械臂，不会在此执行。</p>
