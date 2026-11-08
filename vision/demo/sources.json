@@ -1,0 +1,20 @@
+{
+  "models": {
+    "dino": {
+      "repo": "IDEA-Research/grounding-dino-tiny",
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71"
+    },
+    "sam2": {
+      "repo": "facebook/sam2.1-hiera-small",
+      "revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03"
+    }
+  },
+  "runtime": {
+    "python": "3.12",
+    "torch": "2.10.0+cu128",
+    "torchvision": "0.25.0+cu128",
+    "transformers": "5.3.0",
+    "huggingface_hub": "1.7.1"
+  },
+  "base_python": "/home/arx/miniconda3/envs/act/bin/python"
+}
