@@ -10,6 +10,9 @@ from handeye_observation import WaitForFrame, board_spec, observe
 # All points share the same raised J3/J4 targets, relative to the measured session start.
 WRIST_OFFSETS = [(0,0), (0,8), (8,0), (0,-8), (-8,0), (6,5), (-6,-5),
                  (10,8), (-10,8), (8,-6), (-8,-6), (-6,8), (6,-8)]
+# A supplementary round holds J1-J4 at the current pose and varies two wrist axes.
+SUPPLEMENT_OFFSETS = [(10,0),(20,0),(16,10),(8,18),(0,20),(-10,16),
+                      (-18,8),(-20,0),(-16,-10),(-8,-18),(0,-20),(10,-15),(18,-7)]
 OUT=Path(__file__).resolve().parents[1]/"hardware/runtime/handeye"
 
 def capture_position(start, target, actual, *, motion):
@@ -37,6 +40,8 @@ class Steps:
         self.anchor=None
         self.cursor=0
         self.raised=False
+        self.profile='raise'
+        self.offsets=WRIST_OFFSETS
         self.spec=None
         self.owner=None
 
@@ -49,7 +54,7 @@ class Steps:
             pending=dict(self.pending) if self.pending else None
             if pending and self.owner!=client:pending.pop("ticket",None)
             return {"time":time.time(),"session":self.session,"pending":pending,"active":self.active,"history":self.history[:],
-                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(WRIST_OFFSETS)}
+                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(self.offsets),"profile":self.profile}
 
     def feedback(self):
         s=self.ctrl.snapshot()
@@ -98,8 +103,12 @@ class Steps:
             if op in ("begin","probe"):
                 if self.pending and self.owner!=client and time.time()<self.pending["expires"]:raise ValueError("另一页面有待确认点")
                 spec=board_spec(data) if data.get("dictionary") else None
+                profile=data.get("profile","raise")
+                if profile not in ("raise","supplement"):raise ValueError("未知候选姿态组")
+                self.profile=profile
+                self.offsets=SUPPLEMENT_OFFSETS if profile=="supplement" else WRIST_OFFSETS
                 self.owner=client;self.session=secrets.token_hex(12);self.spec=spec
-                self.anchor=q.copy();self.cursor=0;self.raised=False;self.history=[];self.pending=None
+                self.anchor=q.copy();self.cursor=0;self.raised=profile=='supplement';self.history=[];self.pending=None
                 self.record("准备","已读取右臂实际起始姿态")
             elif self.owner!=client or data.get("session")!=self.session:
                 raise ValueError("会话已更换，请重新开始")
@@ -114,13 +123,14 @@ class Steps:
                 if not self.raised:self.cursor=0
                 elif self.pending:self.record("跳过","操作员跳过待确认点",self.pending["point"])
                 self.pending=None
-                while self.cursor<len(WRIST_OFFSETS):
+                while self.cursor<len(self.offsets):
                     self.cursor+=1
-                    j5,j6=WRIST_OFFSETS[self.cursor-1]
-                    target=self.anchor+np.radians([0,0,5,3,j5,j6])
+                    j5,j6=self.offsets[self.cursor-1]
+                    lift_j3,lift_j4=(5,3) if self.profile=='raise' else (0,0)
+                    target=self.anchor+np.radians([0,0,lift_j3,lift_j4,j5,j6])
                     try:
                         dz_mm=self.wrist_rise_mm(target,h)
-                        if dz_mm<=0:raise ValueError("此起姿下模型未预测到腕部抬高")
+                        if self.profile=='raise' and dz_mm<=0:raise ValueError("此起姿下模型未预测到腕部抬高")
                         check=self.assess(s,q,h,target)
                         if not check["clear"]:raise ValueError(f"整段间隙下界 {check['lower_mm']} mm，未超过 20 mm")
                     except ValueError as err:
@@ -129,7 +139,7 @@ class Steps:
                         continue
                     self.pending={"point":self.cursor,"ticket":secrets.token_urlsafe(18),"expires":time.time()+90,
                                   "start":q.tolist(),"target":target.tolist(),"lift":h,"check":check,
-                                  "wrist_rise_mm":round(dz_mm,1)}
+                                  "profile":self.profile,"wrist_rise_mm":round(dz_mm,1)}
                     break
                 return self.state(client)
             if op!="execute":raise ValueError("未知操作")
@@ -233,7 +243,8 @@ class Steps:
                     folder.mkdir(parents=True,exist_ok=True)
                     (folder/"color.jpg").write_bytes(image)
                     (folder/"sample.json").write_text(json.dumps(sample,indent=2))
-                    self.record("可用",f"已保存图像及成对位姿，重投影 RMS {sample['rms_px']:.2f} px，按实测姿态保存（最大参考偏差 {sample['max_reference_error_deg']:.2f}°）",p["point"])
+                    tag_summary=f"整板 {len(sample['inlier_marker_ids'])} 个有效标记，" if self.spec.get("layout") else ""
+                    self.record("可用",f"{tag_summary}已保存图像及成对位姿，重投影 RMS {sample['rms_px']:.2f} px，按实测姿态保存（最大参考偏差 {sample['max_reference_error_deg']:.2f}°）",p["point"])
                     return
             raise ValueError(f"{reason}；{position_note}" if position_note else reason)
         except Exception as err:

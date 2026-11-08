@@ -26,8 +26,10 @@ def main():
                 op=route.request.post_data_json["op"];ops.append(op)
                 if op=="begin":
                     assert route.request.post_data_json["marker"]==26
+                    assert route.request.post_data_json["layout"]=="CC200-15-11.25"
+                    assert route.request.post_data_json["profile"]=="supplement"
                     state.update(session="fixture",board_configured=True,cursor=1,pending=dict(
-                        point=1,wrist_rise_mm=34.6,start=[0]*6,target=[0,0,.087,.052,0,0],ticket="fake",expires=time.time()+60,
+                        point=1,profile='supplement',wrist_rise_mm=0,start=[0]*6,target=[0,0,0,0,.17,0],ticket="fake",expires=time.time()+60,
                         check=dict(clear=True,lower_mm=115,margin_mm=20,link="right_link23")),
                         history=[dict(point=0,status="跳过",message="候选间隙不足")])
                 elif op=="execute":
@@ -52,7 +54,7 @@ def main():
         assert [page.input_value('#'+key) for key in ('board-dict','board-id','board-mm')]==['5X5_100','26','11.25']
         page.click('#step-begin')
         page.locator('#step-detail').filter(has_text='115 mm').wait_for()
-        assert '34.6 mm' in page.inner_text('#step-detail')
+        assert '当前腕姿补采' in page.inner_text('#step-detail')
         assert ops==["begin"] and page.locator('#handeye-start').is_disabled()
         page.check('#step-confirm');page.click('#handeye-start')
         page.locator('#step-history').filter(has_text='不可用').wait_for()

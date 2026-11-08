@@ -55,6 +55,24 @@ class WorkflowTests(unittest.TestCase):
             self.c.q=candidate["target"]
         self.assertFalse(self.c.sent)
 
+    def test_supplement_keeps_current_arm_height_and_uses_two_wrist_axes(self):
+        self.c.q=np.radians([0,0,10,6,-2,8]).tolist()
+        anchor=np.array(self.c.q)
+        state=self.w.action("operator",dict(op="begin",profile="supplement",
+            dictionary="5X5_100",marker=26,mm=11.25,layout="CC200-15-11.25"))
+        offsets=[]
+        for i in range(1,state["total"]+1):
+            p=state["pending"]
+            self.assertEqual(p["profile"],"supplement")
+            delta=np.degrees(np.asarray(p["target"])-anchor)
+            np.testing.assert_allclose(delta[:4],0)
+            offsets.append(delta[4:])
+            self.c.q=p["target"]
+            state=self.w.action("operator",dict(op="next",session=state["session"]))
+        self.assertIsNone(state["pending"])
+        np.testing.assert_allclose(np.ptp(offsets,axis=0),[40,40])
+        self.assertFalse(self.c.sent)
+
     def test_changed_start_invalidates_confirmation(self):
         s=self.begin();self.c.q[1]=.2
         with self.assertRaises(ValueError):self.w.action("operator",dict(op="execute",confirmed=True,session=s["session"],ticket=s["pending"]["ticket"]))
