@@ -38,13 +38,16 @@ class QwenClient:
     def __init__(self, config, profile='cloud'):
         self.config, self.profile_name = config, profile
 
-    def complete(self, messages, tools):
+    def complete(self, messages, tools, *, parallel_tool_calls=None):
+        if parallel_tool_calls is not None and type(parallel_tool_calls) is not bool:
+            raise ValueError('Invalid tool calling policy')
         profile = self.config.profile(self.profile_name)
         payload = {'model': profile['model'], 'messages': messages,
                    'stream': profile.get('stream', False), 'enable_thinking': profile.get('enable_thinking', False),
                    'max_tokens': self.config.max_output_tokens}
         if tools:
-            payload.update(tools=tools, tool_choice='auto', parallel_tool_calls=(self.profile_name == 'cloud'))
+            payload.update(tools=tools, tool_choice='auto',
+                           parallel_tool_calls=(self.profile_name == 'cloud') if parallel_tool_calls is None else parallel_tool_calls)
         headers = {'Content-Type': 'application/json', 'Accept': 'text/event-stream' if payload['stream'] else 'application/json'}
         if profile['api_key']:
             headers['Authorization'] = 'Bearer ' + profile['api_key']

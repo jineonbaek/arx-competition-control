@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 import numpy as np
 from PIL import Image
-from pipeline import checked_box, validate_choice, mask_geometry, run_frame
+from pipeline import QwenJudge, checked_box, validate_choice, mask_geometry, run_frame
 
 class Models:
     def __init__(self, candidates):
@@ -103,6 +103,34 @@ class PipelineTests(unittest.TestCase):
         self.assertAlmostEqual(result["median_surface_xyz_m"][2],.5)
         self.assertFalse(result["robot_geometry_ready"])
         self.assertFalse(mask_geometry(mask,np.zeros((60,80),np.uint16),meta)["metric_valid"])
+
+    def test_plain_visual_reply_gets_one_bounded_repair(self):
+        from unittest.mock import Mock
+        judge=QwenJudge.__new__(QwenJudge)
+        judge.records=[]
+        judge.client=Mock()
+        report={'role':'assistant','content':'','tool_calls':[{'function':{
+            'name':'report_visual_result','arguments':'{"status":"not_found","reason":"empty","coordinate_space":"normalized_1000"}'}}]}
+        plain={'role':'assistant','content':'No object'}
+        judge.client.complete.side_effect=[plain,report]
+        result=judge.select(self.image,self.image,[],"test",coarse=True)
+        self.assertEqual(result["status"],"not_found")
+        self.assertEqual(judge.client.complete.call_count,2)
+        judge.client.complete.side_effect=[plain,plain]
+        with self.assertRaises(ValueError):
+            judge.select(self.image,self.image,[],"test",coarse=True)
+
+
+    def test_explicit_normalized_coordinates_map_to_original_pixels(self):
+        choice={"status":"selected","coordinate_space":"normalized_1000",
+                "bbox_xyxy":[600,100,800,500]}
+        self.assertEqual(validate_choice(choice,[],(80,60),True),{"box":[48,6,64,30]})
+        point={"status":"selected","coordinate_space":"normalized_1000","point_xy":[500,500]}
+        self.assertEqual(validate_choice(point,[],(80,60),True),{"point":[40,30]})
+        choice["bbox_xyxy"]=[600,100,1001,500]
+        with self.assertRaises(ValueError):
+            validate_choice(choice,[],(80,60),True)
+
 
 if __name__=="__main__":
     unittest.main()

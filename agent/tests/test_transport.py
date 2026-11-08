@@ -135,5 +135,20 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(QwenClient(cfg, 'local').complete([], [])['content'], 'ready')
 
 
+    def test_single_visual_report_policy(self):
+        from agent.model import QwenClient
+        call = {'id': 'visual_report', 'type': 'function',
+                'function': {'name': 'report_visual_result', 'arguments': '{"status":"not_found"}'}}
+        body = {'choices': [{'message': {'role': 'assistant', 'tool_calls': [call]}, 'finish_reason': 'tool_calls'}]}
+        with Server(lambda p, b: response(body)) as server:
+            cfg = Config(profiles={'cloud': {'model': 'fixture', 'base_url': server.url, 'stream': False}})
+            reply = QwenClient(cfg).complete([], [{'type': 'function', 'function': {'name': 'report_visual_result'}}],
+                                                     parallel_tool_calls=False)
+            payload = json.loads(server.requests[0][2])
+            self.assertEqual(payload['tool_choice'], 'auto')
+            self.assertFalse(payload['parallel_tool_calls'])
+            self.assertEqual(reply['tool_calls'][0]['function']['name'], 'report_visual_result')
+
+
 if __name__ == '__main__':
     unittest.main()
