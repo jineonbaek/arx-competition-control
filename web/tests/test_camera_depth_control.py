@@ -30,6 +30,29 @@ class DepthControlTests(unittest.TestCase):
         self.assertTrue(status['active']);self.assertEqual(status['state'],'stopping')
         self.frame('d405')
         self.assertEqual(self.control.snapshot()['cameras']['d405']['state'],'disabled')
+    def test_calibration_overrides_manual_until_matching_release(self):
+        self.control.manual_request(dict(camera="d405",enabled=True))
+        token=self.control.acquire_handeye(False)
+        self.assertFalse(self.control.enabled("d405"))
+        with self.assertRaises(RuntimeError):
+            self.control.manual_request(dict(camera="d405",enabled=True))
+        self.control.manual_request(dict(camera="astra",enabled=True))
+        self.control.release_handeye("stale")
+        self.assertTrue(self.control.snapshot()["cameras"]["d405"]["handeye_priority"])
+        self.control.release_handeye(token)
+        self.assertTrue(self.control.enabled("d405"))
+        self.assertTrue(self.control.enabled("astra"))
+
+    def test_crashed_sample_expires_and_capture_fault_is_respected(self):
+        self.control.manual_request(dict(camera="d405",enabled=True))
+        self.control.acquire_handeye(False)
+        data=self.control._read();data['handeye']['expires']=0;self.control._write(data)
+        self.assertTrue(self.control.enabled("d405"))
+        token=self.control.acquire_handeye(True)
+        self.control.request(dict(camera="d405",enabled=False))
+        self.control.release_handeye(token)
+        self.assertFalse(self.control.enabled("d405"))
+
     def test_restart_resets_previous_enabled_request(self):
         self.control.request({'camera':'d405','enabled':True})
         self.control.reset();self.assertFalse(self.control.enabled('d405'))

@@ -25,7 +25,7 @@ PUBLIC = WEB_ROOT / "public"
 
 def make_handler(controller, arxgent=None, depth_control=None):
     depth_control=depth_control or DepthControl()
-    steps = Steps(controller)
+    steps = Steps(controller, depth_control)
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -123,7 +123,7 @@ def make_handler(controller, arxgent=None, depth_control=None):
                     return self.json(200, steps.action(self.client(), strict_json(raw)))
                 if path == '/api/camera/depth':
                     data=strict_json(raw)
-                    try:result=depth_control.request(data)
+                    try:result=depth_control.manual_request(data)
                     except RuntimeError as error:
                         return self.json(503,{'ok':False,'message':str(error)})
                     controller.log(data['camera']+' depth '+('enable' if data['enabled'] else 'disable')+' requested')

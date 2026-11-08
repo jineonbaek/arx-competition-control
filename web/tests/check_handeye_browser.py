@@ -47,6 +47,7 @@ def main():
         page.goto(base+"/handeye.html",wait_until="domcontentloaded")
         page.locator('#robot-preview[data-loaded=true]').wait_for(timeout=60000)
         assert page.locator('#handeye-start').is_disabled()
+        assert ops == [], 'Opening the page must not start a calibration operation'
         page.select_option('#board-dict','5X5_100');page.fill('#board-id','1');page.fill('#board-mm','11.25')
         page.click('#step-begin')
         page.locator('#step-detail').filter(has_text='115 mm').wait_for()

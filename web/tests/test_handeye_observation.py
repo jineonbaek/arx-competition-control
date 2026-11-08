@@ -16,7 +16,7 @@ class ObservationTests(unittest.TestCase):
             image[180:300,260:380]=cv2.aruco.drawMarker(dictionary,1,120)
             filename="d405-v-a0-1.jpg";cv2.imwrite(str(folder/filename),image)
             t=time.time()
-            meta=dict(state="online",raw_image_file=filename,captured_at=t,capture_session="fixture")
+            meta=dict(state="online",raw_image_file=filename,captured_at=t,capture_session="fixture",depth={"state":"disabled"})
             p=folder/"d405.json";p.write_text(json.dumps(meta))
             arm=dict(timestamp=t,joints=[0.]*6);spec=dict(dictionary="5X5_100",marker=1,mm=15)
             model=ColumnModel()

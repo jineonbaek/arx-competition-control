@@ -26,6 +26,8 @@ def observe(spec, after, arm, model):
     name=meta.get("raw_image_file","")
     if meta.get("state")!="online" or not after<=stamp<=time.time()+.05 or time.time()-stamp>.8 or abs(stamp-arm["timestamp"])>.20 or not re.fullmatch(r"d405-v-[a-f0-9]+-\d+\.jpg",name):
         raise ValueError("等待停稳后的新 D405 帧与同一时刻右臂反馈")
+    if meta.get("depth",{}).get("state")!="disabled":
+        raise ValueError("等待 D405 采集程序确认已切至彩色模式")
     data=(folder/name).read_bytes()
     image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_GRAYSCALE)
     corners,ids,_=cv2.aruco.detectMarkers(image,cv2.aruco.getPredefinedDictionary(DICT[spec["dictionary"]]))

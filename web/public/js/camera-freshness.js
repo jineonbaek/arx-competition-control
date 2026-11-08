@@ -15,6 +15,7 @@ export function chooseCameraFrame(key,raw,boxed,serverNowMs){
 }
 
 export function depthButtonView(status){
+ if(status?.handeye_priority)return {label:'标定采样中',disabled:true,pressed:status.active===true,hint:'D405 深度由标定程序管理，采样结束后恢复手动设置'};
  if(!status)return {label:'开启深度',disabled:true,pressed:false,hint:'深度状态不可用'};
  const hints={disabled:'深度已关闭 · 仅彩色预览',starting:'正在开启深度，等待真实深度帧',stopping:'正在停止深度，等待采集端确认',online:'深度采集中',unavailable:'采集状态过期或服务未运行',error:'深度采集出错'};
  return {label:status.requested?'关闭深度':'开启深度',

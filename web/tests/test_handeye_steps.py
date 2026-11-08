@@ -1,6 +1,6 @@
 import sys, unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
 from handeye_steps import Steps
@@ -14,18 +14,30 @@ class Fake:
     def submit(self,data,client):self.sent.append(data);return {"ok":True}
 
 class WorkflowTests(unittest.TestCase):
-    def setUp(self):self.c=Fake();self.w=Steps(self.c)
+    def setUp(self):self.c=Fake();self.depth=Mock();self.w=Steps(self.c,self.depth)
     def begin(self):return self.w.action("operator",dict(op="begin",dictionary="5X5_100",marker=1,mm=11.25))
     def test_only_owner_click_can_consume_one_ticket(self):
-        s=self.begin();p=s["pending"];self.assertTrue(p["check"]["clear"]);self.assertFalse(self.c.sent)
+        s=self.begin();p=s["pending"];self.assertTrue(p["check"]["clear"]);self.assertFalse(self.c.sent);self.depth.acquire_handeye.assert_not_called()
         go=dict(op="execute",confirmed=True,session=s["session"],ticket=p["ticket"])
         with self.assertRaises(ValueError):self.w.action("other",go)
         with self.assertRaises(ValueError):self.w.action("operator",dict(go,confirmed=False))
         with patch("handeye_steps.threading.Thread.start"):
             self.w.action("operator",go)
-        self.assertEqual(len(self.c.sent),1)
+        self.assertEqual(len(self.c.sent),1);self.depth.acquire_handeye.assert_called_once_with(False)
         with self.assertRaises(ValueError):self.w.action("operator",go)
         with self.assertRaises(ValueError):self.w.manual_submit({"type":"lift","target":2},"other")
+    def test_probe_failure_releases_depth_without_motion(self):
+        from threading import Event
+        released=Event()
+        self.depth.release_handeye.side_effect=lambda token:released.set()
+        with patch.object(self.w,"feedback",side_effect=[(self.c.snapshot(),np.zeros(6),0),ValueError("offline")]):
+            self.w.action("operator",dict(op="probe",dictionary="5X5_100",marker=1,mm=11.25))
+            self.assertTrue(released.wait(2))
+        self.depth.acquire_handeye.assert_called_once_with(False)
+        self.depth.release_handeye.assert_called_once_with(self.depth.acquire_handeye.return_value)
+        self.assertFalse(self.c.sent)
+        self.assertFalse(self.w.state("operator")["active"])
+
     def test_changed_start_invalidates_confirmation(self):
         s=self.begin();self.c.q[1]=.2
         with self.assertRaises(ValueError):self.w.action("operator",dict(op="execute",confirmed=True,session=s["session"],ticket=s["pending"]["ticket"]))

@@ -34,11 +34,53 @@ class DepthControl:
             self._write(data)
             return data['session']
 
-    def enabled(self,key):
-        return self._read().get('requested',{}).get(key) is True
+    def _expire_locked(self,settings):
+        scope=settings.get('handeye')
+        if scope and scope['expires'] <= time.monotonic():
+            self._release_locked(settings,scope)
 
-    def snapshot(self):
-        settings=self._read();result={}
+    def _release_locked(self,settings,scope):
+        # If the worker fell back from a failed depth stream, preserve its fallback.
+        if settings['requested']['d405'] == scope['enabled']:
+            settings['requested']['d405']=scope['previous']
+        settings.pop('handeye',None)
+        self._write(settings)
+
+    def acquire_handeye(self, enabled):
+        if type(enabled) is not bool:raise ValueError('Invalid calibration depth mode')
+        with self._lock():
+            settings=self._read()
+            self._expire_locked(settings)
+            if settings.get('handeye'):raise RuntimeError('D405 正在执行另一项标定采样')
+            if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
+            os.kill(settings['pid'],0)
+            token=uuid.uuid4().hex
+            settings['handeye']=dict(token=token,enabled=enabled,previous=settings['requested']['d405'],
+                                     expires=time.monotonic()+45)
+            settings['requested']['d405']=enabled
+            self._write(settings)
+            return token
+
+    def release_handeye(self,token):
+        with self._lock():
+            settings=self._read()
+            scope=settings.get('handeye')
+            if scope and scope['token']==token:self._release_locked(settings,scope)
+
+    def _current(self):
+        settings=self._read()
+        if settings.get('handeye',{}).get('expires',float('inf'))<=time.monotonic():
+            with self._lock():
+                settings=self._read()
+                self._expire_locked(settings)
+        return settings
+
+    def enabled(self,key):
+        return self._current().get('requested',{}).get(key) is True
+
+    def snapshot(self,settings=None):
+        if settings is None:settings=self._current()
+        result={}
         for key in KEYS:
             requested=settings.get('requested',{}).get(key) is True
             try:meta=json.loads((self.frames/(key+'.json')).read_text())
@@ -50,12 +92,16 @@ class DepthControl:
             state=depth.get('state') if acknowledged else ('starting' if requested else 'stopping')
             if not fresh:state='unavailable'
             result[key]=dict(requested=requested,state=state,
+                handeye_priority=key=='d405' and bool(settings.get('handeye')),
                 active=fresh and depth.get('state')=='online',
                 color_online=fresh and meta.get('state')=='online',
                 message=depth.get('message') or meta.get('message') or '')
         return dict(ok=True,cameras=result)
 
-    def request(self,data):
+    def manual_request(self,data):
+        return self.request(data,manual=True)
+
+    def request(self,data,*,manual=False):
         if not isinstance(data,dict) or set(data)!={'camera','enabled'}:
             raise ValueError('仅接受 camera 和 enabled 参数')
         key=data['camera'];enabled=data['enabled']
@@ -63,10 +109,13 @@ class DepthControl:
             raise ValueError('相机名称或深度开关参数无效')
         with self._lock():
             settings=self._read()
+            self._expire_locked(settings)
+            if manual and key=='d405' and settings.get('handeye'):
+                raise RuntimeError('D405 深度由正在采样的手眼标定程序管理')
             if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             try:os.kill(settings['pid'],0)
             except OSError:raise RuntimeError('相机采集服务未运行')
-            if enabled and not self.snapshot()['cameras'][key]['color_online']:
+            if enabled and not self.snapshot(settings)['cameras'][key]['color_online']:
                 raise ValueError('彩色相机未就绪，未开启深度')
             settings['requested'][key]=enabled;self._write(settings)
         return self.snapshot()

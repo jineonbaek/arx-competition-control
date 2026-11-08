@@ -21,6 +21,7 @@ async function readJSON(path) {
 }
 
 function cameraUnavailable() {
+  byId('d405-depth').textContent = 'D405 深度状态未确认';
   preview.hidden = true;
   byId('d405-message').hidden = false;
   byId('d405-message').textContent = 'D405 画面离线或已过期';
@@ -54,7 +55,9 @@ async function updateCamera() {
     byId('d405-status').textContent = '彩色实时';
     byId('d405-status').classList.add('online');
     byId('d405-detail').textContent = next.naturalWidth + ' × ' + next.naturalHeight + ' · 更新 ' + new Date(meta.captured_at * 1000).toLocaleTimeString('zh-CN', {hour12: false});
-    byId('d405-depth').textContent = meta.depth?.state === 'disabled' ? '深度已关闭 · 本页仅使用彩色预览' : '本页未切换深度，请在控制台查看深度状态';
+    const depth = meta.depth?.state;
+    byId('d405-depth').textContent = depth === 'online' ? 'D405 深度帧正在更新' :
+      depth === 'disabled' ? 'D405 深度已关闭' : 'D405 深度：' + (depth || '状态未知');
   } catch { cameraUnavailable(); }
 }
 

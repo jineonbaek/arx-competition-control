@@ -17,7 +17,7 @@ function display() {
   el('step-next').disabled=busy || state?.active || !state?.session || state.cursor>=state.total;
   el('step-begin').disabled=el('step-probe').disabled=busy || state?.active;
   el('step-stop').disabled=!state?.session || (!state.active && !p);
-  el('step-result').textContent=state?.active?'执行中，等待停稳和标记检测':p?'候选 '+p.point+' / '+state.total+' · '+(valid?(state.board_configured?'待人工点击':'仅预览，请设置标记参数'):'确认已失效'):
+  el('step-result').textContent=state?.active?'标定程序已请求仅彩色采样，等待停稳和标记检测':p?'候选 '+p.point+' / '+state.total+' · '+(valid?(state.board_configured?'待人工点击':'仅预览，请设置标记参数'):'确认已失效'):
     state?.session?'当前没有待执行的点':'等待生成候选';
   el('step-detail').textContent=p?'整段路径间隙下界 '+p.check.lower_mm+' mm · 要求 > '+p.check.margin_mm+' mm · 最近部件 '+p.check.link+'\n目标 '+degrees(p.target):'';
   const history=(state?.history||[]).slice().reverse().map(h=>(h.point?'点 '+h.point+' · ':'')+h.status+' · '+h.message);

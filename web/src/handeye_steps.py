@@ -14,7 +14,8 @@ OFFSETS = [(0,0,0,0,0,8),(0,0,0,0,8,0),(0,0,0,0,0,-8),(0,0,0,0,-8,0),
 OUT=Path(__file__).resolve().parents[1]/"hardware/runtime/handeye"
 
 class Steps:
-    def __init__(self, controller):
+    def __init__(self, controller, depth_control):
+        self.depth_control=depth_control
         self.ctrl=controller
         self.lock=threading.RLock()
         self.model=None
@@ -89,9 +90,10 @@ class Steps:
                 raise ValueError("会话已更换，请重新开始")
             if op=="probe":
                 if not self.spec:raise ValueError("请先确认字典、标记编号和黑框边长")
+                token=self.depth_control.acquire_handeye(False)
                 self.active=True;self.motion=False;self.cancelled=False
                 self.record("静止试采","原地检查标记与位姿，无运动指令",0)
-                threading.Thread(target=self.finish,args=(client,{"point":0,"lift":h},q.copy()),daemon=True).start()
+                self.start_worker(client,{"point":0,"lift":h},q.copy(),token)
                 return self.state(client)
             if op in ("begin","next"):
                 if self.pending:self.record("跳过","操作员跳过待确认点",self.pending["point"])
@@ -123,19 +125,38 @@ class Steps:
             s2,q2,h2=self.feedback()
             if s2["arms"]["right"]["timestamp"]<=stamp or np.max(abs(q2-q))>np.radians(.15) or abs(h2-h)>.03 or not self.assess(s2,q2,h2,target)["clear"]:
                 raise ValueError("机械臂或升降尚未停稳，请重新预览")
+            token=self.depth_control.acquire_handeye(False)
             self.active=True;self.motion=True;self.cancelled=False
             try:
                 self.ctrl.submit({"type":"arm.joints","arm":"right","joints":np.degrees(target).tolist()},client)
             except Exception:
                 self.active=False
                 try:self.ctrl.submit({"type":"arm.stop","arm":"right"},client)
-                finally:self.record("无效","下发未确认，本点不重试",p["point"])
+                finally:
+                    self.record("无效","下发未确认，本点不重试",p["point"])
+                    self.release_depth(token)
                 raise
             self.record("执行中","右臂驱动已接受当前点，等待到位",p["point"])
-            threading.Thread(target=self.finish,args=(client,p,target),daemon=True).start()
+            self.start_worker(client,p,target,token)
             return self.state(client)
 
-    def finish(self, client,p,target):
+    def release_depth(self, token):
+        try:
+            self.depth_control.release_handeye(token)
+        finally:
+            self.active=False
+            self.motion=False
+
+    def start_worker(self,client,p,target,token):
+        try:
+            threading.Thread(target=self.finish,args=(client,p,target,token),daemon=True).start()
+        except Exception:
+            try:
+                if self.motion:self.ctrl.submit({"type":"arm.stop","arm":"right"},client)
+            finally:self.release_depth(token)
+            raise
+
+    def finish(self, client,p,target,token):
         deadline=time.monotonic()+12
         stable=[];frames=[];reason="未到位或未停稳";settled=False
         try:
@@ -178,4 +199,4 @@ class Steps:
                     except Exception as stop_err:self.record("停止未确认",str(stop_err),p["point"])
                 self.record("不可用",str(err),p["point"])
         finally:
-            with self.lock:self.active=False;self.motion=False
+            with self.lock:self.release_depth(token)
