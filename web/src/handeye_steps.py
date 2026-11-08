@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import numpy as np
 from handeye_column import ColumnModel
+from handeye_validation import check_point
 from handeye_observation import WaitForFrame, board_spec, observe
 
 # All points share the same raised J3/J4 targets, relative to the measured session start.
@@ -89,6 +90,15 @@ class Steps:
 
     def action(self, client, data):
         if not isinstance(data,dict):raise ValueError("需要标定操作对象")
+        if data.get("op")=="verify_point":
+            def idle_feedback():
+                with self.lock:
+                    if self.active or self.pending:
+                        raise ValueError("请先完成或取消当前标定点")
+                    return self.feedback()
+            with self.lock:
+                if self.model is None:self.model=ColumnModel()
+            return check_point(idle_feedback,self.model,data.get("reference_mm"))
         with self.lock:
             op=data.get("op")
             if op=="cancel":

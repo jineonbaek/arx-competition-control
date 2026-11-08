@@ -98,7 +98,7 @@ def estimate_target(image,k,spec):
     return T,rms,markers
 
 
-def observe(spec, after, arm, model, history=None):
+def observe(spec, after, arm, model, history=None, *, color_only=True):
     if not spec:raise ValueError("尚未设定标记字典、编号和实际边长")
     folder=PUBLIC/"camera-live"
     meta=json.loads((folder/"d405.json").read_text())
@@ -109,7 +109,7 @@ def observe(spec, after, arm, model, history=None):
         arm={"timestamp":ts,"joints":q.tolist()}
     if meta.get("state")!="online" or not after<=stamp<=time.time()+.05 or time.time()-stamp>.8 or abs(stamp-arm["timestamp"])>.20 or not re.fullmatch(r"d405-v-[a-f0-9]+-\d+\.jpg",name):
         raise WaitForFrame("等待停稳后的新 D405 帧与同一时刻右臂反馈")
-    if meta.get("depth",{}).get("state")!="disabled":
+    if color_only and meta.get("depth",{}).get("state")!="disabled":
         raise ValueError("等待 D405 采集程序确认已切至彩色模式")
     data=(folder/name).read_bytes()
     image=cv2.imdecode(np.frombuffer(data,np.uint8),cv2.IMREAD_GRAYSCALE)
