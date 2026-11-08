@@ -47,15 +47,25 @@ class DepthControl:
         self._write(settings)
 
     def acquire_handeye(self, enabled):
+        return self._acquire_d405(enabled,'handeye')
+
+    def acquire_grasp(self):
+        return self._acquire_d405(True,'grasp')
+
+    def _acquire_d405(self, enabled, owner):
         if type(enabled) is not bool:raise ValueError('Invalid calibration depth mode')
         with self._lock():
             settings=self._read()
             self._expire_locked(settings)
-            if settings.get('handeye'):raise RuntimeError('D405 正在执行另一项标定采样')
+            active=settings.get('handeye')
+            if active:
+                if owner=='handeye' and active.get('owner')=='grasp':
+                    self._release_locked(settings,active)
+                else:raise RuntimeError('D405 正在执行另一项临时采样')
             if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             os.kill(settings['pid'],0)
             token=uuid.uuid4().hex
-            settings['handeye']=dict(token=token,enabled=enabled,previous=settings['requested']['d405'],
+            settings['handeye']=dict(token=token,owner=owner,enabled=enabled,previous=settings['requested']['d405'],
                                      expires=time.monotonic()+45)
             settings['requested']['d405']=enabled
             self._write(settings)
@@ -111,7 +121,7 @@ class DepthControl:
             settings=self._read()
             self._expire_locked(settings)
             if manual and key=='d405' and settings.get('handeye'):
-                raise RuntimeError('D405 深度由正在采样的手眼标定程序管理')
+                raise RuntimeError('D405 深度由正在采样的程序管理')
             if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             try:os.kill(settings['pid'],0)
             except OSError:raise RuntimeError('相机采集服务未运行')
