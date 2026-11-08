@@ -32,3 +32,24 @@ class ObservationTests(unittest.TestCase):
             self.assertLess(sample["rms_px"],2)
             self.assertGreater(sample["T_camera_from_marker"][2][3],0)
             with self.assertRaises(ValueError):h.observe(dict(spec,marker=3),t-.5,arm,model)
+
+    def test_board_pose_keeps_marker26_frame_when_reference_is_hidden(self):
+        dictionary=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
+        image=np.full((480,640),255,np.uint8)
+        k=dict(height=480,width=640,fx=600,fy=600,cx=320,cy=240,model="none",coeffs=[0]*5)
+        spec=h.board_spec(dict(dictionary="5X5_100",marker=26,mm=11.25,layout="CC200-15-11.25"))
+        for marker in range(54):
+            row,col=divmod(marker,6)
+            x=160+32*(2*col+(row+1)%2);y=90+32*row
+            image[y:y+24,x:x+24]=cv2.aruco.drawMarker(dictionary,marker,24)
+        single,_,_=h.estimate_target(image,k,dict(spec,layout=None))
+        x=160+32*5;y=90+32*4
+        image[y:y+24,x:x+24]=255
+        image[90:114,192:216]=cv2.aruco.drawMarker(dictionary,53,24)
+        board,rms,ids=h.estimate_target(image,k,spec)
+        self.assertNotIn(26,ids);self.assertNotIn(53,ids)
+        self.assertGreater(len(ids),40);self.assertLess(rms,1)
+        np.testing.assert_allclose(single[:3,3],board[:3,3],atol=.013)
+        np.testing.assert_allclose(board[:3,:3],np.diag([1,-1,-1]),atol=.002)
+        image[:90+4*32]=255;image[90+4*32+24:]=255
+        with self.assertRaises(ValueError):h.estimate_target(image,k,spec)
