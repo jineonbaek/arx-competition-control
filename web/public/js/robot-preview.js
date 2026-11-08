@@ -1,4 +1,5 @@
 import {previewState, applyPreviewState} from './robot-preview-state.js';
+import {removeAbsentBodyBracket} from './robot-preview-geometry.js';
 
 const element = id => document.getElementById(id);
 const text = (id, value) => { if (element(id).textContent !== value) element(id).textContent = value; };
@@ -92,6 +93,8 @@ async function start() {
     const loaded = await Promise.all([loader.loadAsync('/models/lift2/urdf/lift2.urdf'), geometryReady]);
     if (stopped) return;
     robot = loaded[0];
+    for (const visual of robot.links.body4.children.filter(child => child.isURDFVisual))
+      visual.traverse(object => { if (object.isMesh) removeAbsentBodyBracket(object.geometry); });
     for (const joint of Object.values(robot.joints)) joint.ignoreLimits = true;
     // Same URDF-to-Three convention as TH; CAD wheel contact is 0.168 m below base origin.
     robot.rotation.x = -Math.PI / 2;
