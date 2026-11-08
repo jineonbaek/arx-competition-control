@@ -1,0 +1,191 @@
+{
+  "status": "offline_validated_candidate",
+  "camera": {
+    "model": "D405",
+    "serial": "262622271422",
+    "frame": "D405 color optical frame",
+    "intrinsics": {
+      "width": 640,
+      "height": 480,
+      "fx": 392.8686218261719,
+      "fy": 391.9378967285156,
+      "cx": 308.4721374511719,
+      "cy": 240.30821228027344,
+      "model": "distortion.inverse_brown_conrady",
+      "coeffs": [
+        -0.05305727198719978,
+        0.056010957807302475,
+        0.00042974791722372174,
+        -0.000495387997943908,
+        -0.018462367355823517
+      ],
+      "serial": "262622271422"
+    }
+  },
+  "parent_frame": "right_link26",
+  "child_frame": "D405 color optical frame",
+  "convention": "p_right_link26 = T_right_link26_from_D405_color @ p_D405_color (column vectors; translation in metres)",
+  "T_right_link26_from_D405_color": [
+    [
+      0.0036960638647342446,
+      -0.5144649585933292,
+      0.8575034375974665,
+      0.06993258906210137
+    ],
+    [
+      -0.9999226719057827,
+      0.008280668356436482,
+      0.009277970687291748,
+      0.008627302212267676
+    ],
+    [
+      -0.011873892386727154,
+      -0.8574714204631746,
+      -0.5143945701195279,
+      0.07406274991274686
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "solver": "OpenCV 4.6.0 calibrateHandEye PARK, eye-in-hand",
+  "reference_target": "CC200-15-11.25; 15 mm pitch, 11.25 mm black edge; frame of marker 26",
+  "source_session": "ee0ff2fa49e9e56285d271d6",
+  "sample_count": 14,
+  "source_root_on_rog": "/home/arx/arx-competition-control/web/hardware/runtime/handeye/ee0ff2fa49e9e56285d271d6",
+  "inputs": {
+    "point-00": {
+      "color.jpg": "a0313e0ddcda6eaff82c8d34494be602329e68be62d6063f25e436227616a00e",
+      "sample.json": "52417e9241fb89d11411a50928959c7142a59e1ebb532146c7423d1361047cae"
+    },
+    "point-01": {
+      "color.jpg": "a0bd555b709e24e71cd501f3b5684029b959359355126a131907091f5ef6833a",
+      "sample.json": "b22f349dceb3d3516bb4336c26b1635690ca4a9602ef6af42520548c0b78c173"
+    },
+    "point-02": {
+      "color.jpg": "d5c71af750f0db0c84752f9d3d80466b120fd40c0e06e516b8bdd45713fb055e",
+      "sample.json": "3e5909bcab2a763ee24bc9f0ad1d831bc601e830655b843f550e39bb24a6d43b"
+    },
+    "point-03": {
+      "color.jpg": "041982a6910fd2437ee5f28f1367ee86ca6f72dbb81cfcd7f89aad4625816d41",
+      "sample.json": "dc8ac88ccd22c6c643da2a4030166ac08b7f801eeb99ff2e76bd5b5185c3d166"
+    },
+    "point-04": {
+      "color.jpg": "8d0e4967150e36063a18c95b2911348ddeaa690984aa62ae80aec9c0d32dfd32",
+      "sample.json": "fd01f6aff002130e6c47fd90b0e9c7f5056879f3715cfdd0f256d663038cf576"
+    },
+    "point-05": {
+      "color.jpg": "bac031de667ab4622cae6ce33fb76a6d3180b3c513ee24266aa5eb91f8190b92",
+      "sample.json": "958da462219888dbfd1b0212e6b80249df05cf5721a0112ed8c10fb9b6144e6c"
+    },
+    "point-06": {
+      "color.jpg": "9c31d80ecfde5f4ed075c9d970e30e233ab8f60970a8faa2d4da0177e361137b",
+      "sample.json": "a101ec82ee101e1593181619b48ba86c56e0634b10fe93746894461778a059c1"
+    },
+    "point-07": {
+      "color.jpg": "2931ad98c6e7986044a692414726642ed0b1780593972c86f887a37df0b3bc9f",
+      "sample.json": "1df12c69c9ed59f37bd8bbf10fb06dea94ab2cfb8f6cc758b4b247ca8cdad878"
+    },
+    "point-08": {
+      "color.jpg": "8d5571e7c81f7d98d082163ad7c628151e2535763948bac64cf98dc8dcd2ef25",
+      "sample.json": "d8a017c242fe3c6c4796031568354f479898eff2f7366deb8a9ac63604e5326a"
+    },
+    "point-09": {
+      "color.jpg": "0a533e69592b268f6b7047064a6672941ebc831aa746897311df149b019749be",
+      "sample.json": "da16330295f5d078f828b5e2681b7dac1964c9b0e492c014c8264a3a93a46f85"
+    },
+    "point-10": {
+      "color.jpg": "9c257b3f4e55b42a6a8f326f8c166d5c1b80bdd9a0193e529518ba34716b9e1b",
+      "sample.json": "331f99118e303fadb5863dd59baa22eeeb42a8803cabaddfb424402e48b084a5"
+    },
+    "point-11": {
+      "color.jpg": "3eb4671a8bbafde67da0aaf31540f7afa7c0dc0a977c7b6b5b95abb01111451a",
+      "sample.json": "f80d60931c627fe87b61e15fea3bc8f1c27ae0bb833433ab7504b76dd808f531"
+    },
+    "point-12": {
+      "color.jpg": "5b3e3291d4bdbb2387e4f9f51dd01f85f65082d50f77b10cdd4eae1b875762b3",
+      "sample.json": "527d65a5c18b35ee7f383f75e6eb0d84423b7e5fe118481d0561bfeffb89ab66"
+    },
+    "point-13": {
+      "color.jpg": "5089ca2670ec5ddca5c4ccd36485b503d4fd872805d095e99a2452c70add58cc",
+      "sample.json": "538d3f1af423ca113a57b2e6f83b9509334356425f75059db6726cc54b8592ce"
+    }
+  },
+  "capture": {
+    "max_image_arm_time_difference_s": 0.04402804374694824,
+    "reprojection_rms_px_range": [
+      1.1467519492604374,
+      1.2462629087643642
+    ],
+    "max_relative_wrist_angle_deg": 39.20292729369614
+  },
+  "validation_definition": "Predicted marker pose = T_body4_from_right_link26 @ X @ T_D405_color_from_marker26. Compare withheld predictions to the mean training marker pose. Position errors refer to the marker origin, not gripper TCP accuracy.",
+  "leave_one_out_prediction": {
+    "translation_mm": {
+      "median": 1.0269306818219133,
+      "max": 1.6492444049741113
+    },
+    "rotation_deg": {
+      "median": 0.42032017857443116,
+      "max": 1.6149560021548766
+    }
+  },
+  "leave_one_out_extrinsic_change": {
+    "translation_mm": {
+      "median": 0.3894839366166771,
+      "max": 3.1440065724254835
+    },
+    "rotation_deg": {
+      "median": 0.15082876425528863,
+      "max": 0.45503855503049073
+    }
+  },
+  "ten_train_four_held_out": {
+    "withheld": [
+      "point-02",
+      "point-06",
+      "point-10",
+      "point-13"
+    ],
+    "prediction": {
+      "translation_mm": {
+        "median": 0.9756428213088674,
+        "max": 1.7396976350045439
+      },
+      "rotation_deg": {
+        "median": 0.5791043656853831,
+        "max": 1.6239646164272
+      }
+    }
+  },
+  "previous_session_check": {
+    "session": "2f7b9de113c9044203c571ff",
+    "samples": 5,
+    "method": "Re-estimate the previous five color images with the same whole-board estimator; compare to the current training marker pose. Comparison assumes the board and robot base stayed fixed. Not used in calibration.",
+    "prediction": {
+      "translation_mm": {
+        "median": 5.481883392873211,
+        "max": 7.911889104292688
+      },
+      "rotation_deg": {
+        "median": 0.3118206332935267,
+        "max": 0.7364791395236862
+      }
+    }
+  },
+  "solver_cross_check": {
+    "HORAUD_difference_mm_deg": [
+      0.0007941181352975925,
+      0.000961329627478709
+    ],
+    "TSAI_difference_mm_deg": [
+      0.6620706376832132,
+      0.7418499784725682
+    ],
+    "ANDREFF": "Failed rotation normalization on this data; not used."
+  },
+  "scope": "Camera to wrist only. Verify on independent physical targets before using for grasp execution. Tool TCP, depth-to-color mapping and real grasp accuracy were not validated."
+}
