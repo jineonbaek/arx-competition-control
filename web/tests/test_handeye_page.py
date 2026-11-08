@@ -36,16 +36,17 @@ class HandeyePageTests(unittest.TestCase):
         self.assertEqual(source.count('href="handeye.html"'), 1)
         self.assertTrue((PUBLIC / "handeye.html").is_file())
 
-    def test_initial_state_cannot_submit_and_does_not_guess_a_side(self):
+    def test_initial_state_requires_explicit_execution_and_selects_right_arm(self):
         page = Page((PUBLIC / "handeye.html").read_text())
         self.assertIn("disabled", page.ids["handeye-start"])
         self.assertEqual(page.ids["handeye-start"]["type"], "button")
-        self.assertEqual(page.options, ["", "left", "right"])
+        self.assertEqual(page.options[0], "right")
+        self.assertIn("step-confirm",page.ids)
         self.assertEqual(page.forms, 0)
 
     def test_entry_loads_only_its_read_only_script_and_local_styles(self):
         page = Page((PUBLIC / "handeye.html").read_text())
-        self.assertEqual(page.scripts, ["js/handeye.js"])
+        self.assertEqual(page.scripts, ["js/handeye.js", "js/robot-preview.js", "js/handeye-steps.js"])
         self.assertTrue((PUBLIC / page.scripts[0]).is_file())
         self.assertTrue((PUBLIC / "css/handeye.css").is_file())
 

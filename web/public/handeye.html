@@ -8,6 +8,9 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/handeye.css">
   <script type="module" src="js/handeye.js"></script>
+  <link rel="stylesheet" href="css/robot-preview.css">
+  <script type="module" src="js/robot-preview.js"></script>
+  <script type="module" src="js/handeye-steps.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -15,34 +18,46 @@
     <a class="button secondary" href="/">返回控制台</a>
   </header>
   <main>
-    <div class="page-heading"><div><span class="eyebrow">D405 / HAND–EYE</span><h1>手眼标定采集</h1><p>相机固定在手腕，标定板固定在工作台。</p></div><span class="mode-badge">准备阶段</span></div>
-    <div class="notice enabled" role="status">当前仅预览和读取反馈。尚未采集，不会启动驱动、打开深度或执行机械臂运动。</div>
+    <div class="page-heading"><div><span class="eyebrow">D405 / HAND–EYE</span><h1>手眼标定采集</h1><p>相机固定在手腕，标定板固定在工作台。</p></div><span class="mode-badge">逐点模式</span></div>
+    <div class="notice enabled" role="status">程序检查右臂与夹爪到中央立柱的整段路径，可能碰柱的候选自动跳过。只有点击执行才下发当前点。检查范围不含相机外壳和外部物体。</div>
+<section id="robot-preview" class="panel robot-preview" aria-labelledby="robot-preview-title">
+      <div class="panel-heading"><div><span class="section-index">LIVE / ROBOT</span><h2 id="robot-preview-title">候选路径预览</h2></div><button id="preview-reset-view" class="button secondary" type="button" disabled>重置视角</button></div>
+      <div class="robot-preview-layout">
+        <div id="robot-preview-viewport" role="img" aria-label="跟随实际反馈的左右臂和升降模型"></div>
+        <div class="preview-data">
+          <div class="preview-feedback"><strong id="preview-left-status">左臂 · 等待反馈</strong><p id="preview-left-joints">—</p></div>
+          <div class="preview-feedback"><strong id="preview-right-status">右臂 · 等待反馈</strong><p id="preview-right-joints">—</p></div>
+          <div class="preview-feedback"><strong id="preview-lift-status">升降 · 等待反馈</strong><p id="preview-lift-value">—</p></div>
+          <p class="preview-note">拖动旋转、滚轮缩放，仅改变视角。待确认时模型演示候选路径；旁边的数值始终来自实际反馈。</p>
+          <p class="preview-note">升降按 41.54 rad/m 名义换算，行程不是离地高度，尚未实测标定。夹爪保持 CAD 初始开口；轮子不作里程计动画。</p>
+          <p class="preview-note">交付版含双 MID360、头部 D435i 和 Astra Pro。手上 D405 尚未建模，预览仅用于实机对照。</p>
+        </div>
+      </div>
+      <p id="preview-model-status" role="status">正在加载本地 LIFT2S DIY 整机模型…</p>
+    </section>
     <div class="handeye-grid">
       <section class="panel" aria-labelledby="preview-title">
         <div class="panel-heading"><div><span class="section-index">01 / CAMERA</span><h2 id="preview-title">D405 彩色画面</h2></div><span id="d405-status" class="status-chip">正在读取</span></div>
-        <div class="handeye-preview"><img id="d405-preview" alt="D405 当前彩色画面" hidden><p id="d405-message" role="status">等待现有相机画面</p></div>
+        <select hidden id="handeye-arm"><option selected value="right">右臂</option></select><p id="arm-feedback-status"></p><p id="handeye-joints"></p><div class="handeye-preview"><img id="d405-preview" alt="D405 当前彩色画面" hidden><p id="d405-message" role="status">等待现有相机画面</p></div>
         <p id="d405-detail" class="hint">等待首帧</p>
         <p id="d405-depth" class="hint">本页不切换深度采集</p>
-        <p class="hint">复用控制台现有视频流；此阶段不检测标定板，也不保存图像。</p>
+        <p class="hint">D405 固定在右臂。到位停稳后，程序检查标记、时序和位姿质量。</p>
       </section>
       <div class="handeye-sidebar">
-        <section class="panel" aria-labelledby="prepare-title">
-          <div class="panel-heading"><div><span class="section-index">02 / PREPARATION</span><h2 id="prepare-title">采集准备</h2></div><span class="mode-badge">等待限位确认</span></div>
-          <label for="handeye-arm">D405 安装侧</label>
-          <select id="handeye-arm" aria-describedby="arm-feedback-status"><option value="">请选择 D405 安装侧</option><option value="left">左臂</option><option value="right">右臂</option></select>
-          <p id="arm-feedback-status" class="hint" role="status">请选择 D405 安装侧</p>
-          <div class="feedback-strip"><span>实际关节角度 J1–J6</span></div>
-          <p id="handeye-joints" class="handeye-joints">—</p>
-          <p class="hint">仅显示反馈；尚未核对用于标定的 FK、末端参考点和坐标系。</p>
-          <ul class="handeye-checklist">
-            <li><strong>专用运动限位</strong><span>等待你提供，尚未生成采样点位</span></li>
-            <li><strong>标定板</strong><span>图案与实际尺寸待确认</span></li>
-            <li><strong>采集状态</strong><span>尚未采集 · 未生成标定结果</span></li>
-          </ul>
-          <button id="handeye-start" class="button primary" type="button" disabled aria-describedby="handeye-blocker">开始自动采集</button>
-          <p id="handeye-blocker" class="hint">等待限位确认。本轮仅准备入口，采集执行功能尚未接通。</p>
-        </section>
-        <section class="panel" aria-labelledby="reference-title">
+<section class="panel" aria-labelledby="step-title">
+ <div class="panel-heading"><h2 id="step-title">右臂逐点采集</h2></div>
+ <p>板固定在桌面，底盘、升降和左臂停稳。候选从开始时的右臂姿态生成，J1 保持起始角，仅改变腕部姿态。</p>
+ <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option>5X5_100</option><option>5X5_250</option><option>6X6_250</option></select></label>
+ <label>同一枚标记 ID<input id="board-id" type="number" min="0" step="1"></label>
+ <label>标记黑框边长 mm<input id="board-mm" type="number" min="1" step=".01"></label></div>
+ <button type="button" class="button secondary" id="step-probe">原地试采</button>
+ <button type="button" class="button secondary" id="step-begin">生成首个候选</button>
+ <button type="button" class="button secondary" id="step-next" disabled>下一候选</button>
+ <p id="step-result" role="status">等待生成候选</p><p id="step-detail"></p>
+ <label><input type="checkbox" id="step-confirm"> 本会话已核对右臂方向与现场状态；每个点由我点击执行</label>
+ <div class="section-actions"><button id="handeye-start" class="button primary" type="button" disabled>执行当前点</button><button id="step-stop" class="button stop-button" type="button" disabled>取消／停止本点</button></div>
+ <p id="step-error" role="alert"></p><h3>本次结果</h3><p id="step-history">尚无采样记录</p>
+ </section>        <section class="panel" aria-labelledby="reference-title">
           <div class="panel-heading"><div><span class="section-index">03 / REFERENCE</span><h2 id="reference-title">参考流程已下载</h2></div></div>
           <p>Seeed 自动采集 → 成对位姿 → 手眼求解。固定版本 <code>52714f6</code>。</p>
           <p class="hint">参考代码在本工作区 references 下。上游点位属于另一型号机械臂，不会在此执行。</p>

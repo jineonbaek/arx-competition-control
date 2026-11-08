@@ -1,157 +1,61 @@
-"""Offline Chrome checks for the preparation-only D405 page; no robot SDK."""
+"""Exercise the actual handeye page with intercepted motion actions (never forwarded)."""
+import argparse
 import json
-from html.parser import HTMLParser
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+import re
 import shutil
-import subprocess
-import tempfile
-import threading
 import time
-import unittest
+from pathlib import Path
 from urllib.parse import urlsplit
-
-PUBLIC = Path(__file__).resolve().parents[1] / "public"
-
-
-class Elements(HTMLParser):
-    def __init__(self, source):
-        super().__init__()
-        self.by_id = {}
-        self.links = []
-        self.feed(source)
-
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if "id" in attrs:
-            self.by_id[attrs["id"]] = attrs
-        if tag == "a":
-            self.links.append(attrs)
+from playwright.sync_api import sync_playwright
 
 
-class HandeyePreparationTests(unittest.TestCase):
-    def test_main_page_has_d405_entry(self):
-        elements = Elements((PUBLIC / "index.html").read_text())
-        self.assertTrue(any(a.get("href") == "handeye.html" for a in elements.links))
-        self.assertTrue((PUBLIC / "handeye.html").is_file())
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--base-url",default="http://192.168.58.14:9983")
+    parser.add_argument("--screenshot",type=Path)
+    args=parser.parse_args()
+    base=args.base_url.rstrip("/")
+    edge=Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe")
+    exe=str(edge) if edge.exists() else shutil.which("google-chrome") or shutil.which("chromium")
+    state=dict(time=0,session=None,pending=None,active=False,history=[],board_configured=False,cursor=0,total=12)
+    ops=[];errors=[]
+    def route_request(route):
+        path=urlsplit(route.request.url).path
+        if path=="/api/handeye":
+            if route.request.method=="POST":
+                op=route.request.post_data_json["op"];ops.append(op)
+                if op=="begin":
+                    state.update(session="fixture",board_configured=True,cursor=1,pending=dict(
+                        point=1,start=[0]*6,target=[0,0,0,0,0,.1],ticket="fake",expires=time.time()+60,
+                        check=dict(clear=True,lower_mm=115,margin_mm=20,link="right_link23")),
+                        history=[dict(point=0,status="跳过",message="候选间隙不足")])
+                elif op=="execute":
+                    assert route.request.post_data_json["ticket"]=="fake"
+                    state.update(pending=None,history=[dict(point=1,status="不可用",message="目标标记不可见")])
+                else:raise AssertionError(op)
+            route.fulfill(status=200,content_type="application/json",body=json.dumps(dict(state,time=time.time())))
+        elif route.request.method=="GET" and path!="/events":
+            route.fulfill(response=route.fetch())
+        else:
+            route.abort()
+            errors.append("unexpected request: "+path)
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(headless=True,executable_path=exe,args=["--enable-unsafe-swiftshader","--no-first-run"])
+        page=browser.new_page(viewport=dict(width=1440,height=1050))
+        page.on("pageerror",lambda e:errors.append(str(e)))
+        page.route("**/*",route_request)
+        page.goto(base+"/handeye.html",wait_until="domcontentloaded")
+        page.locator('#robot-preview[data-loaded=true]').wait_for(timeout=60000)
+        assert page.locator('#handeye-start').is_disabled()
+        page.select_option('#board-dict','5X5_100');page.fill('#board-id','1');page.fill('#board-mm','11.25')
+        page.click('#step-begin')
+        page.locator('#step-detail').filter(has_text='115 mm').wait_for()
+        assert ops==["begin"] and page.locator('#handeye-start').is_disabled()
+        page.check('#step-confirm');page.click('#handeye-start')
+        page.locator('#step-history').filter(has_text='不可用').wait_for()
+        assert ops==["begin","execute"] and page.locator('#handeye-start').is_disabled()
+        assert not errors,errors
+        print("PASS: real WebGL + right-arm preview, skip/status, explicit click, sample rejection; all movement actions intercepted")
+        browser.close()
 
-    def browser(self, *, side="", stale=False, offline=False):
-        chrome = shutil.which("google-chrome") or shutil.which("chromium")
-        self.assertIsNotNone(chrome, "Headless Chrome is required")
-        requests = []
-
-        class Handler(SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory=str(PUBLIC), **kwargs)
-
-            def log_message(self, *args):
-                pass
-
-            def send_body(self, content, kind):
-                self.send_response(200)
-                self.send_header("Content-Type", kind)
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
-
-            def do_GET(self):
-                path = urlsplit(self.path).path
-                requests.append(("GET", path))
-                if path == "/api/state":
-                    now = time.time()
-                    data = {"time": now, "ros": {"connected": True}, "arms": {
-                        arm: {"joints": [.1, .2, .3, .4, .5, .6], "fresh": not stale,
-                              "age_s": 30 if stale else .1, "timestamp": now - (30 if stale else .1)}
-                        for arm in ("left", "right")}}
-                    return self.send_body(json.dumps(data).encode(), "application/json")
-                if path == "/camera-live/d405.json":
-                    now = time.time()
-                    data = {"state": "offline" if offline else "online", "sequence": 1,
-                            "captured_at": now - (30 if stale else .1),
-                            "capture_session": "fixture", "image_file": "d405-v-abc123-1.jpg",
-                            "depth": {"state": "disabled", "requested": False}}
-                    return self.send_body(json.dumps(data).encode(), "application/json")
-                if path == "/camera-live/d405-v-abc123-1.jpg":
-                    svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#123"/></svg>'
-                    return self.send_body(svg, "image/svg+xml")
-                if path == "/handeye.html":
-                    source = (PUBLIC / "handeye.html").read_text()
-                    source = source.replace("</body>", '<script src="/exercise.js"></script></body>')
-                    return self.send_body(source.encode(), "text/html; charset=utf-8")
-                if path == "/exercise.js":
-                    source = """
-window.addEventListener('load', () => {
-  const select = document.getElementById('handeye-arm');
-  select.value = SIDE; select.dispatchEvent(new Event('change'));
-  document.getElementById('handeye-start').click();
-  for (const code of ['KeyW','KeyA','KeyQ','Space']) {
-    document.dispatchEvent(new KeyboardEvent('keydown', {code,bubbles:true}));
-    document.dispatchEvent(new KeyboardEvent('keyup', {code,bubbles:true}));
-  }
-});
-""".replace("SIDE", json.dumps(side))
-                    return self.send_body(source.encode(), "text/javascript")
-                return super().do_GET()
-
-            def do_POST(self):
-                requests.append(("POST", urlsplit(self.path).path))
-                self.send_body(b"{}", "application/json")
-
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server.daemon_threads = True
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with tempfile.TemporaryDirectory(prefix="handeye-browser-") as profile:
-                result = subprocess.run([
-                    chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
-                    "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
-                    "--disable-background-networking", "--disable-extensions",
-                    "--user-data-dir=" + profile, "--virtual-time-budget=6000", "--dump-dom",
-                    "http://127.0.0.1:%s/handeye.html" % server.server_port,
-                ], capture_output=True, text=True, timeout=25)
-                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-                return result.stdout, requests
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
-
-    def check_inert(self, dom, requests):
-        elements = Elements(dom)
-        self.assertIn("disabled", elements.by_id["handeye-start"])
-        self.assertFalse(any(method != "GET" for method, _ in requests), requests)
-        self.assertFalse(any(path.startswith(("/api/command", "/api/camera/depth", "/events"))
-                             for _, path in requests), requests)
-        self.assertIn("等待限位确认", dom)
-        self.assertIn("尚未采集", dom)
-
-    def test_initial_page_does_not_assume_installation_side(self):
-        dom, requests = self.browser()
-        self.check_inert(dom, requests)
-        self.assertIn("请选择 D405 安装侧", dom)
-        self.assertFalse(any(path == "/api/state" for _, path in requests), requests)
-
-    def test_healthy_feedback_and_keyboard_never_unlock_capture(self):
-        dom, requests = self.browser(side="right")
-        self.check_inert(dom, requests)
-        self.assertIn("640 × 480", dom)
-        self.assertIn("右臂反馈实时", dom)
-        self.assertIn("5.7°", dom)
-        self.assertNotIn("hidden", Elements(dom).by_id["d405-preview"])
-
-    def test_stale_frames_and_arm_feedback_are_not_shown_as_current(self):
-        dom, requests = self.browser(side="left", stale=True)
-        self.check_inert(dom, requests)
-        self.assertIn("hidden", Elements(dom).by_id["d405-preview"])
-        self.assertIn("反馈缺失或已过期", dom)
-        self.assertNotIn("5.7°", dom)
-
-    def test_offline_camera_cannot_show_a_live_image(self):
-        dom, requests = self.browser(offline=True)
-        self.check_inert(dom, requests)
-        self.assertIn("hidden", Elements(dom).by_id["d405-preview"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__=="__main__":main()

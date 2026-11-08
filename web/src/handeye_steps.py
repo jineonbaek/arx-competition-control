@@ -22,6 +22,7 @@ class Steps:
         self.pending=None
         self.active=False
         self.cancelled=False
+        self.motion=False
         self.history=[]
         self.anchor=None
         self.cursor=0
@@ -36,8 +37,8 @@ class Steps:
         with self.lock:
             pending=dict(self.pending) if self.pending else None
             if pending and self.owner!=client:pending.pop("ticket",None)
-            return {"session":self.session,"pending":pending,"active":self.active,"history":self.history[:],
-                    "cursor":self.cursor,"total":len(OFFSETS)}
+            return {"time":time.time(),"session":self.session,"pending":pending,"active":self.active,"history":self.history[:],
+                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(OFFSETS)}
 
     def feedback(self):
         s=self.ctrl.snapshot()
@@ -73,12 +74,12 @@ class Steps:
                 if self.owner!=client:raise ValueError("请在原会话取消")
                 self.pending=None
                 self.cancelled=True
-                if self.active:self.ctrl.submit({"type":"arm.stop","arm":"right"},client)
+                if self.active and self.motion:self.ctrl.submit({"type":"arm.stop","arm":"right"},client)
                 return self.state(client)
             if self.active:raise ValueError("当前点仍在执行或采样")
             if self.model is None:self.model=ColumnModel()
             s,q,h=self.feedback()
-            if op=="begin":
+            if op in ("begin","probe"):
                 if self.pending and self.owner!=client and time.time()<self.pending["expires"]:raise ValueError("另一页面有待确认点")
                 spec=board_spec(data) if data.get("dictionary") else None
                 self.owner=client;self.session=secrets.token_hex(12);self.spec=spec
@@ -86,6 +87,12 @@ class Steps:
                 self.record("准备","已读取右臂实际起始姿态")
             elif self.owner!=client or data.get("session")!=self.session:
                 raise ValueError("会话已更换，请重新开始")
+            if op=="probe":
+                if not self.spec:raise ValueError("请先确认字典、标记编号和黑框边长")
+                self.active=True;self.motion=False;self.cancelled=False
+                self.record("静止试采","原地检查标记与位姿，无运动指令",0)
+                threading.Thread(target=self.finish,args=(client,{"point":0,"lift":h},q.copy()),daemon=True).start()
+                return self.state(client)
             if op in ("begin","next"):
                 if self.pending:self.record("跳过","操作员跳过待确认点",self.pending["point"])
                 self.pending=None
@@ -102,6 +109,7 @@ class Steps:
                     break
                 return self.state(client)
             if op!="execute":raise ValueError("未知操作")
+            if self.spec is None:raise ValueError("请先填写标记参数并重新生成候选")
             p=self.pending
             if not p or data.get("ticket")!=p["ticket"] or time.time()>p["expires"]:
                 raise ValueError("预览已失效，请重新规划")
@@ -115,7 +123,7 @@ class Steps:
             s2,q2,h2=self.feedback()
             if s2["arms"]["right"]["timestamp"]<=stamp or np.max(abs(q2-q))>np.radians(.15) or abs(h2-h)>.03 or not self.assess(s2,q2,h2,target)["clear"]:
                 raise ValueError("机械臂或升降尚未停稳，请重新预览")
-            self.active=True;self.cancelled=False
+            self.active=True;self.motion=True;self.cancelled=False
             try:
                 self.ctrl.submit({"type":"arm.joints","arm":"right","joints":np.degrees(target).tolist()},client)
             except Exception:
@@ -165,9 +173,9 @@ class Steps:
             raise ValueError(reason)
         except Exception as err:
             with self.lock:
-                if not self.cancelled:
+                if self.motion and not self.cancelled:
                     try:self.ctrl.submit({"type":"arm.stop","arm":"right"},client)
                     except Exception as stop_err:self.record("停止未确认",str(stop_err),p["point"])
                 self.record("不可用",str(err),p["point"])
         finally:
-            with self.lock:self.active=False
+            with self.lock:self.active=False;self.motion=False

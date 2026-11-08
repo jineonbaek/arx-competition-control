@@ -12,7 +12,8 @@ class ColumnTests(unittest.TestCase):
         a[0],b[0]=-1.2,1.2
         point=model.pose(np.zeros(6),0)[1][:3,3]
         model.column=point-.001,point+.001
-        # Search a more distal test point if the folded arm occupies it throughout.
+        self.assertGreater(model.pose(a,0)[0][0],.02)
+        self.assertGreater(model.pose(b,0)[0][0],.02)
         self.assertFalse(model.check(a,b,0)["clear"])
         self.assertGreater(model.check(a,b,0)["steps"],2)
 

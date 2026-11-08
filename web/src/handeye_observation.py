@@ -1,6 +1,7 @@
 """Grade stationary right-hand D405 observations from the existing capture owner."""
 import json
 import re
+import sys
 import time
 from pathlib import Path
 import cv2
@@ -38,9 +39,22 @@ def observe(spec, after, arm, model):
     if not k or image.shape!=(k["height"],k["width"]):
         raise ValueError("已识别标记，缺少本帧 D405 彩色内参；不能作为标定样本")
     dist=np.array(k["coeffs"],float)
-    if "brown_conrady" not in k["model"] or "inverse" in k["model"] or "modified" in k["model"]:
-        if np.any(dist):raise ValueError("当前 D405 畸变模型需先适配")
-    K=np.array([[k["fx"],0,k["cx"]],[0,k["fy"],k["cy"]],[0,0,1]], dtype=float)
+    K=np.array([[k["fx"],0,k["cx"]],[0,k["fy"],k["cy"]],[0,0,1]],dtype=float)
+    if k["model"]=="distortion.inverse_brown_conrady" and np.any(dist):
+        # Use the factory model directly to obtain undistorted image coordinates.
+        sdk=PUBLIC.parents[1]/"vision/vendor-python"
+        if str(sdk) not in sys.path:sys.path.insert(0,str(sdk))
+        import pyrealsense2 as rs
+        intr=rs.intrinsics()
+        intr.width,intr.height=k["width"],k["height"]
+        intr.fx,intr.fy=k["fx"],k["fy"]
+        intr.ppx,intr.ppy=k["cx"],k["cy"]
+        intr.coeffs=k["coeffs"];intr.model=rs.distortion.inverse_brown_conrady
+        rays=np.array([rs.rs2_deproject_pixel_to_point(intr,p.tolist(),1.) for p in uv])
+        uv=rays[:,:2]*[intr.fx,intr.fy]+[intr.ppx,intr.ppy]
+        dist=np.zeros(5)
+    elif k["model"]!="distortion.brown_conrady" and np.any(dist):
+        raise ValueError("当前 D405 畸变模型需先适配")
     half=spec["mm"]/2000
     obj=np.array([[-half,half,0],[half,half,0],[half,-half,0],[-half,-half,0]],float)
     ok,rv,tv=cv2.solvePnP(obj,uv.astype(float),K,dist,flags=cv2.SOLVEPNP_IPPE_SQUARE)

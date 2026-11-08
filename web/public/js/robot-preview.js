@@ -19,9 +19,20 @@ function updateFeedback() {
   element('preview-lift-status').classList.toggle('online', value.lift.valid);
   text('preview-lift-value', value.lift.valid
     ? value.lift.rad.toFixed(3) + ' rad → 约 ' + (value.lift.positionM * 1000).toFixed(1) + ' mm 行程' : '—');
-  if (robot) applyPreviewState(robot, value);
+  if (robot) {
+    if(proposal && value.right.valid && value.lift.valid){
+      const t=Math.min(1,(performance.now()-playback)/2500);
+      value.right.joints=proposal.start.map((v,i)=>v+(proposal.target[i]-v)*t);
+    }
+    applyPreviewState(robot,value);
+  }
 }
 
+let proposal=null, playback=0;
+if(element('step-title')) window.addEventListener('handeye-preview',event=>{
+  if(proposal?.ticket!==event.detail?.ticket)playback=performance.now();
+  proposal=event.detail;
+});
 async function poll() {
   while (!stopped) {
     if (!document.hidden) {
@@ -116,7 +127,7 @@ async function start() {
     resize(); fit(); updateFeedback();
     element('preview-reset-view').disabled = false;
     element('preview-reset-view').addEventListener('click', fit);
-    text('preview-model-status', 'LIFT2S DIY 模型已加载 · 仅预览，无碰撞保护');
+    text('preview-model-status',element('step-title') ? '右臂路径模拟 · 立柱检查结果见逐点采集' : 'LIFT2S DIY 模型已加载 · 仅预览，无碰撞保护');
     element('robot-preview').dataset.loaded = 'true';
     renderer.setAnimationLoop(() => {
       updateFeedback(); controls.update(); renderer.render(scene, camera);
