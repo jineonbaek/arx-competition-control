@@ -41,3 +41,22 @@ D405 为眼在手上相机。限位、安装在哪条手臂、标定板类型和
 不直接使用上游另一台机械臂的 25 个姿态、硬编码时间或 config 中的内参文件。
 本机 OpenCV 4.6 有 legacy ArUco 与 calibrateHandEye；上游 ArucoDetector 新接口不可直接照搬。
 当前不升级共享 Python/OpenCV，不接管相机或 CAN；之后复用本工作区已有采集和驱动通道。
+
+## 本轮验证（2026-11-08）
+
+- 3 项静态页面契约检查、6 项真实页面脚本行为检查、13 项已有相机/控制状态前端检查通过。
+- 新入口、HTML、CSS、JavaScript 在现有 9983 上均返回 HTTP 200，无需重启。
+- 网页服务、左右臂与机体驱动的 PID/启动时刻未改变；原相机 owner/session 保持不变，三路深度仍关闭。
+- 首轮 5 项离线 Chrome 浏览器检查通过；复测出现间歇性本地 HTTP 导航超时，未确认根因。
+  无页面逻辑的目录列表/SVG 也出现同类现象，不能据此断言是页面故障。
+  未为此调整 ROG 的系统网络或共享浏览器配置。保留独立开发检查器，不作为默认单元测试依赖。
+- 没有执行实机采样、标定板检测、求解或运动；没有安装模型、启动 YOLOE 或升级依赖。
+
+重复基本验证：
+
+    python3 -m unittest discover -s web/tests -p test_handeye_page.py -v
+    node --test web/tests/handeye.test.mjs web/tests/cameras.test.mjs web/tests/state.test.mjs
+
+可选的真实 Chrome 开发检查（受上述宿主浏览器环境限制）：
+
+    python3 web/tests/check_handeye_browser.py

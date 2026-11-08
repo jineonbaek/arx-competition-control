@@ -35,18 +35,26 @@ Files: vision/handeye/README.md, vision/handeye/sources.json, this plan.
 External files: ignored references/rebot-handeye-52714f61297f.
 - [x] Download and verify commit 52714f61297f39a7b9f0d40b0a422e38362b800e via sparse Git checkout.
 - [x] Hash key files; parse pose list without executing it; inspect existing OpenCV capabilities.
-- [ ] Review diff and commit only preparation documentation/provenance.
+- [x] Review diff and commit only preparation documentation/provenance (ca84bf3).
 
 ## Stage 2: Calibration entry
 
 Files: web/public/index.html, web/public/handeye.html, web/public/css/handeye.css,
-web/public/js/handeye.js, web/tests/test_handeye_page.py.
-- [ ] Write a headless-browser fixture that renders healthy and stale feedback, verifies the main-page link, disabled actions and GET-only requests; observe failure before implementation.
-- [ ] Add a D405 card link and independent preparation page using existing styles and freshness helpers.
-- [ ] Reuse existing D405 JPEG output and read arm joints; keep all execution absent.
-- [ ] Run relevant camera/UI tests and live GET-only smoke checks; verify process start times and depth state unchanged.
-- [ ] Review the scoped diff and create a local commit without teammate changes.
+web/public/js/handeye.js, web/tests/test_handeye_page.py, web/tests/handeye.test.mjs, web/tests/check_handeye_browser.py.
+- [x] Observe the missing-entry failure before implementation; add browser and deterministic script fixtures for fresh/stale feedback, disabled actions and GET-only requests.
+- [x] Add a D405 card link and independent preparation page using existing styles and freshness helpers.
+- [x] Reuse existing D405 JPEG output and read arm joints; keep all execution absent.
+- [x] Run relevant camera/UI tests and live GET-only smoke checks; verify process start times and depth state unchanged.
+- [x] Review the scoped diff and create a local commit without teammate changes.
 
 ## Status
 
 Prepared from explicit user scope; no further design approval required for this non-executing entry.
+
+## Verification and review ledger
+
+- Scope followed: static preparation entry only; collection/motion/solve remain unimplemented and blocked pending user limits.
+- Source review found BFCache could freeze old feedback. A failing script-event regression was added, then fixed by reloading persisted pageshow; regression passes.
+- Fresh verification: 3 Python HTML contract checks + 19 Node checks pass; live GET checks return 200; all existing driver/service start times and camera sessions are unchanged.
+- Browser fixture initially passed 5/5. Repeated Chrome loopback navigation showed intermittent host-level timeouts before local TCP creation, including non-app pages. Ruling: stop platform diagnosis, retain optional check_handeye_browser.py, use deterministic real-script fixtures as the standard checks, and report the rendering-verification limit honestly.
+- No dependency installation, restart, sampling or motion execution; no upstream poses applied to X5. No push.

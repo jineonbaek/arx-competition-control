@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>D405 手眼标定 · ARX</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/handeye.css">
+  <script type="module" src="js/handeye.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">A</span><div><strong>ARX / CALIBRATION</strong><small>D405 · 眼在手上</small></div></div>
+    <a class="button secondary" href="/">返回控制台</a>
+  </header>
+  <main>
+    <div class="page-heading"><div><span class="eyebrow">D405 / HAND–EYE</span><h1>手眼标定采集</h1><p>相机固定在手腕，标定板固定在工作台。</p></div><span class="mode-badge">准备阶段</span></div>
+    <div class="notice enabled" role="status">当前仅预览和读取反馈。尚未采集，不会启动驱动、打开深度或执行机械臂运动。</div>
+    <div class="handeye-grid">
+      <section class="panel" aria-labelledby="preview-title">
+        <div class="panel-heading"><div><span class="section-index">01 / CAMERA</span><h2 id="preview-title">D405 彩色画面</h2></div><span id="d405-status" class="status-chip">正在读取</span></div>
+        <div class="handeye-preview"><img id="d405-preview" alt="D405 当前彩色画面" hidden><p id="d405-message" role="status">等待现有相机画面</p></div>
+        <p id="d405-detail" class="hint">等待首帧</p>
+        <p id="d405-depth" class="hint">本页不切换深度采集</p>
+        <p class="hint">复用控制台现有视频流；此阶段不检测标定板，也不保存图像。</p>
+      </section>
+      <div class="handeye-sidebar">
+        <section class="panel" aria-labelledby="prepare-title">
+          <div class="panel-heading"><div><span class="section-index">02 / PREPARATION</span><h2 id="prepare-title">采集准备</h2></div><span class="mode-badge">等待限位确认</span></div>
+          <label for="handeye-arm">D405 安装侧</label>
+          <select id="handeye-arm" aria-describedby="arm-feedback-status"><option value="">请选择 D405 安装侧</option><option value="left">左臂</option><option value="right">右臂</option></select>
+          <p id="arm-feedback-status" class="hint" role="status">请选择 D405 安装侧</p>
+          <div class="feedback-strip"><span>实际关节角度 J1–J6</span></div>
+          <p id="handeye-joints" class="handeye-joints">—</p>
+          <p class="hint">仅显示反馈；尚未核对用于标定的 FK、末端参考点和坐标系。</p>
+          <ul class="handeye-checklist">
+            <li><strong>专用运动限位</strong><span>等待你提供，尚未生成采样点位</span></li>
+            <li><strong>标定板</strong><span>图案与实际尺寸待确认</span></li>
+            <li><strong>采集状态</strong><span>尚未采集 · 未生成标定结果</span></li>
+          </ul>
+          <button id="handeye-start" class="button primary" type="button" disabled aria-describedby="handeye-blocker">开始自动采集</button>
+          <p id="handeye-blocker" class="hint">等待限位确认。本轮仅准备入口，采集执行功能尚未接通。</p>
+        </section>
+        <section class="panel" aria-labelledby="reference-title">
+          <div class="panel-heading"><div><span class="section-index">03 / REFERENCE</span><h2 id="reference-title">参考流程已下载</h2></div></div>
+          <p>Seeed 自动采集 → 成对位姿 → 手眼求解。固定版本 <code>52714f6</code>。</p>
+          <p class="hint">参考代码在本工作区 references 下。上游点位属于另一型号机械臂，不会在此执行。</p>
+          <a href="https://github.com/Seeed-Projects/reBot-DevArm-Grasp/blob/52714f61297f39a7b9f0d40b0a422e38362b800e/scripts/collect_handeye_eih.py" target="_blank" rel="noopener noreferrer">查看参考采集程序 ↗</a>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
