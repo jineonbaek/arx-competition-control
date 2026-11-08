@@ -2,11 +2,13 @@
   "models": {
     "dino": {
       "repo": "IDEA-Research/grounding-dino-tiny",
-      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71"
+      "revision": "a2bb814dd30d776dcf7e30523b00659f4f141c71",
+      "weight_sha256": "1a2412ef99bd74bcd3c2a246fa1e48581f8889a1300c9051974741314fc042f3"
     },
     "sam2": {
       "repo": "facebook/sam2.1-hiera-small",
-      "revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03"
+      "revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+      "weight_sha256": "0a4067b11ce1e23d5229203f11c718a823060d15a4b23fa2372a7d4b77cbbc60"
     }
   },
   "runtime": {

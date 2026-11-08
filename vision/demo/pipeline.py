@@ -277,6 +277,7 @@ def main():
         print(json.dumps({"output":str(output),**result},ensure_ascii=False),flush=True)
         if result["status"] in ("perception_accepted","error"):
             break
+    return {"perception_accepted":0,"needs_new_observation":2,"error":1}[result["status"]]
 
 if __name__=="__main__":
-    main()
+    raise SystemExit(main())

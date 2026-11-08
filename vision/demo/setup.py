@@ -1,5 +1,6 @@
 """Install pinned vision model snapshots; weights and environment remain ignored."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,9 @@ def main():
         snapshot_download(spec["repo"], revision=spec["revision"], endpoint=args.endpoint,
                           local_dir=ROOT / "models" / name, max_workers=3,
                           allow_patterns=["*.json", "*.txt", "model.safetensors"])
+        digest=hashlib.file_digest((ROOT/"models"/name/"model.safetensors").open("rb"),"sha256").hexdigest()
+        if digest != spec["weight_sha256"]:
+            raise RuntimeError("Weight checksum mismatch: "+name)
     subprocess.run([str(python), str(ROOT / "smoke.py")], check=True)
 
 if __name__ == "__main__":

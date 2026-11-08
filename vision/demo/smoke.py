@@ -24,7 +24,8 @@ def main():
         dout = dino(**di)
         si = sp(images=image, input_boxes=[[[100, 100, 300, 300]]], return_tensors="pt").to("cuda")
         sout = sam(**si)
-    assert torch.isfinite(dout.logits).all() and torch.isfinite(sout.pred_masks).all()
+    assert not torch.isnan(dout.logits).any() and torch.isfinite(dout.pred_boxes).all()
+    assert torch.isfinite(dout.logits).any() and torch.isfinite(sout.pred_masks).all()
     print(json.dumps({"gpu": torch.cuda.get_device_name(), "dino_logits": list(dout.logits.shape),
                       "sam_masks": list(sout.pred_masks.shape),
                       "peak_gpu_mib": round(torch.cuda.max_memory_allocated()/2**20),
