@@ -47,6 +47,24 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue((self.output/"mask.png").exists())
         self.assertFalse(result["geometry"]["robot_geometry_ready"])
 
+    def test_shape_evidence_keeps_color_only_in_display_overlay(self):
+        from unittest.mock import Mock
+        from target import TASK, DINO_PROMPT, load_reference, shape_view
+        self.image=Image.new("RGB",(80,60),(180,45,16))
+        models=Mock(wraps=Models(self.candidates))
+        judge=Mock(wraps=Judge({"status":"selected","candidate_id":1}))
+        reference=load_reference()
+        report=run_frame(models,judge,self.image,reference,TASK,self.output)
+        self.assertEqual(report["status"],"perception_accepted")
+        self.assertEqual(models.detect.call_args.args[1],DINO_PROMPT)
+        for im in (models.detect.call_args.args[0],models.segment.call_args.args[0],
+                   judge.select.call_args.args[0],judge.review.call_args.args[0]):
+            self.assertEqual(im.tobytes(),shape_view(self.image).tobytes())
+        self.assertEqual(judge.select.call_args.args[1].tobytes(),shape_view(reference).tobytes())
+        self.assertEqual(judge.review.call_args.args[2].getpixel((0,0)),shape_view(self.image).getpixel((0,0)))
+        with Image.open(self.output/"overlay.png") as annotated:
+            self.assertEqual(annotated.getpixel((0,0)),self.image.getpixel((0,0)))
+
     def test_zero_candidates_use_coarse_point(self):
         models=Models([])
         judge=Judge(None,{"status":"selected","point_xy":[20,20]})

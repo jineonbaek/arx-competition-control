@@ -23,13 +23,13 @@ After setup, run from the worktree root:
 ```bash
 vision/demo/.venv/bin/python vision/demo/pipeline.py --camera d405 --attempts 2
 vision/demo/.venv/bin/python vision/demo/pipeline.py --camera d405 --attempts 1 --force-fallback
-vision/demo/.venv/bin/python vision/demo/pipeline.py --image vision/config/d435-reference.jpg --attempts 1
+vision/demo/.venv/bin/python vision/demo/pipeline.py --image path/to/frozen-scene.jpg --attempts 1
 ```
 
 The first command reads live published frames from the existing 9983 camera owner.
 It never opens camera devices or enables depth. With --image, the input is explicitly
 an offline frame and attempts must be 1. Use --reference PATH for another object;
-the default crops the first configured D435 battery reference using its saved box.
+the default is a three-view crop sheet of the real battery from vision/config/field-battery/. Both live and offline inference use grayscale views and the same shape criteria, so a matching 3D print may have any color. Original colors are preserved in the saved scenes and UI overlays. The dimension drawing is for reference only.
 
 Stages are local DINO proposals, structured Qwen candidate selection, Qwen coarse
 box/point recovery if candidates are absent or rejected, SAM2 segmentation,

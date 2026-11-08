@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO))
 from agent.config import Config, load_private_env
 from agent.model import QwenClient
 from agent.contracts import strict_json, validate
+from target import DINO_PROMPT, TASK, load_reference, shape_view
 
 CAMERAS = ("d435","d405","astra")
 
@@ -205,16 +206,18 @@ class QwenJudge:
 
 def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
               threshold=.20,force_fallback=False):
-    candidates=models.detect(image,"a white plastic object. a battery. a white plastic handle.",threshold)
+    shape=shape_view(image)
+    reference=shape_view(reference)
+    candidates=models.detect(shape,DINO_PROMPT,threshold)
     (output/"candidates.png").write_bytes(_png(overlay_candidates(image,candidates)))
     report={"observation_id":output.parent.name+"-"+output.name,"image_size_px":list(image.size),
             "candidates":candidates,"forced_fallback_test":force_fallback,"read_only":True}
     choice=None
     if candidates and not force_fallback:
-        report["selection"]=judge.select(image,reference,candidates,task)
+        report["selection"]=judge.select(shape,reference,candidates,task)
         choice=validate_choice(report["selection"],candidates,image.size,False)
     if choice is None:
-        report["coarse_selection"]=judge.select(image,reference,[],task,coarse=True)
+        report["coarse_selection"]=judge.select(shape,reference,[],task,coarse=True)
         choice=validate_choice(report["coarse_selection"],[],image.size,True)
         report["path"]="qwen_coarse"
     else:
@@ -223,7 +226,7 @@ def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
         report["status"]="needs_new_observation"
         return report
     report["prompt"]=choice
-    mask,score=models.segment(image,**choice)
+    mask,score=models.segment(shape,**choice)
     if mask.shape!=(image.height,image.width):
         raise ValueError("SAM2 mask size mismatch")
     Image.fromarray(mask.astype(np.uint8)*255).save(output/"mask.png")
@@ -232,7 +235,7 @@ def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
     geometry=mask_geometry(mask,depth,(metadata or {}).get("depth"))
     report["geometry"]=geometry
     report["sam2_predicted_iou"]=score
-    report["review"]=judge.review(image,reference,overlay,geometry,task)
+    report["review"]=judge.review(shape,reference,overlay_mask(shape,mask),geometry,task)
     report["status"]="perception_accepted" if geometry["mask_valid"] and report["review"]["status"]=="accepted" else "needs_new_observation"
     return report
 
@@ -245,7 +248,7 @@ def main():
     source.add_argument("--camera",choices=CAMERAS)
     source.add_argument("--image",type=Path)
     parser.add_argument("--reference",type=Path)
-    parser.add_argument("--task",default="找到与参考照片相同的白色异形比赛电池道具，优先选择完整可见的一块。")
+    parser.add_argument("--task",default=TASK)
     parser.add_argument("--console",default="http://127.0.0.1:9983")
     parser.add_argument("--env",type=Path,default=Path("/home/arx/arx-competition-control/agent/.secrets/qwen.env"))
     parser.add_argument("--threshold",type=float,default=.20)
@@ -262,10 +265,7 @@ def main():
     if args.reference:
         reference=Image.open(args.reference).convert("RGB")
     else:
-        config_path=REPO/"vision/config/whole-battery-references.json"
-        spec=json.loads(config_path.read_text())["references"]["d435"]
-        index=spec["classes"].index(0)
-        reference=Image.open(config_path.parent/spec["image"]).convert("RGB").crop(spec["boxes"][index])
+        reference=load_reference()
     session=ROOT/"runtime"/("run-"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"-"+uuid.uuid4().hex[:6])
     session.mkdir(parents=True)
     reference.save(session/"reference.png")

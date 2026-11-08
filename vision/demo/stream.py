@@ -13,7 +13,8 @@ from urllib.request import urlopen
 import numpy as np
 from PIL import Image
 from models import VisionModels
-from pipeline import REPO, QwenJudge, run_frame, overlay_candidates
+from pipeline import QwenJudge, run_frame, overlay_candidates
+from target import DINO_PROMPT, TASK, load_reference, shape_view
 
 def atomic_json(path, data):
     temporary=path.with_suffix(".tmp")
@@ -63,9 +64,7 @@ def main():
     models=VisionModels()
     model_lock=threading.Lock()
     locked=LockedModels(models,model_lock)
-    config_path=REPO/"vision/config/whole-battery-references.json"
-    spec=json.loads(config_path.read_text())["references"]["d435"]
-    reference=Image.open(config_path.parent/spec["image"]).convert("RGB").crop(spec["boxes"][spec["classes"].index(0)])
+    reference=load_reference()
     state_lock=threading.Lock()
     cloud={"phase":"waiting","message":"等待首帧"}
     cloud_thread=None
@@ -81,8 +80,7 @@ def main():
         image.save(directory/"rgb.png")
         try:
             judge=QwenJudge(Path("/home/arx/arx-competition-control/agent/.secrets/qwen.env"))
-            result=run_frame(locked,judge,image,reference,
-                "找到与参考照片相同的白色异形比赛电池道具，无法确定时明确拒绝，用中文填写reason。",directory)
+            result=run_frame(locked,judge,image,reference,TASK,directory)
             overlay=directory/"overlay.png"
             if overlay.exists():
                 Image.open(overlay).convert("RGB").save(directory/"review.jpg",quality=88)
@@ -113,10 +111,11 @@ def main():
                     continue
                 last,meta,image=sample
                 with model_lock:
-                    candidates=models.detect(image,"a white plastic object. a battery. a white plastic handle.")
+                    shape=shape_view(image)
+                    candidates=models.detect(shape,DINO_PROMPT)
                     pixels=np.asarray(image).copy()
                     for row in candidates[:4]:
-                        mask,_=models.segment(image,box=row["bbox_xyxy"])
+                        mask,_=models.segment(shape,box=row["bbox_xyxy"])
                         pixels[mask]=(pixels[mask]*.6+np.array([0,95,65])).clip(0,255).astype(np.uint8)
                 frame=overlay_candidates(Image.fromarray(pixels),candidates)
                 sequence=state["sequence"]+1

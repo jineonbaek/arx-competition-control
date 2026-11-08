@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import time
 import torch
+from target import DINO_PROMPT
 from PIL import Image
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor, Sam2Model, Sam2Processor
 
@@ -20,7 +21,7 @@ def main():
     sam = Sam2Model.from_pretrained(ROOT / "models/sam2", local_files_only=True).to("cuda").eval()
     sp = Sam2Processor.from_pretrained(ROOT / "models/sam2", local_files_only=True)
     with torch.inference_mode():
-        di = dp(images=image, text="a white plastic object.", return_tensors="pt").to("cuda")
+        di = dp(images=image, text=DINO_PROMPT, return_tensors="pt").to("cuda")
         dout = dino(**di)
         si = sp(images=image, input_boxes=[[[100, 100, 300, 300]]], return_tensors="pt").to("cuda")
         sout = sam(**si)
