@@ -1,0 +1,27 @@
+{
+  "prepared_date": "2026-11-08",
+  "repository": "https://github.com/Seeed-Projects/reBot-DevArm-Grasp",
+  "commit": "52714f61297f39a7b9f0d40b0a422e38362b800e",
+  "reference_path": "references/rebot-handeye-52714f61297f",
+  "files_sha256": {
+    "README_zh.md": "34ba7fc858d648e76215bbd993d08a0c6c51fc7bf7a1b09d227330bbd0da3c97",
+    "scripts/collect_handeye_eih.py": "d34a381a86c100895e7f9bdffd4af7b1f1d5fcabf24c602dfbe97629aeccde86",
+    "calibration/hand_eye.py": "e7cf570860139845705021533f4dad5fde8d41f86ba220cce5a8ee76e5d6bcb8",
+    "calibration/aruco_pose.py": "0684bb521f93edeef551760ddbe71fde65249f3ec43f543b1d258df77dc203f9",
+    "drivers/camera/realsense.py": "4053b4006ce819d5fbd14b61e13b876a8f5655af5ec804ee905b4356a72a4bf9",
+    "drivers/robot/grasp_driver.py": "7be0be982cef3243ed891724a1bc9d2ce022956887def9a1e7cb57c608dda4c9",
+    "config/default.yaml": "00f97423103ea28fd55798135f09c4bea66aade3834c50e58dec82464ee10e48"
+  },
+  "upstream_pose_count": 25,
+  "poses_approved_for_x5": false,
+  "executed": false,
+  "current_dependencies": {
+    "opencv": "4.6.0",
+    "numpy": "1.26.4",
+    "legacy_aruco_available": true,
+    "opencv_handeye_available": true,
+    "upstream_new_aruco_detector_available": false
+  },
+  "robot_sdk_installed": false,
+  "models_downloaded": false
+}
