@@ -1,5 +1,4 @@
 import {previewState, applyPreviewState} from './robot-preview-state.js';
-import {removeAbsentBodyBracket} from './robot-preview-geometry.js';
 
 const element = id => document.getElementById(id);
 const text = (id, value) => { if (element(id).textContent !== value) element(id).textContent = value; };
@@ -88,13 +87,11 @@ async function start() {
       manager.onError = url => reject(new Error('模型零件加载失败：' + url));
     });
     const loader = new globalThis.URDFLoader(manager);
-    loader.packages = {lift2: '/models/lift2'};
+    loader.packages = {lift2: '/models/lift2/diy-20261105'};
     loader.parseCollision = false;
-    const loaded = await Promise.all([loader.loadAsync('/models/lift2/urdf/lift2.urdf'), geometryReady]);
+    const loaded = await Promise.all([loader.loadAsync('/models/lift2/diy-20261105/urdf/lift2_with_sensors.urdf'), geometryReady]);
     if (stopped) return;
     robot = loaded[0];
-    for (const visual of robot.links.body4.children.filter(child => child.isURDFVisual))
-      visual.traverse(object => { if (object.isMesh) removeAbsentBodyBracket(object.geometry); });
     for (const joint of Object.values(robot.joints)) joint.ignoreLimits = true;
     // Same URDF-to-Three convention as TH; CAD wheel contact is 0.168 m below base origin.
     robot.rotation.x = -Math.PI / 2;
@@ -119,7 +116,7 @@ async function start() {
     resize(); fit(); updateFeedback();
     element('preview-reset-view').disabled = false;
     element('preview-reset-view').addEventListener('click', fit);
-    text('preview-model-status', 'LIFT2 模型已加载 · 仅预览，无碰撞保护');
+    text('preview-model-status', 'LIFT2S DIY 模型已加载 · 仅预览，无碰撞保护');
     element('robot-preview').dataset.loaded = 'true';
     renderer.setAnimationLoop(() => {
       updateFeedback(); controls.update(); renderer.render(scene, camera);

@@ -59,7 +59,10 @@ def main():
         page.locator("#preview-right-status.online").wait_for(timeout=10000)
         assert page.locator("#robot-preview-viewport canvas").count() == 1
         assert not errors, errors
-        print("PASS: actual WebGL/URDF/21-STL load and live feedback")
+        paths = {url.split("/")[-1] for _, url in requests if url.endswith(".STL")}
+        assert len(paths) == 26 and {"added_113_head.STL", "added_front_hang_mount.STL", "sensor_mid360_mm.STL", "sensor_d435i_mm.STL", "sensor_astra_pro_mm.STL"} <= paths, paths
+        assert any(url.endswith("/lift2_with_sensors.urdf") for _, url in requests)
+        print("PASS: DIY URDF, 26 STL files, live feedback and WebGL loaded")
         if args.screenshot:
             args.screenshot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(args.screenshot))
