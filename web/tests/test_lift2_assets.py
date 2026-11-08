@@ -1,6 +1,11 @@
 import json
 import importlib.util
 import unittest
+from unittest.mock import patch
+import tempfile
+import struct
+import contextlib
+import io
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -13,6 +18,21 @@ class Lift2AssetsTests(unittest.TestCase):
         module = importlib.util.module_from_spec(SPEC)
         SPEC.loader.exec_module(module)
         return module
+
+    def test_preparing_twice_never_hashes_the_integrity_file_itself(self):
+        m = self.loader()
+        source = b'<robot name="lift2">' + b'<link name="part"><visual><geometry><mesh filename="package://lift2/meshes/base_link.STL"/></geometry></visual></link>' * 21 + b'</robot>'
+        mesh = b'0' * 80 + struct.pack('<I', 1) + struct.pack('<12fH', *([0.] * 12), 0)
+        manifest = json.loads((ROOT / 'web/models-lift2.json').read_text())
+        with tempfile.TemporaryDirectory() as temp, patch.object(m.shutil, 'which', return_value='/usr/bin/7z'), patch.object(m, 'fetch', return_value=b'fixture'), patch.object(m, 'read_member', side_effect=lambda archive, name, extractor: source if name.endswith('.urdf') else mesh), contextlib.redirect_stdout(io.StringIO()):
+            output = Path(temp)
+            m.prepare(manifest, output)
+            record = output / 'models/lift2/asset-integrity.json'
+            first = json.loads(record.read_text())['sha256']
+            m.prepare(manifest, output)
+            second = json.loads(record.read_text())['sha256']
+            self.assertEqual(first, second)
+            self.assertNotIn('models/lift2/asset-integrity.json', second)
 
     def test_git_blob_integrity_rejects_corruption(self):
         m = self.loader()

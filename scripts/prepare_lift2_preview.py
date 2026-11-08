@@ -85,7 +85,7 @@ def prepare(manifest, output):
         (vendor / item["target"]).write_bytes(data)
     # Record exact installed bytes after local import-path rewriting.
     hashes = {p.relative_to(output).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-              for base in (destination, vendor) for p in sorted(base.rglob("*")) if p.is_file()}
+              for base in (destination, vendor) for p in sorted(base.rglob("*")) if p.is_file() and p.name != "asset-integrity.json"}
     record = {"source": manifest, "sha256": hashes, "mesh_bounds_m": bounds}
     (destination / "asset-integrity.json").write_text(json.dumps(record, indent=2) + "\n")
     print(json.dumps({"meshes": len(bounds), "installed_files": len(hashes), "mesh_bounds_m": bounds}, indent=2))
