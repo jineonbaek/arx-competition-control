@@ -9,13 +9,15 @@ Assets under web/public/models/lift2 and web/public/vendor/lift2-preview are gen
 - [x] Integrity/URDF tests: expected missing-script failures; portable path regression RED then GREEN; all 3 tests pass.
 - [x] Added pinned downloader, manifest and instructions.
 - [x] Installed 21 meshes + URDF + 4 libraries; all 26 installed file hashes and URDF references checked; STL extents measured.
-- [ ] Review diff and commit only task 1 whitelist.
+- [x] Task 1 diff reviewed; source/preparation commit 08c60c7.
 
 ## Task 2: add live read-only viewer
-- [ ] Write and observe failing state mapping/freshness and entry tests.
-- [ ] Add top panel, isolated rendering/GET-only module and responsive styles.
-- [ ] Verify arms independently, lift nominal conversion, expired/offline feedback, no target or command coupling, actual WebGL loading and viewport.
-- [ ] Run applicable Node/Python suites, inspect HTTP and unchanged driver identities.
-- [ ] Fresh read-only reviewer, fix material findings, scoped commit, no push.
+- [x] Six mapping/isolation tests first failed for missing implementation, then passed.
+- [x] Added top panel and independent renderer/GET-only feedback; no backend or driver changes.
+- [x] Browser verified actual WebGL + 21 meshes, live reads, fixture mappings, frozen whole responses, stale feedback, narrow viewport, GET-only requests.
+- [x] Final suites: Node 30/30, Python 157/157; browser six checks pass; HTTP resources 200; all four server/driver PIDs and start ticks unchanged.
+- [x] Fresh read-only review completed; both material findings fixed RED-to-GREEN; scoped local commit, no push.
 
 Review focus: no zero pose presented as live before valid feedback; independent freshness per component; feedback never clamped to control targets; invalid lift does not invent a height; asset failure cannot break existing controls; model is not collision protection.
+
+Final review: fresh read-only reviewer found (1) manifest self-hash on repeat preparation and (2) full stale-response replay resets clock. Both regression tests failed first, then passed after fixes. Repeated-preparation fix committed bfa9715. Lift conversion and CAD joint mapping remain explicitly uncalibrated display assumptions; no hardware motion attempted.

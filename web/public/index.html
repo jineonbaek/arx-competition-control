@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="css/arxgent.css">
   <link rel="stylesheet" href="css/layout.css">
   <script type="module" src="js/arxgent.js"></script>
+  <link rel="stylesheet" href="css/robot-preview.css">
+  <script type="module" src="js/robot-preview.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -19,6 +21,22 @@
     <div class="status-group"><span id="web-status" class="status-chip"><i></i>网页连接中</span><span id="ros-status" class="status-chip"><i></i>ROS 等待连接</span><span id="mode-status" class="mode-badge">读取状态中</span><button id="btn-log-toggle" class="button secondary" type="button" aria-controls="log-panel" aria-expanded="false">日志</button></div>
   </header>
   <main>
+    <section id="robot-preview" class="panel robot-preview" aria-labelledby="robot-preview-title">
+      <div class="panel-heading"><div><span class="section-index">LIVE / ROBOT</span><h2 id="robot-preview-title">LIFT2 整机实时预览</h2></div><button id="preview-reset-view" class="button secondary" type="button" disabled>重置视角</button></div>
+      <div class="robot-preview-layout">
+        <div id="robot-preview-viewport" role="img" aria-label="跟随实际反馈的左右臂和升降模型"></div>
+        <div class="preview-data">
+          <div class="preview-feedback"><strong id="preview-left-status">左臂 · 等待反馈</strong><p id="preview-left-joints">—</p></div>
+          <div class="preview-feedback"><strong id="preview-right-status">右臂 · 等待反馈</strong><p id="preview-right-joints">—</p></div>
+          <div class="preview-feedback"><strong id="preview-lift-status">升降 · 等待反馈</strong><p id="preview-lift-value">—</p></div>
+          <p class="preview-note">拖动旋转、滚轮缩放，仅改变视角。模型跟随真实反馈，不跟随控制目标；反馈过期隐藏对应活动部件。</p>
+          <p class="preview-note">升降按 41.54 rad/m 名义换算，行程不是离地高度，尚未实测标定。夹爪保持 CAD 初始开口；轮子不作里程计动画。</p>
+          <p class="preview-note">官方 LIFT2 CAD，安装位置与转轴方向待你对照实机。本预览不检查碰撞、不限制运动。</p>
+        </div>
+      </div>
+      <p id="preview-model-status" role="status">正在加载本地 LIFT2 整机模型…</p>
+    </section>
+
     <div class="page-heading"><div><span class="eyebrow">MANUAL CONTROL</span><h1>手动控制</h1><p>目标输入与实际反馈分开显示，发送后跟踪真实状态。</p></div><span id="last-update" class="update-time">等待实时反馈</span></div>
     <div id="notice" class="notice" role="status">正在连接控制台。打开页面不会启动机器人驱动。</div>
     <div class="dashboard">

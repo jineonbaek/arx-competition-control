@@ -27,3 +27,23 @@ Measured directly from the official binary STL coordinates (meters, consistent w
 | wheel1.STL | 64.0 mm axial width, approximately 150.0 mm diameter |
 
 The joint4 URDF limit is 0.46 m. These are CAD measurements, not physical measurements or a motor-to-linear transmission calibration.
+
+## 本次接入与验证
+
+- 入口：9983 首页最上方；只有旋转/缩放与“重置视角”，不会下发运动指令。
+- 独立模块只 GET /api/state，不连接 /events，不引入 TH 的主程序/命令通道，也不读取网页目标值。
+- 六轴反馈单位保持 rad，分别映射 left_joint11～16 / right_joint21～26；不使用 CAD 限位裁剪实际姿态。
+- 升降映射到 joint4，41.54 rad/m 仅作未标定预览；轮子静态、夹爪 CAD 初始开口。
+- 左右臂反馈分别判断新鲜度；升降失效隐藏 body4 及其双臂子树。以 HTTP Date 检查响应时钟，防止整个旧快照回放时仍标为实时。
+- 渲染失败只影响预览区；不修改后端、控制区或机器人驱动。
+- browser runner 仅测试预览脚本，移除其余控制脚本。资产通过测试代理读取以兼容 Edge 的本地网络权限；保留原始 CSP，未降低真实网页安全策略。
+
+验证命令：
+```bash
+node --test web/tests/*.test.mjs
+/usr/bin/python3 -m unittest discover -s web/tests -p 'test_*.py'
+# 开发机安装 Playwright 后：
+python web/tests/check_robot_preview_browser.py --base-url http://192.168.58.14:9983
+```
+
+2026-11-08：真实浏览器已验证 WebGL + URDF + 21 STL 加载、真实反馈读入、左右臂/升降独立映射、旧快照过期、手机布局、仅 GET 无命令。未执行实机运动核对。
