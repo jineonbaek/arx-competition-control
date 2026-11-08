@@ -17,7 +17,7 @@ def main():
     base=args.base_url.rstrip("/")
     edge=Path("C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe")
     exe=str(edge) if edge.exists() else shutil.which("google-chrome") or shutil.which("chromium")
-    state=dict(time=0,session=None,pending=None,active=False,history=[],board_configured=False,cursor=0,total=12)
+    state=dict(time=0,session=None,pending=None,active=False,history=[],board_configured=False,cursor=0,total=13)
     ops=[];errors=[]
     def route_request(route):
         path=urlsplit(route.request.url).path
@@ -27,7 +27,7 @@ def main():
                 if op=="begin":
                     assert route.request.post_data_json["marker"]==9
                     state.update(session="fixture",board_configured=True,cursor=1,pending=dict(
-                        point=1,start=[0]*6,target=[0,0,0,0,0,.1],ticket="fake",expires=time.time()+60,
+                        point=1,wrist_rise_mm=34.6,start=[0]*6,target=[0,0,.087,.052,0,0],ticket="fake",expires=time.time()+60,
                         check=dict(clear=True,lower_mm=115,margin_mm=20,link="right_link23")),
                         history=[dict(point=0,status="跳过",message="候选间隙不足")])
                 elif op=="execute":
@@ -52,6 +52,7 @@ def main():
         assert [page.input_value('#'+key) for key in ('board-dict','board-id','board-mm')]==['5X5_100','9','11.25']
         page.click('#step-begin')
         page.locator('#step-detail').filter(has_text='115 mm').wait_for()
+        assert '34.6 mm' in page.inner_text('#step-detail')
         assert ops==["begin"] and page.locator('#handeye-start').is_disabled()
         page.check('#step-confirm');page.click('#handeye-start')
         page.locator('#step-history').filter(has_text='不可用').wait_for()

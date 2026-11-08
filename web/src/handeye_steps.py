@@ -7,10 +7,9 @@ import numpy as np
 from handeye_column import ColumnModel
 from handeye_observation import WaitForFrame, board_spec, observe
 
-# Small wrist rotations relative to one measured session anchor, in degrees.
-OFFSETS = [(0,0,0,0,0,8),(0,0,0,0,8,0),(0,0,0,0,0,-8),(0,0,0,0,-8,0),
-           (0,0,0,6,0,5),(0,0,0,-6,0,-5),(0,0,0,0,10,8),(0,0,0,0,-10,8),
-           (0,0,0,5,8,-6),(0,0,0,-5,-8,-6),(0,0,0,6,-6,8),(0,0,0,-6,6,8)]
+# All points share the same raised J3/J4 targets, relative to the measured session start.
+WRIST_OFFSETS = [(0,0), (0,8), (8,0), (0,-8), (-8,0), (6,5), (-6,-5),
+                 (10,8), (-10,8), (8,-6), (-8,-6), (-6,8), (6,-8)]
 OUT=Path(__file__).resolve().parents[1]/"hardware/runtime/handeye"
 
 def capture_position(start, target, actual, *, motion):
@@ -37,6 +36,7 @@ class Steps:
         self.history=[]
         self.anchor=None
         self.cursor=0
+        self.raised=False
         self.spec=None
         self.owner=None
 
@@ -49,7 +49,7 @@ class Steps:
             pending=dict(self.pending) if self.pending else None
             if pending and self.owner!=client:pending.pop("ticket",None)
             return {"time":time.time(),"session":self.session,"pending":pending,"active":self.active,"history":self.history[:],
-                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(OFFSETS)}
+                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(WRIST_OFFSETS)}
 
     def feedback(self):
         s=self.ctrl.snapshot()
@@ -67,6 +67,11 @@ class Steps:
             raise ValueError("超出右臂软件限位")
         if min(q[0],target[0]) < np.radians(-35.8):raise ValueError("超出右臂 J1 现场下限 −35.8°")
         return self.model.check(q,target,h)
+
+    def wrist_rise_mm(self,q,h):
+        start=self.model.pose(self.anchor,h)[1]
+        wrist=self.model.pose(q,h)[1]
+        return float(wrist[2,3]-start[2,3])*1000
 
     def manual_submit(self, data, client):
         with self.lock:
@@ -94,7 +99,7 @@ class Steps:
                 if self.pending and self.owner!=client and time.time()<self.pending["expires"]:raise ValueError("另一页面有待确认点")
                 spec=board_spec(data) if data.get("dictionary") else None
                 self.owner=client;self.session=secrets.token_hex(12);self.spec=spec
-                self.anchor=q.copy();self.cursor=0;self.history=[];self.pending=None
+                self.anchor=q.copy();self.cursor=0;self.raised=False;self.history=[];self.pending=None
                 self.record("准备","已读取右臂实际起始姿态")
             elif self.owner!=client or data.get("session")!=self.session:
                 raise ValueError("会话已更换，请重新开始")
@@ -106,18 +111,25 @@ class Steps:
                 self.start_worker(client,{"point":0,"lift":h},q.copy(),token)
                 return self.state(client)
             if op in ("begin","next"):
-                if self.pending:self.record("跳过","操作员跳过待确认点",self.pending["point"])
+                if not self.raised:self.cursor=0
+                elif self.pending:self.record("跳过","操作员跳过待确认点",self.pending["point"])
                 self.pending=None
-                while self.cursor<len(OFFSETS):
+                while self.cursor<len(WRIST_OFFSETS):
                     self.cursor+=1
-                    target=self.anchor+np.radians(OFFSETS[self.cursor-1])
+                    j5,j6=WRIST_OFFSETS[self.cursor-1]
+                    target=self.anchor+np.radians([0,0,5,3,j5,j6])
                     try:
+                        dz_mm=self.wrist_rise_mm(target,h)
+                        if dz_mm<=0:raise ValueError("此起姿下模型未预测到腕部抬高")
                         check=self.assess(s,q,h,target)
                         if not check["clear"]:raise ValueError(f"整段间隙下界 {check['lower_mm']} mm，未超过 20 mm")
                     except ValueError as err:
-                        self.record("跳过",str(err),self.cursor);continue
+                        self.record("跳过",str(err),self.cursor)
+                        if not self.raised:break
+                        continue
                     self.pending={"point":self.cursor,"ticket":secrets.token_urlsafe(18),"expires":time.time()+90,
-                                  "start":q.tolist(),"target":target.tolist(),"lift":h,"check":check}
+                                  "start":q.tolist(),"target":target.tolist(),"lift":h,"check":check,
+                                  "wrist_rise_mm":round(dz_mm,1)}
                     break
                 return self.state(client)
             if op!="execute":raise ValueError("未知操作")
@@ -192,6 +204,11 @@ class Steps:
                     jitter=float(np.max(np.ptp(np.degrees([x[1] for x in stable]),axis=0)))
                     if jitter>.18 or np.max(np.diff([x[0] for x in stable]))>.25:
                         reason=f"停稳窗口反馈间隔过长或关节波动 {jitter:.2f}°";frames=[];continue
+                    if p["point"]==1 and not self.raised:
+                        measured_rise=self.wrist_rise_mm(q,h)
+                        if measured_rise<=0:raise ValueError("停稳后实测关节未形成腕部抬升，请检查现场")
+                        self.raised=True
+                        self.record("已抬腕",f"实测关节换算腕部抬高 {measured_rise:.1f} mm",1)
                     try:sample,image=observe(self.spec,stable[0][0],arm,self.model,stable)
                     except WaitForFrame:
                         if not frames and reason.startswith(("等待连续","等待新鲜","未进入","停稳窗口")):

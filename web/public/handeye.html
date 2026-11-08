@@ -19,7 +19,7 @@
   </header>
   <main>
     <div class="page-heading"><div><span class="eyebrow">D405 / HAND–EYE</span><h1>手眼标定采集</h1><p>相机固定在手腕，标定板固定在工作台。</p></div><span class="mode-badge">逐点模式</span></div>
-    <div class="notice enabled" role="status">程序检查右臂与夹爪到中央立柱的整段路径，可能碰柱的候选自动跳过。只有点击执行才下发当前点。检查范围不含相机外壳和外部物体。</div>
+    <div class="notice enabled" role="status">程序检查右臂与夹爪到中央立柱的整段路径，可能碰柱的候选自动跳过。只有点击执行才下发当前点。红色部件、相机外壳及外部物体的间隙需现场核对。</div>
 <section id="robot-preview" class="panel robot-preview" aria-labelledby="robot-preview-title">
       <div class="panel-heading"><div><span class="section-index">LIVE / ROBOT</span><h2 id="robot-preview-title">候选路径预览</h2></div><button id="preview-reset-view" class="button secondary" type="button" disabled>重置视角</button></div>
       <div class="robot-preview-layout">
@@ -46,7 +46,7 @@
       <div class="handeye-sidebar">
 <section class="panel" aria-labelledby="step-title">
  <div class="panel-heading"><h2 id="step-title">右臂逐点采集</h2></div>
- <p>板固定在桌面，底盘、升降和左臂停稳。候选从开始时的右臂姿态生成，J1 保持起始角，仅改变腕部姿态。</p>
+ <p>板固定在桌面，底盘、升降和左臂停稳。第 1 点相对本轮起姿以 J3 +5°、J4 +3° 抬腕。停稳后，后续点保持这两个目标，仅改变 J5、J6。先固定板，再开始本轮。</p>
  <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option selected>5X5_100</option><option>5X5_250</option><option>6X6_250</option></select></label>
  <label>同一枚标记 ID<input id="board-id" value="9" type="number" min="0" step="1"></label>
  <label>标记黑框边长 mm<input id="board-mm" value="11.25" type="number" min="1" step=".01"></label></div>

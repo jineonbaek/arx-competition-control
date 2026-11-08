@@ -13,13 +13,13 @@ function display() {
   const p=state?.pending;
   const valid=p && p.ticket && performance.now()-clock < p.expires*1000;
   if(approvedSession!==state?.session){el('step-confirm').checked=false;approvedSession=state?.session;}
-  el('handeye-start').disabled=busy || state?.active || !state?.board_configured || !valid || !el('step-confirm').checked || el('robot-preview').dataset.loaded!=='true';
+  el('handeye-start').disabled=busy || state?.active || !state?.board_configured || !Number.isFinite(p?.wrist_rise_mm) || !valid || !el('step-confirm').checked || el('robot-preview').dataset.loaded!=='true';
   el('step-next').disabled=busy || state?.active || !state?.session || state.cursor>=state.total;
   el('step-begin').disabled=el('step-probe').disabled=busy || state?.active;
   el('step-stop').disabled=!state?.session || (!state.active && !p);
   el('step-result').textContent=state?.active?'标定程序已请求仅彩色采样，等待停稳和标记检测':p?'候选 '+p.point+' / '+state.total+' · '+(valid?(state.board_configured?'待人工点击':'仅预览，请设置标记参数'):'确认已失效'):
     state?.session?'当前没有待执行的点':'等待生成候选';
-  el('step-detail').textContent=p?'整段路径间隙下界 '+p.check.lower_mm+' mm · 要求 > '+p.check.margin_mm+' mm · 最近部件 '+p.check.link+'\n目标 '+degrees(p.target):'';
+  el('step-detail').textContent=p?(Number.isFinite(p.wrist_rise_mm)?(p.point===1?'抬腕准备点':'抬腕后采样')+' · 腕部比本轮起姿高 '+p.wrist_rise_mm+' mm（模型）':'当前网页后端仍使用旧候选，请重载网页服务')+'\n到中央立柱的整段间隙下界 '+p.check.lower_mm+' mm · 要求 > '+p.check.margin_mm+' mm · 最近部件 '+p.check.link+'\n目标 '+degrees(p.target):'';
   const history=(state?.history||[]).slice().reverse().map(h=>(h.point?'点 '+h.point+' · ':'')+h.status+' · '+h.message);
   el('step-history').textContent=history.join('\n') || '尚无采样记录';
   window.dispatchEvent(new CustomEvent('handeye-preview',{detail:valid?p:null}));

@@ -38,10 +38,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(self.c.sent)
         self.assertFalse(self.w.state("operator")["active"])
 
+    def test_raised_anchor_is_required_and_does_not_accumulate(self):
+        s=self.begin()
+        def advance():return self.w.action("operator",dict(op="next",session=s["session"]))
+        first=s["pending"]
+        np.testing.assert_allclose(np.degrees(first["target"]),[0,0,5,3,0,0])
+        self.assertGreater(first["wrist_rise_mm"],30)
+        self.assertEqual(advance()["pending"]["point"],1)
+        self.c.q=first["target"]
+        self.w.raised=True
+        for i in range(2,s["total"]+1):
+            candidate=advance()["pending"]
+            self.assertEqual(candidate["point"],i)
+            np.testing.assert_allclose(np.degrees(candidate["target"][:4]),[0,0,5,3])
+            self.assertGreater(candidate["wrist_rise_mm"],0)
+            self.c.q=candidate["target"]
+        self.assertFalse(self.c.sent)
+
     def test_changed_start_invalidates_confirmation(self):
         s=self.begin();self.c.q[1]=.2
         with self.assertRaises(ValueError):self.w.action("operator",dict(op="execute",confirmed=True,session=s["session"],ticket=s["pending"]["ticket"]))
         self.assertFalse(self.c.sent)
     def test_column_and_site_limit_skip_without_motion(self):
         self.c.q[0]=np.radians(-36)
-        s=self.begin();self.assertIsNone(s["pending"]);self.assertEqual(len(s["history"]),13);self.assertFalse(self.c.sent)
+        s=self.begin();self.assertIsNone(s["pending"]);self.assertEqual(len(s["history"]),2);self.assertFalse(self.c.sent)
