@@ -11,9 +11,9 @@ from io import BytesIO
 from urllib.request import urlopen
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 from models import VisionModels
-from pipeline import ROOT, REPO, QwenJudge, run_frame, overlay_candidates
+from pipeline import REPO, QwenJudge, run_frame, overlay_candidates
 
 def atomic_json(path, data):
     temporary=path.with_suffix(".tmp")
@@ -72,7 +72,7 @@ def main():
     last_cloud=0
     last=None
     recent=deque()
-    recent_reviews=deque()
+    last_published=None
 
     def review(image,meta,sequence):
         nonlocal cloud
@@ -82,7 +82,7 @@ def main():
         try:
             judge=QwenJudge(Path("/home/arx/arx-competition-control/agent/.secrets/qwen.env"))
             result=run_frame(locked,judge,image,reference,
-                "找到与参考照片相同的白色异形比赛电池道具，无法确定时明确拒绝。",directory)
+                "找到与参考照片相同的白色异形比赛电池道具，无法确定时明确拒绝，用中文填写reason。",directory)
             overlay=directory/"overlay.png"
             if overlay.exists():
                 Image.open(overlay).convert("RGB").save(directory/"review.jpg",quality=88)
@@ -134,8 +134,11 @@ def main():
                         cloud_thread.start()
                 with state_lock:
                     summary=dict(cloud)
+                published=time.monotonic()
+                interval=published-(last_published if last_published is not None else started)
+                last_published=published
                 state.update(phase="streaming",sequence=sequence,image_file=name,
-                             captured_at=meta["captured_at"],fps=round(1/max(.001,time.monotonic()-started),1),
+                             captured_at=meta["captured_at"],fps=round(1/max(.001,interval),1),
                              count=len(candidates),qwen=summary,message="实时候选与分割")
                 atomic_json(output/"state.json",state)
                 # Keep only completed review artifacts for the latest two samples.
