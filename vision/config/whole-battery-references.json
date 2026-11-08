@@ -6,73 +6,45 @@
   "minimum_score": 0.25,
   "references": {
     "d405": {
-      "image": "d405-reference.jpg",
+      "image": "field-battery/rack-battery.png",
       "boxes": [
         [
-          160,
-          140,
-          312,
-          364
-        ],
-        [
-          77,
-          70,
-          294,
-          207
+          197,
+          274,
+          379,
+          441
         ]
       ],
       "classes": [
-        0,
-        1
+        0
       ]
     },
     "astra": {
-      "image": "astra-reference.jpg",
+      "image": "field-battery/basket-battery.jpg",
       "boxes": [
         [
-          327,
-          432,
-          444,
-          480
-        ],
-        [
-          482,
-          431,
-          640,
-          480
-        ],
-        [
-          333,
-          369,
-          528,
-          432
+          291,
+          255,
+          693,
+          627
         ]
       ],
       "classes": [
-        0,
-        0,
-        1
+        0
       ]
     },
     "d435": {
-      "image": "d435-reference.jpg",
+      "image": "field-battery/drone-battery.png",
       "boxes": [
         [
-          394,
-          73,
-          487,
-          230
-        ],
-        [
-          403,
-          0,
-          590,
-          72
+          274,
+          369,
+          478,
+          551
         ]
       ],
       "classes": [
-        0,
-        1
+        0
       ]
     }
   }
