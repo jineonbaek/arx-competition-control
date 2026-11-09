@@ -72,6 +72,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urlsplit(self.path).path
         client=self.client()
+        if path=="/guide":
+            return self.reply(200,(ROOT/"docs/competition-tools-acceptance.md").read_bytes(),"text/plain; charset=utf-8")
         if path=="/":
             return self.reply(200,(PUBLIC/"competition.html").read_bytes(),"text/html; charset=utf-8",client or uuid.uuid4())
         if path in ("/css/style.css","/css/arxgent.css","/js/arxgent.js","/js/acceptance.js"):
@@ -129,6 +131,7 @@ EXAMPLES={
 "cancel_tool":{"job_id":"JOB"},"flush_queue":{},"list_skills":{},"read_skill":{"name":"fixed_z_insertion"},
 "publish_insight":{"observation_id":"OBS","judgment":"uncertain","reason":"把手有遮挡"},
 "move":{"arm":"right","start_body4_m":[0.2,0.1,0.3],"end_body4_m":[0.25,0.1,0.3],"rpy_rad":[0,0,0]},
+"insert_battery":{"observation_id":"OBS","slot_id":"slot-1","arm":"right","start_body4_m":[.2,.1,.3],"axis_body4_xy":[1,0],"travel_m":.05,"rpy_rad":[0,0,0]},
 "grasp":{"arm":"right"},"release":{"arm":"right"},"hold":{"arm":"right","seconds":1},"finish":{}
 }
 

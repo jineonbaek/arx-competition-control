@@ -24,6 +24,23 @@ class ToolAcceptance(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_insertion_path_uses_scene_and_horizontal_slot_axis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=RunStore.create(tmp)
+            try:
+                obs=store.save_observation({"cameras":{"d405":{}}},{"d405":b"unit test"},geometry_archive=b"fixture")
+                reg=CompetitionTools(Config(),store,allowed_tools=BROWSER_TOOLS)
+                args=dict(observation_id=obs["observation_id"],slot_id="red",arm="right",
+                    start_body4_m=[.2,.1,.3],axis_body4_xy=[0,1],travel_m=.05,rpy_rad=[0,0,0])
+                result=reg.execute("insert_battery",args,"one")["data"]
+                self.assertTrue(all(p[0]==.2 and p[2]==.3 for p in result["waypoints"]))
+                self.assertAlmostEqual(result["waypoints"][-1][1],.15)
+                self.assertFalse(result["executed"])
+                args["axis_body4_xy"]=[0,0]
+                self.assertFalse(reg.execute("insert_battery",args,"two")["ok"])
+            finally:
+                store.close()
+
     def test_wait_cancel_and_scope(self):
         queue=Jobs()
         with tempfile.TemporaryDirectory() as tmp:

@@ -27,7 +27,13 @@ SPECS={
         "observations":IDS,"points":array(PIXEL,1,4),"static_correspondence":{"type":"boolean"}},["method"]),
         "segment queues shape-based battery recognition. pixels takes [row,col]. triangulate requires the same static feature across calibrated views."),
     "generate_grasp_candidates":(spec(observation_id=TEXT,segment_job=TEXT),"Queue GraspNet on a reviewed D405 battery mask and the same frozen RGB-D."),
-    "move":(spec(arm=choice("left","right"),start_body4_m=XYZ,end_body4_m=XYZ,rpy_rad=XYZ),"Preview fixed-Z horizontal insertion geometry in body4. Returns path and execution readiness."),
+    "move":(object_schema({"arm":choice("left","right"),"start_body4_m":XYZ,"end_body4_m":XYZ,"rpy_rad":XYZ,
+        "mode":choice("fixed_z","cartesian")},["arm","start_body4_m","end_body4_m","rpy_rad"]),
+        "Preview a constant-orientation Cartesian path in body4, fixed_z by default."),
+    "insert_battery":(spec(observation_id=TEXT,slot_id=TEXT,arm=choice("left","right"),start_body4_m=XYZ,
+        axis_body4_xy=array({"type":"number","minimum":-1,"maximum":1},2,2),
+        travel_m={"type":"number","minimum":.001,"maximum":1},rpy_rad=XYZ),
+        "Preview a fixed-Z insertion along a specified slot axis using a frozen D405 scene. Geometry only."),
     "grasp":(spec(arm=choice("left","right")),"Inspect measured gripper feedback and prepare closure."),
     "release":(spec(arm=choice("left","right")),"Inspect measured gripper feedback and prepare opening."),
     "hold":(spec(arm=choice("left","right"),seconds={"type":"number","minimum":0.5,"maximum":5}),"Observe fresh joint feedback over a time interval for stability."),
@@ -123,14 +129,27 @@ class CompetitionTools(ToolRegistry):
             return data
         if name=="finish":
             return super()._dispatch("finish_task",{},call_id)
-        if name=="move":
-            start,end=a["start_body4_m"],a["end_body4_m"]
-            if abs(start[2]-end[2])>1e-8:
+        if name in ("move","insert_battery"):
+            start=a["start_body4_m"]
+            extra={}
+            if name=="insert_battery":
+                scene.scene(self.store,a["observation_id"])
+                dx,dy=a["axis_body4_xy"]
+                norm=math.hypot(dx,dy)
+                if norm<1e-6:
+                    raise AgentError("invalid_insertion_axis","仓口插入方向不可为零")
+                end=[start[0]+dx*a["travel_m"]/norm,start[1]+dy*a["travel_m"]/norm,start[2]]
+                extra={"slot_id":a["slot_id"],"observation_id":a["observation_id"],
+                       "requested_travel_m":a["travel_m"],"axis_source":"caller_supplied","measured_progress_m":None}
+            else:
+                end=a["end_body4_m"]
+            fixed=name=="insert_battery" or a.get("mode","fixed_z")=="fixed_z"
+            if fixed and abs(start[2]-end[2])>1e-8:
                 raise AgentError("fixed_z_required","起终点须保持相同 body4 Z")
             steps=max(1,math.ceil(math.dist(start,end)/.01))
             return {"mode":"geometric_preview","arm":a["arm"],"frame":"body4","unit":"m",
-                "waypoints":[[start[0]+(end[0]-start[0])*i/steps,start[1]+(end[1]-start[1])*i/steps,start[2]] for i in range(steps+1)],
-                "constant_rpy_rad":a["rpy_rad"],"executed":False,"ik_checked":False,"stop_reason":"verified_planner_required"}
+                "waypoints":[[start[0]+(end[0]-start[0])*i/steps,start[1]+(end[1]-start[1])*i/steps,start[2] if fixed else start[2]+(end[2]-start[2])*i/steps] for i in range(steps+1)],
+                "constant_rpy_rad":a["rpy_rad"],"executed":False,"ik_checked":False,"stop_reason":"verified_planner_required",**extra}
         if name in ("grasp","release","hold"):
             def feedback():
                 state=self.observations.robot_state()
