@@ -83,6 +83,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200,chat.snapshot(client))
         if path=="/api/examples":
             return self.reply(200,EXAMPLES)
+        match=re.fullmatch(r"/scene/(obs_[a-f0-9]{32})/(d405|d435|astra)\.jpg",path)
+        if match:
+            with chat.lock:
+                run=chat._session(client)["run_dir"]
+            if run:
+                file=Path(run)/"observations"/match[1]/(match[2]+".jpg")
+                if file.is_file():
+                    return self.reply(200,file.read_bytes(),"image/jpeg")
+            return self.reply(404,{"message":"本对话未保存该画面"})
         match=re.fullmatch(r"/evidence/([a-f0-9]{32})/(mask|overlay|candidates)\.png",path)
         if match:
             with chat.lock:

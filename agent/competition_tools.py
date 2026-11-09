@@ -104,7 +104,7 @@ class CompetitionTools(ToolRegistry):
             ids=[a["job_id"]] if name=="wait_for_tool" else a["job_ids"]
             return {"jobs":JOBS.wait(root,ids,a["timeout_s"])}
         if name in ("queue_status","list_tool_jobs"):
-            return {"resource":"gpu","jobs":JOBS.list(root)}
+            return {"resource":"gpu","jobs":[{k:v for k,v in job.items() if k not in ("result","epoch")} for job in JOBS.list(root)]}
         if name=="cancel_tool":
             return JOBS.cancel(root,a["job_id"])
         if name=="flush_queue":

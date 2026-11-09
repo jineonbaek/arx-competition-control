@@ -9,7 +9,7 @@ ROG 验收入口 http://192.168.58.14:9986/ 。使用页面下拉框把示例填
 | capture_scene | D435 彩色或 D405 的 rgbd=true | 得到 observation_id。D405 深度需要采集端、右臂和升降反馈有效并停稳，返回采集时间、配对时间差及标定版本。 |
 | view_env_state | 空参数，再指定 observation_id | 分别显示最新状态和冻结观测。 |
 | locate / segment | 使用上一步 ID 和相机名 | 拿 job_id 查询。核对选框/退回粗定位、复核结论及样本图。在页面末尾输入任务编号查看实际生成的图像。 |
-| locate / pixels | 在 D405 同帧夹持横梁实体上选 [行,列] | 返回 body4 米坐标。重复查询同一点应一致。无有效深度返回空或明确失败。 |
+| locate / pixels | 在页面下方输入 OBS、选择 D405，点快照中夹持横梁的实体表面，发送自动填入的 [行,列] | 返回 body4 米坐标。重复查询同一点应一致。无有效深度返回空或明确失败。 |
 | locate / triangulate | 在机器人基座静止、目标静止条件下取得不同相机位姿的 D405 快照，标出同一物理点 | 返回三维点和每视角重投影误差；重复快照、过小视差或错误对应应被拒绝。 |
 | generate_grasp_candidates | D405 OBS 与同帧复核通过的 segment_job | 得到另一 JOB，查看候选分数、开口、body4 坐标和叠加图。未通过复核或掩膜深度不足时查看失败原因。 |
 | get_tool_result | 输入 JOB | queued/running/completed/failed/cancelled/interrupted 及可用结果；分割作业 completed 仍可能需要重新观测。 |
