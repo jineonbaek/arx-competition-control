@@ -1,0 +1,282 @@
+{
+  "status": "candidate; offline validation only",
+  "parent_frame": "right_link26",
+  "child_frame": "D405 color optical frame",
+  "convention": "p_right_link26 = T_right_link26_from_D405_color @ p_D405_color; metres",
+  "T_right_link26_from_D405_color": [
+    [
+      0.004356942453998761,
+      -0.5122363340011274,
+      0.8588334851305799,
+      0.07437398138956705
+    ],
+    [
+      -0.9997799178751433,
+      0.015393569437729848,
+      0.014253204325122337,
+      0.00882411857526931
+    ],
+    [
+      -0.020521522020076486,
+      -0.8587065716233053,
+      -0.5120565310441108,
+      0.06482522739353927
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "solver": "OpenCV calibrateHandEye PARK",
+  "source_session": "e5603a6eccb7b9687363cbed",
+  "sample_count": 14,
+  "color_intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 392.8686218261719,
+    "fy": 391.9378967285156,
+    "cx": 308.4721374511719,
+    "cy": 240.30821228027344,
+    "model": "distortion.inverse_brown_conrady",
+    "coeffs": [
+      -0.05305727198719978,
+      0.056010957807302475,
+      0.00042974791722372174,
+      -0.000495387997943908,
+      -0.018462367355823517
+    ],
+    "serial": "262622271422"
+  },
+  "board": {
+    "layout": "AprilGrid-6x6-55",
+    "dictionary": "APRILTAG_36h11",
+    "rows": 6,
+    "cols": 6,
+    "mm": 55,
+    "border_bits": 2,
+    "pitch_mm": 71.56,
+    "pitch_source": "D405 optical estimate using printed 55 mm outer black edge; not independently measured",
+    "origin": "grid center, +X from ID 0 to 5, +Y from ID 0 to 30",
+    "serial": "262622271422"
+  },
+  "inputs": {
+    "point-00": {
+      "color.jpg": "46dab8722f5e8cec5f42335ac0b1b1d2c1fd9a8dbc86ff5e35bd46e82074c519",
+      "sample.json": "8eb663850214fe98853cc89ac118e51a29a5c6ddc2fc804af2722693e525d39d"
+    },
+    "point-01": {
+      "color.jpg": "4dbd3cee7bebae8961139870953f8ba6222115fdf62a2ff154f63647d9b1f1fd",
+      "sample.json": "b0ed2abfc7cfb8353e335fcaa26648407dc6876a8a6b6ac63ac334c95b755c7e"
+    },
+    "point-02": {
+      "color.jpg": "287e1b0eec07a64a4eaa884868bc64732cd979e1873d8fe06bb7a21637e8a249",
+      "sample.json": "e56c13b0fcb611aa4681fac38be3425d4a1edf0bf62602bc807764a778937987"
+    },
+    "point-03": {
+      "color.jpg": "4c0535a8afe61e2245c1ca51f4ba2b8cc902952abbbe33683a27f9b1ce7365d4",
+      "sample.json": "8efeecac6c3305e102c392b4f576d7a3c8ea8549b9aac82108e7ff8a345f898b"
+    },
+    "point-04": {
+      "color.jpg": "3e5c7b8a5f04d93fe692f5891f71f26bb8cf425aaa61912e76080d1f382a4bc6",
+      "sample.json": "2d65b94abfb815f0e7d033045c999982fbcb67ab51227680dc9b7ab4e237c443"
+    },
+    "point-05": {
+      "color.jpg": "b57223c59d003add6d852c2f2d1341a6f9afb62db51e3141374f2155038a9193",
+      "sample.json": "11baaf765423829dfe584c656bc276f9196883bd1172cd3946767976970e23ff"
+    },
+    "point-06": {
+      "color.jpg": "60ff977717f71b1d9c5123ee8e81ab147bdecf5998c8a66c646c96d10c6a99fb",
+      "sample.json": "811e0cb98cdc21b1928eec7d32f7fdbf10a6a55e3b6222806c3bfb626594300a"
+    },
+    "point-07": {
+      "color.jpg": "8f009c425e09a8c022406f8d04c29d28960b57ef91970bfa81d5257d423cb13d",
+      "sample.json": "8b68ff8f3c1dacc03f5bcfe391c3081cdd91b8e155874660d02e72e844ac5b72"
+    },
+    "point-08": {
+      "color.jpg": "4d7696b8e55c77c7669ac25ff15ccbfe840b3e2d8c5228dbd2c5d1751c3b5a09",
+      "sample.json": "fbbdc9a20d0b37c7e1d4c1dac1da22d5c83d943eae6b5015f6b0f00fcade194d"
+    },
+    "point-09": {
+      "color.jpg": "beddb561a5fc26cd5d9b38558e1cfde6b33fa2796e912d66b66dd1d92bd68338",
+      "sample.json": "434354c82261fa7dca3c78831645723a3929ab4eba7b11e2d188272a2aecf4cd"
+    },
+    "point-10": {
+      "color.jpg": "b8c949aa7c53e17f66508242c7e2e4112a8001bc6a453ec34e5bd3e025f70e40",
+      "sample.json": "3d53a942b88b6d1bc5d17f856a12b004e1074c5c9f3abed77edbbed63771f85c"
+    },
+    "point-11": {
+      "color.jpg": "cc8ae5b67f101a8ff3c44b4064e2ec2a23e3dbe10994bc73e439fb74c4d18e0c",
+      "sample.json": "a727ca2d804d1c5184e32c4a9c74cfdcf08d65c95cae2f1c16ab9cce288d71b2"
+    },
+    "point-12": {
+      "color.jpg": "a2dae1c71ae5ad46541cdcba018dd61dc6fe6792635e12806a35c3fd31645eff",
+      "sample.json": "01e82336ce93b402c22719aae6c1bb3ee36c9818a577fca6f460814f103c576c"
+    },
+    "point-13": {
+      "color.jpg": "a92557bd72443d85ee2068fc65b75cba731cd47502d001631d07da4e6569858e",
+      "sample.json": "2e2a659f2640d52141c448d354a1f9d99ab3b29482e4312f46a1c77c4cbdd322"
+    }
+  },
+  "capture": {
+    "inlier_tags": [
+      17.0,
+      24.0
+    ],
+    "rms_px": [
+      0.10673756567587121,
+      0.22195216489765102
+    ],
+    "max_pair_delta_ms": 40.86446762084961,
+    "joint_range_deg": [
+      0.0,
+      0.11,
+      0.55,
+      1.11,
+      38.91,
+      38.25
+    ]
+  },
+  "validation_definition": "Deviation of the held-out board center and orientation in body4 from the mean training board pose; assumes a fixed board and base. Internal consistency, not a ground-truth measurement.",
+  "leave_one_out": {
+    "median_mm": 3.0160393641283965,
+    "max_mm": 4.559685432525324,
+    "median_deg": 0.2642052905943985,
+    "max_deg": 0.511383806546326,
+    "per_point": [
+      [
+        0,
+        1.9572303757283556,
+        0.19041884813034993
+      ],
+      [
+        1,
+        1.9223255314964431,
+        0.16361226135938267
+      ],
+      [
+        2,
+        4.559685432525324,
+        0.511383806546326
+      ],
+      [
+        3,
+        1.8178418481952785,
+        0.15527911330610408
+      ],
+      [
+        4,
+        3.013193839688292,
+        0.18495598575339525
+      ],
+      [
+        5,
+        3.602548674222159,
+        0.33133848139688127
+      ],
+      [
+        6,
+        3.2763336990029197,
+        0.31414448495113156
+      ],
+      [
+        7,
+        3.5074396047118586,
+        0.3326472617372598
+      ],
+      [
+        8,
+        3.921782171201235,
+        0.396383765124564
+      ],
+      [
+        9,
+        3.018884888568501,
+        0.26119188396650084
+      ],
+      [
+        10,
+        1.0168147852477893,
+        0.17313210689426467
+      ],
+      [
+        11,
+        2.631615271863837,
+        0.2672186972222962
+      ],
+      [
+        12,
+        3.006040185980282,
+        0.24121705213578068
+      ],
+      [
+        13,
+        3.38098447586362,
+        0.27184171457963596
+      ]
+    ]
+  },
+  "leave_one_out_max_extrinsic_translation_change_mm": 0.6316356382039019,
+  "four_held_out": {
+    "median_mm": 2.7636563749104566,
+    "max_mm": 4.3705532556207585,
+    "median_deg": 0.24650632816747842,
+    "max_deg": 0.48859601006619874,
+    "per_point": [
+      [
+        2,
+        4.3705532556207585,
+        0.48859601006619874
+      ],
+      [
+        5,
+        2.967759287838618,
+        0.26332907532764355
+      ],
+      [
+        9,
+        2.4894498619478567,
+        0.22968358100731326
+      ],
+      [
+        12,
+        2.559553461982295,
+        0.21390344501116432
+      ]
+    ]
+  },
+  "comparison_to_small_board": {
+    "result": "d405-right-cc200-ee0ff2fa49e9e56285d271d6.json",
+    "translation_difference_mm": 10.251659611013409,
+    "rotation_difference_deg": 0.5193316342750166,
+    "old_on_this_session": {
+      "median_mm": 1.7953180234329547,
+      "max_mm": 4.392708694420241,
+      "median_deg": 0.27194840823556093,
+      "max_deg": 0.5346526981848487,
+      "per_point": [
+        [
+          2,
+          4.392708694420241,
+          0.5346526981848487
+        ],
+        [
+          5,
+          1.0488773175417496,
+          0.28507855592247366
+        ],
+        [
+          9,
+          2.5417587293241595,
+          0.2243939413423783
+        ],
+        [
+          12,
+          0.6241764410243499,
+          0.2588182605486482
+        ]
+      ]
+    }
+  }
+}
