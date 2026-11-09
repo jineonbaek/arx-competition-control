@@ -33,7 +33,7 @@ def main():
                     assert route.request.post_data_json["marker"]==26
                     assert route.request.post_data_json["layout"]=="CC200-15-11.25"
                     assert route.request.post_data_json["profile"]=="supplement"
-                    state.update(session="fixture",board_configured=True,cursor=1,pending=dict(
+                    state.update(session="fixture",layout="CC200-15-11.25",board_configured=True,cursor=1,pending=dict(
                         point=1,profile='supplement',wrist_rise_mm=0,start=[0]*6,target=[0,0,0,0,.17,0],ticket="fake",expires=time.time()+60,
                         check=dict(clear=True,lower_mm=115,margin_mm=20,link="right_link23")),
                         history=[dict(point=0,status="跳过",message="候选间隙不足")])
@@ -56,6 +56,9 @@ def main():
         page.locator('#robot-preview[data-loaded=true]').wait_for(timeout=60000)
         assert page.locator('#handeye-start').is_disabled()
         assert ops == [], 'Opening the page must not start a calibration operation'
+        assert page.input_value("#board-layout")=="AprilGrid-6x6-55"
+        assert page.locator("#inspect-board").is_visible()
+        page.select_option("#board-layout","CC200-15-11.25")
         assert [page.input_value('#'+key) for key in ('board-dict','board-id','board-mm')]==['5X5_100','26','11.25']
         page.fill('#check-x','123')
         page.click('#measure-check')

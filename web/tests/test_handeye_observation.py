@@ -53,3 +53,23 @@ class ObservationTests(unittest.TestCase):
         np.testing.assert_allclose(board[:3,:3],np.diag([1,-1,-1]),atol=.002)
         image[:90+4*32]=255;image[90+4*32+24:]=255
         with self.assertRaises(ValueError):h.estimate_target(image,k,spec)
+
+    def test_large_grid_recovers_its_center_with_hidden_tags(self):
+        cfg=h.board_spec(dict(layout="AprilGrid-6x6-55",dictionary="APRILTAG_36h11",mm=55))
+        image=np.full((480,640),255,np.uint8)
+        k=dict(height=480,width=640,fx=640,fy=640,cx=320,cy=240,
+               model="none",coeffs=[0]*5,serial=cfg["serial"])
+        # One pixel per mm, front-facing board with +Y pointing up the image.
+        for idx in (0,1,7,14,20,21,28,35):
+            row,col=divmod(idx,6)
+            x=round(320+(col-2.5)*cfg["pitch_mm"]-27.5)
+            y=round(240-(row-2.5)*cfg["pitch_mm"]-27.5)
+            marker=cv2.aruco.drawMarker(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11),
+                                        idx,55,borderBits=2)
+            image[y:y+55,x:x+55]=np.rot90(marker,2)
+        T,rms,ids=h.estimate_target(image,k,cfg)
+        self.assertEqual(len(ids),8)
+        self.assertLess(rms,1)
+        np.testing.assert_allclose(T[:3,3],[0,0,.640],atol=.004)
+        np.testing.assert_allclose(T[:3,:3],np.diag([1,-1,-1]),atol=.015)
+        with self.assertRaises(ValueError):h.estimate_target(image,dict(k,serial="other"),cfg)

@@ -1,0 +1,12 @@
+{
+  "layout": "AprilGrid-6x6-55",
+  "dictionary": "APRILTAG_36h11",
+  "rows": 6,
+  "cols": 6,
+  "mm": 55,
+  "border_bits": 2,
+  "pitch_mm": 71.56,
+  "pitch_source": "D405 optical estimate using printed 55 mm outer black edge; not independently measured",
+  "origin": "grid center, +X from ID 0 to 5, +Y from ID 0 to 30",
+  "serial": "262622271422"
+}

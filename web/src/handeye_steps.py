@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from handeye_column import ColumnModel
 from handeye_validation import check_point
-from handeye_observation import WaitForFrame, board_spec, observe
+from handeye_observation import LARGE_BOARD, LARGE_ROOT, inspect_large_board, WaitForFrame, board_spec, observe
 
 # All points share the same raised J3/J4 targets, relative to the measured session start.
 WRIST_OFFSETS = [(0,0), (0,8), (8,0), (0,-8), (-8,0), (6,5), (-6,-5),
@@ -15,6 +15,10 @@ WRIST_OFFSETS = [(0,0), (0,8), (8,0), (0,-8), (-8,0), (6,5), (-6,-5),
 SUPPLEMENT_OFFSETS = [(10,0),(20,0),(16,10),(8,18),(0,20),(-10,16),
                       (-18,8),(-20,0),(-16,-10),(-8,-18),(0,-20),(10,-15),(18,-7)]
 OUT=Path(__file__).resolve().parents[1]/"hardware/runtime/handeye"
+
+def sample_folder(spec, session, point):
+    root = LARGE_ROOT / "sessions" if spec.get("layout") == LARGE_BOARD["layout"] else OUT
+    return root / session / f"point-{point:02d}"
 
 def capture_position(start, target, actual, *, motion):
     """Sampling proximity only. Motion limits and collision checks are independent."""
@@ -55,7 +59,7 @@ class Steps:
             pending=dict(self.pending) if self.pending else None
             if pending and self.owner!=client:pending.pop("ticket",None)
             return {"time":time.time(),"session":self.session,"pending":pending,"active":self.active,"history":self.history[:],
-                    "board_configured":self.spec is not None,"cursor":self.cursor,"total":len(self.offsets),"profile":self.profile}
+                    "layout":(self.spec or {}).get("layout",""),"board_configured":self.spec is not None,"cursor":self.cursor,"total":len(self.offsets),"profile":self.profile}
 
     def feedback(self):
         s=self.ctrl.snapshot()
@@ -90,6 +94,8 @@ class Steps:
 
     def action(self, client, data):
         if not isinstance(data,dict):raise ValueError("需要标定操作对象")
+        if data.get("op")=="inspect_large_board":
+            return inspect_large_board()
         if data.get("op")=="verify_point":
             def idle_feedback():
                 with self.lock:
@@ -249,8 +255,8 @@ class Steps:
                         reason="三帧对应的实测关节仍在移动";continue
                     sample["reference_joints_rad"]=target.tolist()
                     sample["max_reference_error_deg"]=float(np.max(np.abs(np.degrees(measured[-1]-target))))
-                    folder=OUT/self.session/f"point-{p['point']:02d}"
-                    folder.mkdir(parents=True,exist_ok=True)
+                    folder=sample_folder(self.spec,self.session,p["point"])
+                    folder.mkdir(parents=True,exist_ok=False)
                     (folder/"color.jpg").write_bytes(image)
                     (folder/"sample.json").write_text(json.dumps(sample,indent=2))
                     tag_summary=f"整板 {len(sample['inlier_marker_ids'])} 个有效标记，" if self.spec.get("layout") else ""

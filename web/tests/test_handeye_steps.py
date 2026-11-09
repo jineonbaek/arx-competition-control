@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import Mock,patch
 import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
-from handeye_steps import Steps
+from handeye_steps import LARGE_BOARD,LARGE_ROOT,OUT,Steps,sample_folder
 
 class Fake:
     def __init__(self):self.q=[0.]*6;self.sent=[]
@@ -16,6 +16,15 @@ class Fake:
 class WorkflowTests(unittest.TestCase):
     def setUp(self):self.c=Fake();self.depth=Mock();self.w=Steps(self.c,self.depth)
     def begin(self):return self.w.action("operator",dict(op="begin",dictionary="5X5_100",marker=1,mm=11.25))
+    def test_board_storage_and_read_only_check(self):
+        self.assertEqual(sample_folder(LARGE_BOARD,"abc",0),LARGE_ROOT/"sessions/abc/point-00")
+        self.assertEqual(sample_folder({"layout":"CC200-15-11.25"},"abc",0),OUT/"abc/point-00")
+        with patch("handeye_steps.inspect_large_board",return_value={"stable":True}), patch.object(self.w,"feedback",side_effect=AssertionError):
+            self.assertTrue(self.w.action("operator",{"op":"inspect_large_board"})["stable"])
+        self.assertIsNone(self.w.session)
+        self.assertFalse(self.c.sent)
+        self.depth.acquire_handeye.assert_not_called()
+
     def test_only_owner_click_can_consume_one_ticket(self):
         s=self.begin();p=s["pending"];self.assertTrue(p["check"]["clear"]);self.assertFalse(self.c.sent);self.depth.acquire_handeye.assert_not_called()
         go=dict(op="execute",confirmed=True,session=s["session"],ticket=p["ticket"])

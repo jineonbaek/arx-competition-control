@@ -11,11 +11,12 @@ async function request(data) {
 }
 function display() {
   const p=state?.pending;
+  const sameLayout=state?.layout===el('board-layout').value;
   const valid=p && p.ticket && performance.now()-clock < p.expires*1000;
   if(approvedSession!==state?.session){el('step-confirm').checked=false;approvedSession=state?.session;}
-  el('handeye-start').disabled=busy || state?.active || !state?.board_configured || !p?.profile || !Number.isFinite(p?.wrist_rise_mm) || !valid || !el('step-confirm').checked || el('robot-preview').dataset.loaded!=='true';
+  el('handeye-start').disabled=busy || !sameLayout || state?.active || !state?.board_configured || !p?.profile || !Number.isFinite(p?.wrist_rise_mm) || !valid || !el('step-confirm').checked || el('robot-preview').dataset.loaded!=='true';
   el('measure-check').disabled=checking || busy || !state || state.active || Boolean(p);
-  el('step-next').disabled=busy || state?.active || !state?.session || state.cursor>=state.total;
+  el('step-next').disabled=busy || !sameLayout || state?.active || !state?.session || state.cursor>=state.total;
   el('step-begin').disabled=el('step-probe').disabled=busy || state?.active;
   el('step-stop').disabled=!state?.session || (!state.active && !p);
   el('step-result').textContent=state?.active?'标定程序已请求仅彩色采样，等待停稳和标记检测':p?'候选 '+p.point+' / '+state.total+' · '+(valid?(state.board_configured?'待人工点击':'仅预览，请设置标记参数'):'确认已失效'):
@@ -31,7 +32,7 @@ async function act(op){
   try{
     const data={op,session:state?.session};
     if(op==='begin' || op==='probe'){
-      if(el('board-dict').value && (!el('board-id').value || !el('board-mm').value))throw Error('请填写标记编号和边长');
+      if(!el('board-layout').value && el('board-dict').value && (!el('board-id').value || !el('board-mm').value))throw Error('请填写标记编号和边长');
       Object.assign(data,{layout:el('board-layout').value,profile:el('pose-profile').value,dictionary:el('board-dict').value,marker:Number(el('board-id').value),mm:Number(el('board-mm').value)});
     }
     if(op==='execute')Object.assign(data,{ticket:state.pending?.ticket,confirmed:el('step-confirm').checked});
@@ -42,14 +43,33 @@ async function act(op){
 for(const [id,op] of [['step-probe','probe'],['step-begin','begin'],['step-next','next'],['handeye-start','execute'],['step-stop','cancel']])
   el(id).addEventListener('click',()=>act(op));
 function updateBoardFields(){
-  const fixed=Boolean(el('board-layout').value);
-  for(const [id,v] of [['board-dict','5X5_100'],['board-id','26'],['board-mm','11.25']]){
-    if(fixed)el(id).value=v;
-    el(id).disabled=fixed;
+  const layout=el('board-layout').value;
+  const large=layout==='AprilGrid-6x6-55';
+  const fields=large ? ['APRILTAG_36h11','','55'] : ['5X5_100','26','11.25'];
+  for(const [i,id] of ['board-dict','board-id','board-mm'].entries()){
+    el(id).value=fields[i];
+    el(id).disabled=Boolean(layout);
   }
+  el('board-dict').querySelector('option[value="APRILTAG_36h11"]').disabled=!large;
+  el('large-board-check').hidden=!large;
+  el('physical-check').hidden=large;
+  el('step-confirm').checked=false;
 }
-el('board-layout').addEventListener('change',updateBoardFields);
+el('board-layout').addEventListener('change',()=>{updateBoardFields();display();});
 updateBoardFields();
+el('inspect-board').addEventListener('click',async()=>{
+  const button=el('inspect-board'), quality=el('board-quality');
+  button.disabled=true;quality.textContent='正在检查不同的 D405 彩色帧…';
+  try{
+    const q=await request({op:'inspect_large_board'});
+    const parts=[q.stable?'静止识别稳定':'未通过静止检查','整板有效 '+q.usable+'/'+q.frames+' 帧（目标 8 帧）'];
+    if(q.usable) parts.push('有效标签 '+Math.min(...q.marker_counts)+'～'+Math.max(...q.marker_counts)+' 个',
+      '最大重投影 RMS '+Math.max(...q.rms_px).toFixed(2)+' px','板中心最大波动 '+q.spread_mm.toFixed(2)+' mm');
+    if(q.reason) parts.push(q.reason);
+    quality.textContent=parts.join(' · ');
+  }catch(err){quality.textContent=err.message;}
+  finally{button.disabled=false;}
+});
 el('step-confirm').addEventListener('change',display);
 async function poll(){
   if(!busy && !document.hidden){

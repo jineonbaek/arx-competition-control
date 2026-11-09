@@ -48,10 +48,13 @@
  <div class="panel-heading"><h2 id="step-title">右臂逐点采集</h2></div>
  <p>板固定在桌面，底盘、升降和左臂停稳。补采从当前腕姿开始，保持 J1～J4，用 J5、J6 从不同角度观察。整板固定后先原地试采，再点「下一候选」逐点预览。</p>
  <div class="board-fields"><label>采集方式<select id="pose-profile"><option value="supplement" selected>从当前腕姿补采</option><option value="raise">先抬腕，再采集</option></select></label>
- <label>标定目标<select id="board-layout"><option value="CC200-15-11.25" selected>CC200 整板（参考码 26）</option><option value="">单标记</option></select></label></div>
- <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option selected>5X5_100</option><option>5X5_250</option><option>6X6_250</option></select></label>
- <label>板中心标记 ID<input id="board-id" value="26" type="number" min="0" step="1"></label>
- <label>标记黑框边长 mm<input id="board-mm" value="11.25" type="number" min="1" step=".01"></label></div>
+ <label>标定目标<select id="board-layout"><option value="AprilGrid-6x6-55" selected>大板 · AprilGrid 6×6（55 mm）</option><option value="CC200-15-11.25">CC200 整板（参考码 26）</option><option value="">单标记</option></select></label></div>
+ <div class="board-fields"><label>ArUco 字典<select id="board-dict"><option value="">仅检查路径，标记参数待确认</option><option>4X4_50</option><option>4X4_100</option><option>4X4_250</option><option>5X5_50</option><option>5X5_100</option><option value="APRILTAG_36h11" selected>APRILTAG_36h11</option><option>5X5_250</option><option>6X6_250</option></select></label>
+ <label>单标记／参考码 ID<input id="board-id" placeholder="整板中心" type="number" min="0" step="1"></label>
+ <label>标记黑框边长 mm<input id="board-mm" value="55" type="number" min="1" step=".01"></label></div>
+ <div id="large-board-check"><p>把大板固定在右腕相机前方，尽量居中并给边缘留白。检查只读取彩色快照，不保存标定样本。</p>
+ <button type="button" class="button secondary" id="inspect-board">静止检查大板（8 帧）</button>
+ <p id="board-quality" role="status"></p></div>
  <button type="button" class="button secondary" id="step-probe">原地试采</button>
  <button type="button" class="button secondary" id="step-begin">生成首个候选</button>
  <button type="button" class="button secondary" id="step-next" disabled>下一候选</button>
