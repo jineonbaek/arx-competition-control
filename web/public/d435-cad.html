@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>D435 坐标预览 · ARX</title><link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/handeye.css"><script type="module" src="js/d435-cad.js"></script></head>
 <body><header class="topbar"><div class="brand"><span class="brand-mark">A</span><strong>D435 坐标预览</strong></div><a class="button secondary" href="/">返回控制台</a></header>
-<main><section class="panel"><h1>大标定板 · CAD 坐标预览</h1><p>将 36h11 标定板朝向头部相机并停稳。每行对应一个 55 mm 标记的中心。坐标采用 CAD 安装初值。</p>
-<button id="read" class="button primary">读取彩色快照</button><p id="status" role="status"></p>
-<div class="handeye-grid"><img id="frame" width="640" class="d435-snapshot" alt="D435 标记快照" hidden><div><p class="hint">X 朝车头，Y 朝车左，Z 朝上。body4 随升降移动，使用时间匹配的反馈和名义行程比例。</p><div id="rows"></div></div></div></section></main></body></html>
+<main><section class="panel"><h1>大标定板 · CAD 坐标预览</h1><p>将 6×6 大板朝向头部相机并停稳。使用 36h11 标签，黑框边长 55 mm。坐标采用 CAD 安装初值。</p>
+<button id="read" class="button primary">连续读取 8 帧</button><p id="status" role="status"></p>
+<div class="handeye-grid"><img id="frame" width="640" class="d435-snapshot" alt="D435 标记快照" hidden><div><p class="hint">X 朝车头，Y 朝车左，Z 朝上。body4 随升降移动，使用时间匹配的反馈和名义行程比例。</p><p id="center"></p><p id="spread"></p><details><summary>各标签坐标</summary><div id="rows"></div></details></div></div></section></main></body></html>
