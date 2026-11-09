@@ -17,6 +17,7 @@ from control import Controller, Rejected
 from handeye_steps import Steps
 from grasp_preview import GraspPreview
 from vision_preview import VisionPreview
+from d435_cad import preview as d435_cad_preview
 from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
@@ -63,6 +64,11 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == "/api/d435-cad":
+                try:
+                    return self.json(200, d435_cad_preview(controller.snapshot().get("body") or {}))
+                except (ValueError, OSError) as error:
+                    return self.json(503, {"message":str(error)})
             if path == "/api/vision":
                 if not self.client(): return self.json(403, {"message":"请先打开视觉识别页"})
                 return self.json(200, vision.snapshot())
