@@ -38,10 +38,10 @@ export function activityText(state) {
   const activity = state.activity || [];
   if (state.busy && state.job?.phase === 'tool') {
     const last = activity.at(-1);
-    return '正在' + (toolLabels[last?.tool] || '读取信息') + '…';
+    return '正在' + (toolLabels[last?.tool] || last?.tool || '读取信息') + '…';
   }
   if (state.busy) return activity.length ? '已读取信息，arxgent 正在整理回答…' : 'arxgent 正在思考…';
-  if (activity.length) return '本轮已调用：' + [...new Set(activity.map(item => toolLabels[item.tool] || '读取信息'))].join(' · ');
+  if (activity.length) return '本轮已调用：' + [...new Set(activity.map(item => toolLabels[item.tool] || item.tool))].join(' · ');
   return '可以聊天，也可以让我查看状态和相机';
 }
 

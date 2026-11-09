@@ -54,6 +54,9 @@ class CompetitionTools(ToolRegistry):
     schemas={**ToolRegistry.schemas,**{k:v[0] for k,v in SPECS.items()}}
     descriptions={**ToolRegistry.descriptions,**{k:v[1] for k,v in SPECS.items()}}
 
+    def capabilities(self):
+        return {**super().capabilities(), "generate_grasp_candidates":True}
+
     def definitions(self,*,available_only=False):
         rows=super().definitions(available_only=False)
         return rows if not available_only else [r for r in rows if r["function"]["name"] in BROWSER_TOOLS]

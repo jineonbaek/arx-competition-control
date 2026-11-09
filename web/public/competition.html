@@ -1,0 +1,14 @@
+<!DOCTYPE html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>arxgent 工具验收</title><link rel="stylesheet" href="/css/style.css"><link rel="stylesheet" href="/css/arxgent.css"><script type="module" src="/js/arxgent.js"></script><script type="module" src="/js/acceptance.js"></script><main class="page"><h1>比赛工具验收</h1><label>选择工具填入对话框 <select id="tool-examples"><option>选择示例</option></select></label><p>把 OBS、JOB 换成当前对话返回的编号，再发送。可以直接用中文交代任务。机械臂操作在此页返回预览或反馈。</p><section id="arxgent-panel" class="panel arxgent-panel" aria-labelledby="arxgent-title">
+          <div class="panel-heading arxgent-heading"><div><span class="section-index">AGENT / VISION</span><h2 id="arxgent-title">arxgent</h2></div><button id="arxgent-new" class="text-button" type="button" disabled>新对话</button></div>
+          <div class="arxgent-meta"><span id="arxgent-status" class="status-chip"><i></i>正在连接</span><span class="subtle-tag">只读助手</span></div>
+          <div id="arxgent-messages" class="arxgent-messages" role="log" aria-label="与 arxgent 的对话" aria-live="polite" aria-relevant="additions text"><p class="arxgent-empty">我是 arxgent。可以查看机器人状态和三路相机，和你一起判断现场情况。</p></div>
+          <div id="arxgent-activity" class="arxgent-activity" role="status">连接后即可开始对话</div>
+          <div class="arxgent-suggestions"><button class="arxgent-suggestion" type="button" data-arxgent-prompt="请先读取机器人状态，再查看三个相机，用中文简述各画面内容，判断有没有清晰可见的比赛电池。只读检查，不执行动作。" disabled>看看三个相机</button><button class="arxgent-suggestion" type="button" data-arxgent-prompt="请读取机器人系统状态，简要告诉我目前能使用哪些能力。" disabled>读取机器人状态</button></div>
+          <form id="arxgent-form" class="arxgent-form">
+            <label class="arxgent-input-label" for="arxgent-input">发送给 arxgent</label>
+            <textarea id="arxgent-input" rows="3" maxlength="2000" placeholder="例如：看看三个相机，告诉我你看到了什么…" aria-describedby="arxgent-input-hint" disabled></textarea>
+            <div class="arxgent-compose-footer"><span id="arxgent-input-hint">Enter 发送 · Shift+Enter 换行</span><div class="button-row"><button id="arxgent-cancel" class="button secondary" type="button" hidden>取消回复</button><button id="arxgent-send" class="button primary" type="submit" disabled>发送</button></div></div>
+          </form>
+          <p id="arxgent-error" class="arxgent-error" role="alert" hidden></p>
+          <p class="arxgent-note">Qwen3.8-Flash · 可连续追问 · 这里不会驱动机器人运动</p>
+        </section><label>查看分割证据 <input id="evidence-id" placeholder="任务 ID"></label><button id="evidence-show">查看图像</button><div id="evidence-output"></div></main></html>

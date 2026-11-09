@@ -18,6 +18,7 @@ def segment(store, ident, camera, output):
     if not source.is_relative_to((VISION/"runtime").resolve()):
         raise AgentError("invalid_artifact","未知分割结果目录")
     result={"observation_id":ident,"camera":camera,"status":report["status"],
+            "selection":report.get("selection"),"coarse_selection":report.get("coarse_selection"),
             "review":report.get("review"),"path":report.get("path")}
     if report["status"]=="perception_accepted":
         mask=np.asarray(Image.open(source/"mask.png").convert("L"))
@@ -53,6 +54,15 @@ def grasp_candidates(store, ident, receipt, output):
     report=json.loads(result.read_text())
     if report["id"]!=frame_id or report["roi"]!=box:
         raise AgentError("snapshot_mismatch","抓取结果不属于当前快照")
+    from PIL import ImageDraw
+    preview=Image.open(store.image_path(ident,"d405")).convert("RGB")
+    draw=ImageDraw.Draw(preview)
+    for index,candidate in enumerate(report["candidates"]):
+        pts=candidate["pixels"]
+        for i,j in ((0,1),(1,2),(2,3),(4,5)):
+            if pts[i] and pts[j]:
+                draw.line([tuple(pts[i]),tuple(pts[j])],fill="yellow" if index==0 else "cyan",width=2)
+    preview.save(output/"overlay.png")
     return {"observation_id":ident,"segment_job":receipt["job_id"],"frame":"body4",
             "candidates":[{k:c[k] for k in ("score","width_mm","body4_mm","rotation_body4")} for c in report["candidates"]],
             "ik_checked":False,"whole_arm_collision_checked":False}

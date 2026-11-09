@@ -1,6 +1,7 @@
 """Immutable scene evidence from the existing console and its D405 capture owner."""
 import base64
 import io
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -27,9 +28,13 @@ def capture(registry, camera, rgbd):
     request = Request(url + "/api/grasp-preview", data=b'{"op":"capture"}',
                       headers={"Origin": url, "Cookie": "arx_web_session=" + client,
                                "Content-Type": "application/json"})
+    candidate=MAIN / "vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json"
+    digest=hashlib.sha256(candidate.read_bytes()).hexdigest()
     with urlopen(request, timeout=25) as response:
         view = json.load(response)
     blob = (MAIN / "web/hardware/runtime/grasp-preview/frame.npz").read_bytes()
+    if hashlib.sha256(candidate.read_bytes()).hexdigest()!=digest:
+        raise AgentError("calibration_changed","采集期间外参发生变化，请重新采集")
     with np.load(io.BytesIO(blob), allow_pickle=False) as frame:
         if str(frame["id"]) != view["id"]:
             raise AgentError("stale_snapshot", "D405 采集结果已被更新，请重新采集")
@@ -37,13 +42,12 @@ def capture(registry, camera, rgbd):
         arm_time = float(frame["arm_time"])
     result = registry.store.save_observation({
         "source": "9983_d405_paired", "source_snapshot": view["id"],
+        "calibration_sha256":digest,"calibration_file":candidate.name,
         "arm_timestamp": arm_time, "target_frame": "body4",
         "cameras": {camera: {"image_size_px": [view["width"], view["height"]],
             "captured_at": view["time"], "intrinsics": calibration,
             "paired_ms": view["paired_ms"], "geometry_ready": True}}},
-        {camera: base64.b64decode(view["image"].split(",", 1)[1], validate=True)})
-    directory = registry.store.image_path(result["observation_id"], camera).parent
-    (directory / "scene.npz").write_bytes(blob)
+        {camera: base64.b64decode(view["image"].split(",", 1)[1], validate=True)},geometry_archive=blob)
     return result
 
 
