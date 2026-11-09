@@ -3,3 +3,18 @@
 .camera-vision-detail{margin:0;padding:10px 13px;border-top:1px solid var(--border);font-size:11px;white-space:pre-line;color:var(--warning);line-height:1.7}.camera-vision-detail.valid{color:var(--success)}
 
 .camera-depth-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 13px;border-top:1px solid var(--border)}.camera-depth-controls .button{min-width:100px}.camera-depth-status{flex:1;min-width:120px;font-size:11px;line-height:1.6;color:var(--text-secondary)}
+
+.camera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+.camera-actions > .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.5;
+}
