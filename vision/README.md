@@ -1,22 +1,8 @@
-# Camera preview and optional depth
+# 相机、深度与按需视觉识别
 
-YOLOE is disabled and no longer auto-started. All cameras now start with color preview only. Use the per-camera depth buttons in 9983 to enable or disable actual depth streams. Every capture-process start resets depth OFF. See DEPTH.md for controls, installation and limitations.
+三台相机默认只采集彩色画面。9983 的每路深度按钮控制实际深度流，每次启动采集进程都会恢复深度关闭。旧 YOLOE 检测服务、专用依赖和权重已移除。
 
-The older battery-recognition notes below are retained as background and are not the active preview path.
-
-# 左侧电池把手只读识别
-
-此版本针对提供的白色打印电池、暗色桌面和当前可见把手，使用多亮度阈值、孔形几何与模型尺寸约束自动选择图像最左侧的候选。它不是训练完成的通用电池分类器，也不执行完整 CAD 六维位姿配准；换颜色、强遮挡或其他带孔白色物体可能导致漏检或误检。
-
-- 蓝色 H：识别到的把手孔中心，孔内可能看见背景，禁止直接将其深度作为把手深度。
-- 绿色 G：由孔几何确定的横梁实体表面采样区域，使用有效深度的稳健统计值定位。
-- 黄色 G：只有二维候选，三维定位无效。
-- XYZ：D435 彩色光学坐标系，X 向图像右，Y 向图像下，Z 向前，网页显示毫米。
-- 这是表面位置，不是 CAD 中厚度中心，也不是机器人基座坐标或经过碰撞验证的抓取目标。
-
-D435 同时采集 640×480、15 FPS 的彩色与深度，通过 RealSense SDK 将深度对齐到彩色，使用相机出厂内参和深度单位反投影。帧间时间差大于 40 ms、处理/帧时效超限、有效深度不足或孔宽尺度明显不符时不输出三维点。未启用填洞来伪造缺失深度。
-
-标注直接烘焙到对应帧。JSON 指向唯一命名的 JPEG，避免图像和坐标错帧；仅保留最近 35 张带标注图像，不记录视频。
+D435 / D405 的按需识别窗口使用 Grounding DINO、Qwen 和 SAM2；运行入口在 web/src/vision_preview.py，模型环境位于 ROG 的 /home/arx/arx-vision-demo/vision/demo。GraspNet 的抓取候选预览见 9983 D405 相机卡片。新的比赛实拍参考和尺寸图见 config/field-battery/，共享裁剪参考为 config/battery-reference.png。
 
 ## 运行
 

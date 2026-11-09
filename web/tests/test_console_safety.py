@@ -27,8 +27,7 @@ class ConsoleSafetyTests(unittest.TestCase):
     def test_disconnected_can_overrides_fresh_cached_ros_for_every_component(self):
         faults = {"can1": "can1 absent", "can3": "can3 absent", "can5": "can5 absent"}
         with patch.object(launcher, "can_health", return_value=(faults, None), create=True), \
-             patch.object(launcher, "camera_fault", return_value=""), \
-             patch.object(launcher, "whole_battery_fault", return_value=""):
+             patch.object(launcher, "camera_fault", return_value=""):
             status = launcher.component_status(snapshot())
         self.assertIn("can1", status["机械臂"])
         self.assertIn("can3", status["机械臂"])
@@ -77,8 +76,7 @@ class ConsoleSafetyTests(unittest.TestCase):
         state["capabilities"]["lift"] = "not ready"
         with patch.object(launcher, "can_health", return_value=(
                 {"can1": "", "can3": "", "can5": ""}, None)), \
-             patch.object(launcher, "camera_fault", return_value=""), \
-             patch.object(launcher, "whole_battery_fault", return_value=""):
+             patch.object(launcher, "camera_fault", return_value=""):
             self.assertEqual(launcher.recovery_plan(state), ["body"])
 
 
@@ -177,8 +175,7 @@ class RecoveryFlowTests(unittest.TestCase):
                  patch.object(launcher, "ensure_can") as ensure_can, \
                  patch.object(launcher, "start", return_value=Mock(pid=123,poll=lambda:None)), \
                  patch.object(launcher.Path, "is_char_device", return_value=True), \
-                 patch.object(launcher, "camera_fault", return_value=""), \
-                 patch.object(launcher, "whole_battery_fault", return_value=""):
+                 patch.object(launcher, "camera_fault", return_value=""):
                 launcher.restart_faults(True, selected=["body"])
                 stop.assert_called_once_with("body")
                 self.assertEqual(ensure_can.call_args.args[0], "can5")
@@ -186,8 +183,7 @@ class RecoveryFlowTests(unittest.TestCase):
 
     def test_wrong_ros_domain_restarts_web_not_healthy_drivers(self):
         state = snapshot();state["ros"]["domain_id"] = "42"
-        with patch.object(launcher,"camera_fault",return_value=""), \
-             patch.object(launcher,"whole_battery_fault",return_value=""):
+        with patch.object(launcher,"camera_fault",return_value=""):
             self.assertEqual(launcher.recovery_plan(state), ["web"])
 
     def test_launch_check_never_starts_or_restarts_hardware(self):
@@ -255,8 +251,7 @@ class ChassisHealthTests(unittest.TestCase):
     def test_chassis_failure_preserves_healthy_lift_and_selects_shared_body(self):
         buses={"can1":"","can3":"","can5":"","chassis":"controller not responding"}
         with patch.object(launcher,"can_health",return_value=(buses,None)), \
-             patch.object(launcher,"camera_fault",return_value=""), \
-             patch.object(launcher,"whole_battery_fault",return_value=""):
+             patch.object(launcher,"camera_fault",return_value=""):
             status=launcher.component_status(snapshot())
             self.assertTrue(status["底盘"])
             self.assertEqual(status["升降"],"")

@@ -93,11 +93,6 @@ def camera_fault(not_before=0.0):
 
 
 
-def whole_battery_fault():
-    # YOLOE is intentionally disabled and is not a startup/recovery requirement.
-    return ""
-
-
 def ensure_cameras():
     RUNTIME.mkdir(parents=True, exist_ok=True)
     with (RUNTIME / "camera-launcher.lock").open("a") as lock:
@@ -370,7 +365,7 @@ def recovery_plan(snapshot, buses=None):
         result = [name for name, channel in CHANNELS.items()
                   if buses[channel] or check_fault(snapshot, "lift" if name == "body" else name)
                   or (name == "body" and (buses.get("chassis") or check_fault(snapshot, "chassis")))]
-    if camera_fault() or whole_battery_fault():
+    if camera_fault():
         result.append("cameras")
     return result
 

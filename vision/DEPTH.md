@@ -1,6 +1,6 @@
 # Three-camera depth acquisition (ROG)
 
-The existing camera_preview.py is the only camera owner. All cameras start COLOR ONLY. Depth defaults OFF on every capture-process start. YOLOE is disabled and is never started automatically. It never imports ROS, robot SDKs, or CAN. Keep its lock; do not open another camera pipeline beside it.
+The existing camera_preview.py is the only camera owner. All cameras start COLOR ONLY. Depth defaults OFF on every capture-process start. The obsolete YOLOE service has been removed. It never imports ROS, robot SDKs, or CAN. Keep its lock; do not open another camera pipeline beside it.
 
 | Camera | Color / depth acquisition | Export | Color registration |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ To enable only D405 RGB-D, without touching D435/Astra or starting the detector:
 python3 web/src/camera_preview.py --camera d405 --no-detector
 ```
 
-This uses the same exclusive capture lock and existing HTTP camera metadata. Unselected cameras are reported offline; robot processes stay untouched. The desktop launcher starts all COLOR previews with depth OFF and no YOLOE. This mode does not claim the shared USB fault is fixed.
+This uses the same exclusive capture lock and existing HTTP camera metadata. Unselected cameras are reported offline; robot processes stay untouched. The desktop launcher starts all COLOR previews with depth OFF. This mode does not claim the shared USB fault is fixed.
 
 ## Start / verify
 
@@ -73,7 +73,7 @@ Disabling RealSense depth reconnects that camera with only its color stream enab
 
 All depth requests reset OFF on capture startup. A locked, atomically replaced request file lives in ignored web/hardware/runtime. Pausing or closing the page does not stop enabled depth: use the depth button.
 
-YOLOE weights and source remain on disk, but capture never starts recognition and the page no longer reads its overlays. Recognition is removed from desktop recovery requirements. Intentional depth OFF is healthy in camera self-checks.
+The obsolete YOLOE weights, source and dedicated environment have been removed from this workspace. The preview uses raw camera frames; recognition runs only through the separate on-demand vision entry. Intentional depth OFF is healthy in camera self-checks.
 
 On-demand depth reduces unnecessary USB traffic. It does not prove the cause of the earlier shared-USB fault has been fixed.
 

@@ -1,8 +1,6 @@
 vendor-python/
 reports/
 __pycache__/
-.venv-detector/
 models/
 runtime/
-probe_whole_battery*.py
 vendor-openni/

@@ -7,13 +7,9 @@ export function frameFresh(meta,serverNowMs) {
 export function cameraImagePath(key,meta){
  if(!['d435','d405','astra'].includes(key))throw new Error('Unknown camera');
  const filename=meta?.image_file;
- const pattern=new RegExp('^'+key+'-[vb]-[a-f0-9]+-[0-9]+\\.jpg$');
+ const pattern=new RegExp('^'+key+'-v-[a-f0-9]+-[0-9]+\\.jpg$');
  return typeof filename==='string' && pattern.test(filename) ? '/camera-live/'+filename : '/camera-live/'+key+'.jpg';
 }
-export function chooseCameraFrame(key,raw,boxed,serverNowMs){
- return boxed?.source_camera===key && boxed.whole_battery && frameFresh(boxed,serverNowMs) ? boxed : raw;
-}
-
 export function depthButtonView(status){
  if(status?.handeye_priority)return {label:'标定采样中',disabled:true,pressed:status.active===true,hint:'D405 深度由标定程序管理，采样结束后恢复手动设置'};
  if(!status)return {label:'开启深度',disabled:true,pressed:false,hint:'深度状态不可用'};

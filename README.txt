@@ -16,7 +16,7 @@
     start.sh           只启动网页服务
     README.md          网页、驱动和限位说明，含历史接入记录
   vision/              相机视觉参考图、几何配置、依赖清单和使用说明
-                       三路电池框/孔洞识别见 vision/WHOLE_BATTERY.md
+                       相机、深度和按需识别见 vision/README.md
   scripts/
     start-console.py   一键启动和设备自检入口
     其他脚本           构建、离线测试及专项诊断

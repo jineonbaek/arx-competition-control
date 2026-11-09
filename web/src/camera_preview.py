@@ -148,16 +148,14 @@ def main(argv=None):
         lock.seek(0);lock.truncate();lock.write(str(os.getpid()));lock.flush()
         control=DepthControl(WEB/'hardware/runtime/camera-depth-control.json',OUT)
         CAPTURE_SESSION=control.reset()
-        for key in ['d435','d405','astra']:
-            OUT.mkdir(parents=True,exist_ok=True)
-            atomic(OUT/(key+'-battery.json'),json.dumps(dict(state='disabled',sequence=0,captured_at=None,message='YOLOE disabled',source_camera=key)).encode())
+        OUT.mkdir(parents=True,exist_ok=True)
         stop=threading.Event()
         for sig in [signal.SIGTERM,signal.SIGINT]:signal.signal(sig,lambda *_:stop.set())
         for spec in SPECS:
             if spec not in specs:publish(OUT,spec['id'],None,0,None,'offline','本次未启用')
         workers=[threading.Thread(target=worker,args=(spec,stop,control),daemon=True) for spec in specs]
         for t in workers:t.start()
-        print('Camera preview started:',','.join(spec['id'] for spec in specs),'color only; depth defaults OFF; YOLOE disabled',flush=True)
+        print('Camera preview started:',','.join(spec['id'] for spec in specs),'color only; depth defaults OFF',flush=True)
         try:
             while not stop.is_set():stop.wait(1)
         finally:

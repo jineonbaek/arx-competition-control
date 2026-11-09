@@ -51,7 +51,7 @@ class IntegrationTests(unittest.TestCase):
    start.assert_called_once()
  def test_status_includes_both_services(self):
   faults={'手柄可视化':'viewer failed','手柄底盘控制':'control failed'}
-  with patch.object(launcher,'can_health',return_value=({'can1':'','can3':'','can5':''},None)),patch.object(launcher,'check_fault',return_value=''),patch.object(launcher,'camera_fault',return_value=''),patch.object(launcher,'whole_battery_fault',return_value=''),patch.object(launcher,'gamepad_status',return_value=faults):
+  with patch.object(launcher,'can_health',return_value=({'can1':'','can3':'','can5':''},None)),patch.object(launcher,'check_fault',return_value=''),patch.object(launcher,'camera_fault',return_value=''),patch.object(launcher,'gamepad_status',return_value=faults):
    result=launcher.component_status({})
    self.assertEqual({key:result[key] for key in faults},faults)
  def test_handpad_recovery_only_starts_user_services(self):
@@ -89,7 +89,7 @@ class OptionalIsolationTests(unittest.TestCase):
    with self.assertRaisesRegex(RuntimeError,'camera phase reached'):launcher.launch()
    cameras.assert_called_once()
  def test_status_exception_does_not_hide_other_components(self):
-  with patch.object(launcher,'can_health',return_value=({'can1':'','can3':'','can5':''},None)),patch.object(launcher,'check_fault',return_value=''),patch.object(launcher,'camera_fault',return_value=''),patch.object(launcher,'whole_battery_fault',return_value=''),patch.object(launcher,'gamepad_status',side_effect=RuntimeError('status failed')):
+  with patch.object(launcher,'can_health',return_value=({'can1':'','can3':'','can5':''},None)),patch.object(launcher,'check_fault',return_value=''),patch.object(launcher,'camera_fault',return_value=''),patch.object(launcher,'gamepad_status',side_effect=RuntimeError('status failed')):
    result=launcher.component_status({})
    self.assertEqual(result['底盘'],'');self.assertEqual(result['相机'],'')
    self.assertIn('status failed',result['手柄可视化'])

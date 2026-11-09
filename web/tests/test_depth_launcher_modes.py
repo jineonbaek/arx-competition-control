@@ -18,7 +18,5 @@ class LauncherDepthModes(unittest.TestCase):
             (Path(tmp)/'d405.json').write_text(json.dumps(dict(state='online',captured_at=time.time(),depth=dict(requested=True,state='error',message='USB error'))))
             self.assertIn('D405',launcher.camera_fault())
             self.assertIn('USB error',launcher.camera_fault())
-    def test_disabled_recognition_is_not_a_recovery_requirement(self):
-        self.assertEqual(launcher.whole_battery_fault(),'')
 
 if __name__=='__main__':unittest.main()
