@@ -1,0 +1,250 @@
+{
+  "status": "candidate only; not selected for runtime",
+  "source_session": "164f400dd1b51df6d39d6d30",
+  "sample_count": 14,
+  "solver": "OpenCV PARK, eye-in-hand",
+  "parent_frame": "right_link26",
+  "child_frame": "D405 color optical frame",
+  "convention": "p_right_link26 = T_right_link26_from_D405_color @ p_D405_color; metres",
+  "T_right_link26_from_D405_color": [
+    [
+      0.007287635336552961,
+      -0.5166648005606225,
+      0.856156746298745,
+      0.07335237430662406
+    ],
+    [
+      -0.9997307795889322,
+      0.015096475504105367,
+      0.01762001050284675,
+      0.008301389383709272
+    ],
+    [
+      -0.02202858856050043,
+      -0.8560546596386275,
+      -0.516415686242223,
+      0.0697711582192119
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "board": {
+    "dictionary": "5X5_100",
+    "marker": 26,
+    "mm": 11.25,
+    "layout": "CC200-15-11.25"
+  },
+  "color_intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 392.8686218261719,
+    "fy": 391.9378967285156,
+    "cx": 308.4721374511719,
+    "cy": 240.30821228027344,
+    "model": "distortion.inverse_brown_conrady",
+    "coeffs": [
+      -0.05305727198719978,
+      0.056010957807302475,
+      0.00042974791722372174,
+      -0.000495387997943908,
+      -0.018462367355823517
+    ],
+    "serial": "262622271422"
+  },
+  "inputs": {
+    "point-00": {
+      "sample.json": "281eb45fba5f48258180304103fc5def7c88b5f2362dd0905785849ec298fdb3",
+      "color.jpg": "e5ff12288badb65b3b44db1098306923b922833dc7b61bb10f61ba4a070136ce"
+    },
+    "point-01": {
+      "sample.json": "f900fc5bd881aee85c399be56da8eee30d84509e96d688e066901bb27c4a159d",
+      "color.jpg": "9c85537c1a61e8f047899279d9481a10f7f1ad47f12773d078e9d4d22282b705"
+    },
+    "point-02": {
+      "sample.json": "cb454ab0d1bd5fa7f2f6f3c7d75133e84a97f0faa57d7549727155d27c5066a2",
+      "color.jpg": "b519c4202b3dad603c24fde2b801250b4e0d6d02ac962b67931e9f68950882ea"
+    },
+    "point-03": {
+      "sample.json": "3cf6c52f045492da74c021df51714959816946383e8c4c028cf7c473bf1bf180",
+      "color.jpg": "af3406834970e40e6eb208a2680ce2da1b8819cba21e865a98ed3b580124b21c"
+    },
+    "point-04": {
+      "sample.json": "64ceb7cc8c63e581578be29edf46d5829213860fc4fbd217f4c4bfb2dbc36b2f",
+      "color.jpg": "4e7c0403b665d357cc7f37400e303a4e88e8f6ee3d6467c885544e25bd235ece"
+    },
+    "point-05": {
+      "sample.json": "b6b73e407458eb58e24c343a869920597d3310ef6486773b81545e75ecffb33f",
+      "color.jpg": "e706f2521d79c91a55643d730dd8e1444785189fa0095e820dbcb5249d2a38b6"
+    },
+    "point-06": {
+      "sample.json": "6b63cd8f82920bb2f7d071e4d3d097347e75d105cc4544fe8d5a08e5a23594de",
+      "color.jpg": "3251f4d586975ae16b578477c1e9cd8f7206055a6af79e3f4605dfdd0c92408a"
+    },
+    "point-07": {
+      "sample.json": "4736959543049087ee9de98276ac1320a943d82f120d2faab6d7a0dceece5764",
+      "color.jpg": "ce254ffe61c9e66cc9a58b4e57fc2f76838c0cac5ed499433a2182901140fc1f"
+    },
+    "point-08": {
+      "sample.json": "7453000ff7b362e01f3269f217331130a477f99e7a74f3cc8b21bfeae230d4ba",
+      "color.jpg": "1f0be73e68dafe56c7343fe313ca9ed6da59884fafa425f548910e32856c7c08"
+    },
+    "point-09": {
+      "sample.json": "95eaba73dfee0386774ca75f17010d925efe274fa86e4f8789568f29a3d63a29",
+      "color.jpg": "9607d28f349f613e151fe19ac41dc9feec39ff478cff7a33e15973ca42371fea"
+    },
+    "point-10": {
+      "sample.json": "76c95a3dd73bdfb3f524149d2ce3de93b6d55d4b39454ff564ccbfe29b9ef986",
+      "color.jpg": "b83b3ced0cba4a051b58282d79b67586ca8ab2efb065f365e56c5809f5601edb"
+    },
+    "point-11": {
+      "sample.json": "0e8de9d83a865c228da67e0fc0dc4bd22775449f81dcb6393a6f681d464cfb67",
+      "color.jpg": "5d1a8ea8390209526116231d25165308a65371cbd2f6771c1b085c519fe6d4b2"
+    },
+    "point-12": {
+      "sample.json": "4d088a3a9e269d42cadc76e3bc58745e1d434c1ecf5621a7888cc08170aac5e9",
+      "color.jpg": "e28beea9af0d087a1d757256410792e691a5c54d6445ab66715acdd1968e07f2"
+    },
+    "point-13": {
+      "sample.json": "e2852522187f750f9a25bc88f64eac8cbde881605a8d3c16c3ff3924ec8f3bde",
+      "color.jpg": "0c553a51924aff934f0894ae2438f0b0fee5f73eefb00447510d4fac90c070a3"
+    }
+  },
+  "capture": {
+    "tag_range": [
+      22,
+      42
+    ],
+    "reprojection_rms_px_range": [
+      1.1324192156243689,
+      1.2245932148159273
+    ],
+    "joint_range_deg": [
+      0.0,
+      0.10928302672020401,
+      0.5464151336010201,
+      1.114686872546081,
+      38.730451084773904,
+      39.123924622480004
+    ],
+    "max_image_arm_delay_ms": 43.93506050109863
+  },
+  "training_leave_one_out_fixed_board_deviations_mm": [
+    0.7990701531001354,
+    0.8725669103433534,
+    1.6691479373065523,
+    1.0027323479213417,
+    1.2515618091430185,
+    1.2392594227666522,
+    1.1743528260259888,
+    1.7423095032668101,
+    2.0014808689151744,
+    1.3781064990667593,
+    0.11985782122308522,
+    0.8207987300953512,
+    1.2199458678976371,
+    1.8156427739810326
+  ],
+  "extrinsic_delta_from_other_candidates": {
+    "small": {
+      "mm": 5.497172869256736,
+      "deg": 0.6339492808739856
+    },
+    "large": {
+      "mm": 5.077318049124659,
+      "deg": 0.3510918431047546
+    }
+  },
+  "existing_validation_report": {
+    "path": "vision/handeye/d405-aprilgrid-6x6/results/validation-e751e4e566b2f92df8022437.json",
+    "sha256": "110a72620ceb924c2979304a57b477b84ed044f58814e3ab5ebe99f0b5a49ddf",
+    "session": "e751e4e566b2f92df8022437"
+  },
+  "validation_definition": "Fixed wrist_from_D405_color applied to all poses. For each candidate compute body4_from_wrist @ wrist_from_camera @ camera_from_board. Deviations from its own mean center measure repeatability on the stationary board, not absolute accuracy. No refitting.",
+  "same_validation_set_results": {
+    "small": {
+      "mean_center_body4_mm": [
+        684.6067066708785,
+        -429.2278269617412,
+        -161.75939818537222
+      ],
+      "median_deviation_mm": 1.282266527320485,
+      "max_deviation_mm": 3.0231227608118934,
+      "max_pairwise_mm": 5.409838759117709,
+      "max_pairwise_deg": 0.611310956005728,
+      "per_point_deviation_mm": [
+        3.0231227608118934,
+        0.9275416761411333,
+        2.021110206045591,
+        0.9999247232314592,
+        1.1730381399749026,
+        0.9658902602956203,
+        1.3914949146660673,
+        2.1044873805709927,
+        2.4296936329849963,
+        2.076069026719183,
+        1.0878188630774206,
+        0.7090434166402119,
+        0.7198815831434691,
+        1.7228921841346825
+      ]
+    },
+    "large": {
+      "mean_center_body4_mm": [
+        690.9105179919009,
+        -428.21826611145167,
+        -169.44499620852528
+      ],
+      "median_deviation_mm": 2.2916343285813765,
+      "max_deviation_mm": 3.535345747351482,
+      "max_pairwise_mm": 6.442873867474541,
+      "max_pairwise_deg": 0.5734820895723485,
+      "per_point_deviation_mm": [
+        3.1952778154569708,
+        1.5925372894735,
+        2.39897936086769,
+        0.6711220363974739,
+        1.4356244111343497,
+        2.1842892962950624,
+        2.660744141290615,
+        3.535345747351482,
+        3.33130153566052,
+        1.5362515546202495,
+        1.0139783989552131,
+        2.044969552840944,
+        2.914079085101398,
+        2.882920504566082
+      ]
+    },
+    "small_repeat": {
+      "mean_center_body4_mm": [
+        688.4829792723806,
+        -425.61013894736186,
+        -167.169325192935
+      ],
+      "median_deviation_mm": 1.610978253408493,
+      "max_deviation_mm": 3.2438733610399306,
+      "max_pairwise_mm": 4.893450769697702,
+      "max_pairwise_deg": 0.6271788668031222,
+      "per_point_deviation_mm": [
+        3.2438733610399306,
+        1.0863303739392405,
+        1.3246062185075822,
+        1.117246010945482,
+        1.683056356010274,
+        1.7064432247443153,
+        1.6032075055289448,
+        2.3202035883525047,
+        2.264762802728055,
+        1.162816776296635,
+        0.8732644894405772,
+        1.3241809214820597,
+        1.8044090498731264,
+        1.6187490012880412
+      ]
+    }
+  }
+}
