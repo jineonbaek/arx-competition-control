@@ -17,10 +17,15 @@ def gripper_lines(position, rotation, width, depth):
 
 def main():
     import torch
-    demo,frame_path,frame_id,output,*box=sys.argv[1:]
+    demo,frame_path,frame_id,output,*args=sys.argv[1:]
+    mask_path=args[4] if len(args)==5 else None
+    if len(args) not in (4,5):raise ValueError("Expected ROI and optional segmentation mask")
+    box=args[:4]
     demo=Path(demo);box=list(map(int,box));started=time.monotonic()
     if not torch.cuda.is_available():raise RuntimeError('CUDA GPU 未就绪')
-    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'vendor-python'))
+    vendor=Path(__file__).resolve().parents[1]/'vendor-python'
+    if not vendor.is_dir():vendor=Path.home()/'arx-competition-control/vision/vendor-python'
+    sys.path.insert(0,str(vendor))
     import pyrealsense2 as rs
     with np.load(frame_path,allow_pickle=False) as f:
         if str(f['id'])!=frame_id:raise ValueError('快照文件已更新')
@@ -37,6 +42,13 @@ def main():
     ys=slice(max(y-12,0),min(b+12,h));xs=slice(max(x-12,0),min(r+12,w))
     local=xyz[ys,xs];valid=local[:,:,2]>0
     if np.count_nonzero(xyz[y:b,x:r,2])<100:raise ValueError('选区内有效深度点不足 100 个')
+    mask=None
+    if mask_path:
+        from PIL import Image
+        mask=np.asarray(Image.open(mask_path).convert('L'))>0
+        if mask.shape!=(h,w) or (mask & (xyz[:,:,2]>0)).sum()<100:
+            raise ValueError('复核掩膜内有效深度不足')
+        valid &= mask[ys,xs]
     pts=local[valid];colors=rgb[ys,xs][valid]
     torch.manual_seed(0);rng=np.random.default_rng(0)
     idx=rng.choice(len(pts),20000,replace=len(pts)<20000)

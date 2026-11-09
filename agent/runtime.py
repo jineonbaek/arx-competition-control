@@ -66,7 +66,7 @@ class AgentRuntime:
             if message['role'] != 'tool':
                 continue
             result = json.loads(message['content'])
-            if not result['ok'] or result['tool'] not in ('observe_scene', 'read_observation'):
+            if not result['ok'] or result['tool'] not in ('observe_scene', 'read_observation', 'capture_scene'):
                 continue
             obs = result['data']
             if obs['observation_id'] in attached:

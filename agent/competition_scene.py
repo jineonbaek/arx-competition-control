@@ -79,7 +79,9 @@ def pixels(store, ident, points):
 def triangulate(store, ids, points):
     if len(ids) != len(points) or len(set(ids)) != len(ids) or len(ids) < 2:
         raise AgentError("invalid_correspondence", "需要两个以上不同快照中的同一静止物理点")
-    sys.path.insert(0, str(MAIN / "vision/vendor-python")) if str(MAIN / "vision/vendor-python") not in sys.path else None
+    vendor=str(MAIN / "vision/vendor-python")
+    if vendor not in sys.path:
+        sys.path.insert(0,vendor)
     import pyrealsense2 as rs
     views = []
     for ident, rc in zip(ids, points):
