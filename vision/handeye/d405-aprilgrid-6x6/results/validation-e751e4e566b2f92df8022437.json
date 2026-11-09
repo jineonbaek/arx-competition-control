@@ -1,0 +1,141 @@
+{
+  "validation_session": "e751e4e566b2f92df8022437",
+  "sample_count": 14,
+  "method": "Fixed wrist_from_D405_color applied to all poses. For each candidate compute body4_from_wrist @ wrist_from_camera @ camera_from_board. Deviations from its own mean center measure repeatability on the stationary board, not absolute accuracy. No refitting.",
+  "hashes": {
+    "point-00": {
+      "sample.json": "f704dbf421706819b3662584ed345551399616d4fd143b871c2e2e75a2793d24",
+      "color.jpg": "a3969a13e0b6dbda14bbc8f6717526501b8cf3bc281793fcee2f9fe9f42d68f1"
+    },
+    "point-01": {
+      "sample.json": "2d94c253e6ef8b8062f48875c3224fe884db7d15b075ed56c9675275c41d7012",
+      "color.jpg": "ec04447b48649c424a70d2a403cb64b5ce03a488892d9122d94626b4171347df"
+    },
+    "point-02": {
+      "sample.json": "538dad06237c71df4da68a906788d8e610068f416f94ebfe61cf9a83e17c6bfe",
+      "color.jpg": "d3eac82c451f981ea9fc30010617523babb3217d572bb2421595687c1aca1fb6"
+    },
+    "point-03": {
+      "sample.json": "005009d22440a88cb969cdadfaba9d3123225082da0ccb4f1795f1bedb372425",
+      "color.jpg": "8c9a623a68c73d7d23ec442c0e0cc546c1e1c0c72bda97b8fc783cecb9a0e688"
+    },
+    "point-04": {
+      "sample.json": "559d588c9668654bc70fabe26566875f0d82ae23b05436726b76e5c25374cd78",
+      "color.jpg": "9a9619d805b78dbd5d4dd9c6d6cfbf8d0c431e0f63f86b127de883af7ad6a34e"
+    },
+    "point-05": {
+      "sample.json": "a8f1117407ae6608cf6ba800c738e8d02e84ddb35ba2d70e2cb1df52a940e26f",
+      "color.jpg": "89bf40016af3aef6d5e970264b689dd8e3c4ccece35c9dab9adc106b2b8d7cb8"
+    },
+    "point-06": {
+      "sample.json": "cc5de0604fc637f168f331f2201e6003b794152a83c179aa4266ae0fd58c6f3e",
+      "color.jpg": "8467bcf5f62dbcd9c552730309fc852cfc197c8a222cea74797b12c84b63131a"
+    },
+    "point-07": {
+      "sample.json": "1707e14b719d43a72fe366079b482d82970d4eb9b7c5e01a3d95d23279602ed2",
+      "color.jpg": "cb55bd9529a79f06f2d3baf6e5eb77a350d8aad5811703a074ed1c73c59eea7d"
+    },
+    "point-08": {
+      "sample.json": "6a0066ae543cea7c38b40ecd38ce4048de15637eb380d37a318a1eb75469e7a6",
+      "color.jpg": "87ffac30b04b0adc00c4a0371be9e436f9de50eb3b94516ab2684af477922a56"
+    },
+    "point-09": {
+      "sample.json": "300af153d78b8c8a0b8b9a68a6a1f52083b119c84994127edff37f76f62b7a51",
+      "color.jpg": "d7d1dbb98bdb63b4782ee10336a8d53bea195003881ca6a940e5bdf770143970"
+    },
+    "point-10": {
+      "sample.json": "b3def484bb8e87faa64affa94f770e0fc588ab53f01ec24c380bd04f2f9c5c9b",
+      "color.jpg": "7427f123b6d12a8d6bb9ee274ef73f0c5c82c019718f85d4fd51a70c86248a0e"
+    },
+    "point-11": {
+      "sample.json": "bddc6fef8eb1d6f3fc77cfa1c1edd1a1623deb6e87b916e4e4a47157b790a8b6",
+      "color.jpg": "c0c82254d8bd63caaf927a21f70f63a180ac4a7979b639540d3883bb701464fd"
+    },
+    "point-12": {
+      "sample.json": "4a4794206b8586ecb160a840e916db295dd4191df51a5ab38a905774d5ffb6a1",
+      "color.jpg": "cf7275900021b804de0276acd4be30e5f035910886c63dc3a653f2199d4990bd"
+    },
+    "point-13": {
+      "sample.json": "91ce614d810e2e1950926ee6060a3bf7c8c387de3ae7dd03a44c1a2000d0f9c7",
+      "color.jpg": "be4d30c1582c0ffda2cf0f9ecd5346e1b5ce3a3d753f2fcc5b50f6690a1262fc"
+    }
+  },
+  "capture": {
+    "rms_px_range": [
+      0.09361183183226275,
+      0.2284401216523313
+    ],
+    "inlier_count_range": [
+      17,
+      26
+    ],
+    "wrist_joint_span_deg": [
+      0.0,
+      0.09,
+      0.17,
+      0.55,
+      39.34,
+      37.9
+    ]
+  },
+  "candidates": {
+    "small": {
+      "calibration": "vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json",
+      "sha256": "7fc02398e04a4655b0c1b17238126b8a7df52ee63ad24d1d40906c8a45198633",
+      "mean_center_body4_mm": [
+        684.6067066708785,
+        -429.2278269617412,
+        -161.75939818537222
+      ],
+      "median_deviation_mm": 1.282266527320485,
+      "max_deviation_mm": 3.0231227608118934,
+      "max_pairwise_mm": 5.409838759117709,
+      "max_pairwise_deg": 0.611310956005728,
+      "per_point_deviation_mm": [
+        3.0231227608118934,
+        0.9275416761411333,
+        2.021110206045591,
+        0.9999247232314592,
+        1.1730381399749026,
+        0.9658902602956203,
+        1.3914949146660673,
+        2.1044873805709927,
+        2.4296936329849963,
+        2.076069026719183,
+        1.0878188630774206,
+        0.7090434166402119,
+        0.7198815831434691,
+        1.7228921841346825
+      ]
+    },
+    "large": {
+      "calibration": "vision/handeye/d405-aprilgrid-6x6/results/d405-right-aprilgrid-e5603a6eccb7b9687363cbed.json",
+      "sha256": "e03fab7e2e116d83e88f8cbb41beab1b238db12868918420967131076f1b3a76",
+      "mean_center_body4_mm": [
+        690.9105179919009,
+        -428.21826611145167,
+        -169.44499620852528
+      ],
+      "median_deviation_mm": 2.2916343285813765,
+      "max_deviation_mm": 3.535345747351482,
+      "max_pairwise_mm": 6.442873867474541,
+      "max_pairwise_deg": 0.5734820895723485,
+      "per_point_deviation_mm": [
+        3.1952778154569708,
+        1.5925372894735,
+        2.39897936086769,
+        0.6711220363974739,
+        1.4356244111343497,
+        2.1842892962950624,
+        2.660744141290615,
+        3.535345747351482,
+        3.33130153566052,
+        1.5362515546202495,
+        1.0139783989552131,
+        2.044969552840944,
+        2.914079085101398,
+        2.882920504566082
+      ]
+    }
+  }
+}
