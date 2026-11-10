@@ -45,6 +45,16 @@ class ControlTests(unittest.TestCase):
             self.controller.update_arm(side, [0.] * 6, -1.5, [0.] * 6)
         self.controller.update_body(5., [0.] * 4, 0.2, 0.1, -0.1)
 
+    def test_ros_float64_array_feedback_reaches_vehicle_pose(self):
+        import numpy as np
+        q = list(np.zeros(6, dtype=np.float64))
+        self.controller.update_arm("right", q, -1., q)
+        self.controller.update_body(6., list(np.zeros(4, dtype=np.float64)), 0., 0., 0.)
+        state = self.controller.snapshot()
+        self.assertEqual(state["body"]["height"], 6.)
+        self.assertIsInstance(state["arms"]["right"]["joints"][0], np.float64)
+        self.assertIsNotNone(state["arms"]["right"]["base_wrist"])
+
     def test_observation_mode_blocks_every_actuator_without_writes(self):
         self.controller.config["execution_enabled"] = False
         commands = [

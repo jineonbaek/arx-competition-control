@@ -22,7 +22,7 @@ ARM_MODES = {0: "力矩清零", 1: "机械臂复位", 2: "阻尼模式", 3: "重
 
 def number(value):
     return ((type(value) is int and value.bit_length() <= 1023)
-            or (type(value) is float and math.isfinite(value)))
+            or (isinstance(value, float) and math.isfinite(value)))
 
 
 def bounds(pair):
