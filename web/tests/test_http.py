@@ -82,7 +82,9 @@ class HTTPTests(unittest.TestCase):
                  "Origin":f"http://127.0.0.1:{self.port}"}
         c=self.controller
         c.config["execution_enabled"]=True
-        c.update_body(6., [0.]*4, 0., 0., 0.)
+        for stamp in (10.,10.1,10.2,10.3):
+            c.clock=lambda: stamp
+            c.update_body(6., [0.]*4, 0., 0., 0.)
         for side in ("left","right"):
             q=np.radians([0,12,18,4,-2,3])
             c.update_arm(side,q.tolist(),-1.,[0.]*6)
@@ -116,6 +118,9 @@ class HTTPTests(unittest.TestCase):
                 with patch.object(self.adapter,"body_calibrated",return_value=False):
                     self.assertEqual(post(target)[0],400)
                     self.assertIsNone(c.snapshot()["arms"][side]["base_wrist"])
+                if side == "right":
+                    c.update_body(7., [0.]*4, 0., 0., 0.)
+                    self.assertEqual(post(target)[0],400)
                 self.assertEqual(len(commands),1)
 
     def test_chassis_vector_reaches_adapter_once_and_keeps_limits_and_brake(self):

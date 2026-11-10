@@ -50,6 +50,7 @@ class Controller:
         self.lock = threading.RLock()
         self.arms = {side: None for side in ("left", "right")}
         self.body = None
+        self.lift_history = deque()
         self.logs = deque(maxlen=100)
         self.serial = 0
         self.command_epoch = 0
@@ -80,6 +81,10 @@ class Controller:
         if not all(number(x) for x in [height, waist, yaw, pitch]) or not vector(wheels, 4):
             return
         with self.lock:
+            now = self.clock()
+            self.lift_history.append((now, height))
+            while len(self.lift_history)>1 and self.lift_history[0][0] < now - .5:
+                self.lift_history.popleft()
             self.body = {"height": height, "wheels": wheels[:], "waist": waist,
                          "head_yaw": yaw, "head_pitch": pitch,
                          "received": self.clock(), "timestamp": time.time()}
@@ -158,8 +163,17 @@ class Controller:
         return ""
 
     def wrist_reason(self, side):
-        return (self.arm_reason(side, "arm.joints") or self.wrist_feedback_reason(side)
-                or ("底盘正在运动" if self.chassis_owner is not None else ""))
+        reason = self.arm_reason(side, "arm.joints") or self.wrist_feedback_reason(side)
+        if reason:
+            return reason
+        if self.chassis_owner is not None:
+            return "底盘正在运动"
+        samples = self.lift_history
+        if (len(samples)<3 or samples[-1][0]-samples[0][0]<.25
+                or max(b[0]-a[0] for a,b in zip(samples,list(samples)[1:]))>.20
+                or max(h for _,h in samples)-min(h for _,h in samples)>.05):
+            return "等待升降停稳"
+        return ""
 
     def wrist_command(self, data, client):
         fields = {"type","arm","frame","position_mm","orientation_deg"}
