@@ -64,7 +64,9 @@ class GraspPreview:
 
     def latest(self):
         path=CACHE/'view.json'
-        return json.loads(path.read_text()) if path.exists() else {'id':None}
+        view = json.loads(path.read_text()) if path.exists() else {}
+        # A legacy capture has no exposure-time lift value for a base_link conversion.
+        return view if view.get("frame_id") == "base_link" else {"id": None}
 
     def action(self,data):
         if not isinstance(data,dict):raise ValueError('无效预览请求')
@@ -80,7 +82,7 @@ class GraspPreview:
         if self.model is None:self.model=ColumnModel()
         try:token=self.depth.acquire_grasp()
         except (RuntimeError,OSError) as e:raise ValueError(str(e)) from e
-        try:meta,jpeg,png,q,arm_time=self.read_pair()
+        try:meta,jpeg,png,q,arm_time,height,body_time=self.read_pair()
         finally:self.depth.release_handeye(token)
         k=meta['color_intrinsics'];d=meta['depth']
         cal=json.loads(CANDIDATE.read_text())
@@ -90,16 +92,16 @@ class GraspPreview:
         if raw is None or bgr is None or bgr.shape[:2]!=raw.shape:raise ValueError('RGB-D 图像尺寸不匹配')
         xyz=xyz_image(raw,d['scale_m_per_unit'],k)
         rgb=bgr[:,:,::-1].copy()
-        G=np.linalg.inv(self.model.lift) @ self.model.pose(q,0)[1]
+        G=self.model.wrist_transform(q,height)
         T=G@np.asarray(cal['T_right_link26_from_D405_color'])
         ident=uuid.uuid4().hex
         tmp=CACHE/'frame.tmp.npz'
         np.savez_compressed(tmp,id=ident,xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
-                            intrinsics=json.dumps(k),body4_from_color=T,joints=q,arm_time=arm_time,
+                            intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
                             image_time=meta['captured_at'])
         yy,xx=np.nonzero(xyz[::4,::4,2]>0);yy*=4;xx*=4
         points=np.column_stack((xyz[yy,xx].round(4),rgb[yy,xx])).tolist()
-        view=dict(id=ident,time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
+        view=dict(id=ident,frame_id='base_link',time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
                   image='data:image/jpeg;base64,'+base64.b64encode(jpeg).decode(),result=None,
                   paired_ms=round(abs(arm_time-meta['captured_at'])*1000),roi=None)
         os.replace(tmp,CACHE/'frame.npz')
@@ -111,12 +113,13 @@ class GraspPreview:
         while time.monotonic()<end:
             if not self.depth.enabled('d405'):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
             s=self.ctrl.snapshot();arm=s['arms']['right'];body=s['body']
+            if not self.ctrl.adapter.body_calibrated():raise ValueError('升降回零状态未就绪')
             if s['chassis_active'] or not arm.get('fresh') or not body.get('fresh'):
                 raise ValueError('请保持底盘静止，并确认右臂和升降反馈在线')
             q=np.asarray(arm['joints'],float)
             if q.shape!=(6,) or not np.isfinite(q).all():raise ValueError('右臂反馈无效')
             stamp=arm['timestamp']
-            if not history or stamp>history[-1][0]:history.append((stamp,q,body['height']))
+            if not history or stamp>history[-1][0]:history.append((stamp,q,body['height'],body['timestamp']))
             history=[v for v in history if stamp-v[0]<.75]
             try:
                 meta=json.loads((LIVE/'d405.json').read_text());d=meta.get('depth',{})
@@ -125,13 +128,13 @@ class GraspPreview:
                     history[0][0]<=t<=history[-1][0]+.05 and t>=start and -.05<=time.time()-t<.8 and
                     meta.get('state')=='online' and d.get('state')=='online' and d.get('aligned_to_color') is True and
                     d.get('timestamp_gap_ms',1000)<=50):
-                    ts,paired,_=min(history,key=lambda v:abs(v[0]-t))
+                    ts,paired,height,body_time=min(history,key=lambda v:abs(v[0]-t))
                     stable=np.max(np.ptp([v[1] for v in history],axis=0))<np.radians(.25) and np.ptp([v[2] for v in history])<.05
-                    if abs(t-ts)<.20 and stable:
+                    if max(abs(t-ts),abs(t-body_time))<.20 and stable:
                         rgb=meta['raw_image_file'];z=d['image_file']
                         m=re.fullmatch(r'd405-v-([a-f0-9]+-\d+)\.jpg',rgb)
                         if m and z=='d405-z-'+m[1]+'.png':
-                            return meta,(LIVE/rgb).read_bytes(),(LIVE/z).read_bytes(),paired,ts
+                            return meta,(LIVE/rgb).read_bytes(),(LIVE/z).read_bytes(),paired,ts,height,body_time
                     reason='等待与静止右臂配对的 RGB-D 帧'
                 elif d.get('message'):reason=d['message']
             except (FileNotFoundError,json.JSONDecodeError):pass

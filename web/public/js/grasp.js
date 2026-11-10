@@ -45,7 +45,7 @@ function details(){
   if(g&&renderer){const geo=new THREE.BufferGeometry().setFromPoints(paths.flatMap(([a,b])=>[a,b].map(i=>new THREE.Vector3(...g.lines[i]))));
     lines=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:0x41ffdf,depthTest:false}));lines.renderOrder=1;scene.add(lines);}
   el('metrics').replaceChildren();
-  if(g){const entries=[['模型评分',g.score.toFixed(3)],['建议开口',g.width_mm.toFixed(1)+' mm'],['抓取深度',g.depth_mm.toFixed(1)+' mm'],['中心 · body4 (X / Y / Z)',g.body4_mm.map(n=>n.toFixed(1)).join(' / ')+' mm'],['接近方向 · body4',g.approach_body4.map(n=>n.toFixed(2)).join(' / ')]];
+  if(g){const entries=[['模型评分',g.score.toFixed(3)],['建议开口',g.width_mm.toFixed(1)+' mm'],['抓取深度',g.depth_mm.toFixed(1)+' mm'],['中心 · base_link (X / Y / Z)',g.base_mm.map(n=>n.toFixed(1)).join(' / ')+' mm'],['接近方向 · base_link',g.approach_base.map(n=>n.toFixed(2)).join(' / ')]];
     for(const [label,value] of entries){const box=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;box.append(dt,dd);el('metrics').append(box);}}
   el('candidate').value=String(selection);draw();render();buttons();
 }

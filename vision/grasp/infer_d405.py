@@ -24,7 +24,7 @@ def main():
     import pyrealsense2 as rs
     with np.load(frame_path,allow_pickle=False) as f:
         if str(f['id'])!=frame_id:raise ValueError('快照文件已更新')
-        xyz=f['xyz'];rgb=f['rgb'];T=f['body4_from_color'];k=json.loads(str(f['intrinsics']))
+        xyz=f['xyz'];rgb=f['rgb'];T=f['base_from_color'];k=json.loads(str(f['intrinsics']))
     intr=rs.intrinsics();intr.width,intr.height=k['width'],k['height']
     intr.fx,intr.fy,intr.ppx,intr.ppy=k['fx'],k['fy'],k['cx'],k['cy']
     intr.coeffs=k['coeffs'];intr.model=getattr(rs.distortion,k['model'].split('.')[-1])
@@ -63,8 +63,8 @@ def main():
         p=g.translation;R=g.rotation_matrix
         lines=gripper_lines(p,R,g.width,g.depth)
         candidates.append(dict(score=float(g.score),width_mm=float(g.width*1000),depth_mm=float(g.depth*1000),
-             camera_m=p.tolist(),rotation_camera=R.tolist(),body4_mm=((T[:3,:3]@p+T[:3,3])*1000).tolist(),
-             rotation_body4=(T[:3,:3]@R).tolist(),approach_body4=(T[:3,:3]@R[:,0]).tolist(),
+             camera_m=p.tolist(),rotation_camera=R.tolist(),base_mm=((T[:3,:3]@p+T[:3,3])*1000).tolist(),
+             rotation_base=(T[:3,:3]@R).tolist(),approach_base=(T[:3,:3]@R[:,0]).tolist(),
              lines=lines.tolist(),pixels=[pixel(v) for v in lines]))
     result=dict(id=frame_id,roi=box,raw=raw,in_roi=len(accepted),after_collision=filtered,
                 after_nms=len(group),candidates=candidates,elapsed_s=round(time.monotonic()-started,2))
