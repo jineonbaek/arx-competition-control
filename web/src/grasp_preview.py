@@ -151,7 +151,7 @@ class GraspPreview:
     def handle_view(self, view=None):
         if view is None:
             view = self.latest()
-        return {key:view.get(key) for key in ("id","time","image","width","height","frame_id")}
+        return {key:view.get(key) for key in ("id","time","image","width","height","frame_id","points","base_from_color")}
 
     def handle_action(self, data):
         if not isinstance(data,dict):

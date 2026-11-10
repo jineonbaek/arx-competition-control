@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D405 提手线段预览 · ARX</title><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/grasp.css"><script type="module" src="js/handle.js"></script></head>
+<body><header class="topbar"><div class="brand"><span class="brand-mark">A</span><strong>D405 提手线段预览</strong></div><a class="button secondary" href="/">返回控制台</a></header>
+<main><div class="page-heading"><div><h1>水平前伸 · 整车 base_link</h1><p>框住提手朝向夹爪的实体前沿，使选框覆盖可夹宽度和厚度。底盘与升降保持静止。</p></div><span class="mode-badge enabled">仅预览</span></div>
+<div class="grasp-actions"><button id="capture" class="button secondary">采集新画面</button><label>预抓距离 <input id="distance" type="number" min="1" max="200" step="1" value="50"> mm</label><button id="plan" class="button primary" disabled>计算线段</button><span id="status" role="status"></span></div>
+<div class="grasp-grid"><section class="panel"><div class="panel-heading"><h2>框选提手前沿</h2><span id="stamp" class="subtle-tag"></span></div><canvas id="photo" width="640" height="480" aria-label="拖动框选提手前沿"></canvas></section>
+<section class="panel"><div class="panel-heading"><h2>整车坐标点云</h2><button id="reset" class="button secondary">重置视角</button></div><div id="viewport"></div><p class="hint">青色为预抓点，橙色为夹持参考点。拖动旋转，滚轮缩放。</p></section></div>
+<section class="panel candidates"><h2>线段坐标</h2><p class="hint">长度单位 mm，顺序 X / Y / Z。夹持参考点取框内前沿的估计中心。</p><dl id="metrics"></dl><p id="quality" role="status">等待框选。</p></section>
+<section class="panel candidates"><h2>夹稳偏移示教</h2><p>先冻结并框选，再以比赛夹姿手动对中、伸入并夹稳。电池留在支撑上，抬起或抽出前记录右腕。下次使用同一副夹指和记录时的腕部姿态。</p><label><input type="checkbox" id="confirm"> 电池、底盘与升降未移位，右腕已居中夹稳</label>
+<div class="grasp-actions"><button id="teach" class="button secondary" disabled>记录当前腕位为夹持终点</button><span id="profile" class="hint"></span></div></section></main></body></html>
