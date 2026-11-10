@@ -66,7 +66,7 @@ class GraspPreview:
         path=CACHE/'view.json'
         view = json.loads(path.read_text()) if path.exists() else {}
         # A legacy capture has no exposure-time lift value for a base_link conversion.
-        return view if view.get("frame_id") == "base_link" else {"id": None}
+        return view if view.get("base_from_color") and view.get("frame_id") == "base_link" else {"id": None}
 
     def action(self,data):
         if not isinstance(data,dict):raise ValueError('无效预览请求')
@@ -100,8 +100,9 @@ class GraspPreview:
                             intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
                             image_time=meta['captured_at'])
         yy,xx=np.nonzero(xyz[::4,::4,2]>0);yy*=4;xx*=4
-        points=np.column_stack((xyz[yy,xx].round(4),rgb[yy,xx])).tolist()
-        view=dict(id=ident,frame_id='base_link',time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
+        points_base = xyz[yy,xx] @ T[:3,:3].T + T[:3,3]
+        points=np.column_stack((points_base.round(4),rgb[yy,xx])).tolist()
+        view=dict(id=ident,frame_id='base_link',base_from_color=T.tolist(),time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
                   image='data:image/jpeg;base64,'+base64.b64encode(jpeg).decode(),result=None,
                   paired_ms=round(abs(arm_time-meta['captured_at'])*1000),roi=None)
         os.replace(tmp,CACHE/'frame.npz')

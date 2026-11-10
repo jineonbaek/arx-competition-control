@@ -5,7 +5,7 @@ const photo=el('photo'),ctx=photo.getContext('2d');
 let view=null,img=null,roi=null,selection=0,drag=null,busy=false;
 const paths=[[0,1],[1,2],[2,3],[4,5]];
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.005,4);
-camera.up.set(0,-1,0);
+camera.up.set(0,0,1);
 let renderer,orbit,points,lines;
 try{
   renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -19,9 +19,11 @@ function render(){renderer?.render(scene,camera);}
 function discard(object){if(object){scene.remove(object);object.geometry.dispose();object.material.dispose();}}
 function candidates(){return view?.result?.candidates||[];}
 function resetCamera(){
-  if(!orbit)return;
+  if(!orbit || !view?.base_from_color)return;
   const p=candidates()[selection]?.camera_m||[0,0,.32];
-  orbit.target.set(...p);camera.position.set(p[0]-.055,p[1]-.07,p[2]-.36);
+  const transform=new THREE.Matrix4().set(...view.base_from_color.flat());
+  orbit.target.set(...p).applyMatrix4(transform);
+  camera.position.set(p[0]-.055,p[1]-.07,p[2]-.36).applyMatrix4(transform);
   orbit.update();render();
 }
 el('reset').onclick=resetCamera;
@@ -42,7 +44,7 @@ function draw(){
 }
 function details(){
   const all=candidates(),g=all[selection];discard(lines);lines=null;
-  if(g&&renderer){const geo=new THREE.BufferGeometry().setFromPoints(paths.flatMap(([a,b])=>[a,b].map(i=>new THREE.Vector3(...g.lines[i]))));
+  if(g&&renderer){const geo=new THREE.BufferGeometry().setFromPoints(paths.flatMap(([a,b])=>[a,b].map(i=>new THREE.Vector3(...g.lines_base[i]))));
     lines=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({color:0x41ffdf,depthTest:false}));lines.renderOrder=1;scene.add(lines);}
   el('metrics').replaceChildren();
   if(g){const entries=[['模型评分',g.score.toFixed(3)],['建议开口',g.width_mm.toFixed(1)+' mm'],['抓取深度',g.depth_mm.toFixed(1)+' mm'],['中心 · base_link (X / Y / Z)',g.base_mm.map(n=>n.toFixed(1)).join(' / ')+' mm'],['接近方向 · base_link',g.approach_base.map(n=>n.toFixed(2)).join(' / ')]];

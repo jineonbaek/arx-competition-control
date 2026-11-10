@@ -57,6 +57,7 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual(view["frame_id"],"base_link")
             nominal=model.pose(q,0)[1] @ np.array(cal["T_right_link26_from_D405_color"])
             nominal[2,3]+=h/NOMINAL_RAD_PER_M
+            np.testing.assert_allclose(view["points"][0][:3],nominal[:3,:3]@np.ones(3)+nominal[:3,3],atol=.0001)
             with np.load(Path(tmp)/"frame.npz") as f:
                 np.testing.assert_allclose(f["base_from_color"],nominal,atol=1e-10)
 

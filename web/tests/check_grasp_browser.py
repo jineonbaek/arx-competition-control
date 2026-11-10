@@ -26,7 +26,7 @@ with sync_playwright() as pw:
     assert view.locator('#viewport canvas').count()==1
     view.click('#next')
     assert view.input_value('#candidate')=='1'
-    assert 'body4' in view.inner_text('#metrics')
+    assert 'base_link' in view.inner_text('#metrics')
     print('rendered',n,'candidates;',view.inner_text('#metrics'))
     b=view.locator('#photo').bounding_box()
     view.mouse.move(b['x']+b['width']*.3,b['y']+b['height']*.3)

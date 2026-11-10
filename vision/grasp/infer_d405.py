@@ -65,7 +65,7 @@ def main():
         candidates.append(dict(score=float(g.score),width_mm=float(g.width*1000),depth_mm=float(g.depth*1000),
              camera_m=p.tolist(),rotation_camera=R.tolist(),base_mm=((T[:3,:3]@p+T[:3,3])*1000).tolist(),
              rotation_base=(T[:3,:3]@R).tolist(),approach_base=(T[:3,:3]@R[:,0]).tolist(),
-             lines=lines.tolist(),pixels=[pixel(v) for v in lines]))
+             lines_base=(lines@T[:3,:3].T+T[:3,3]).tolist(),pixels=[pixel(v) for v in lines]))
     result=dict(id=frame_id,roi=box,raw=raw,in_roi=len(accepted),after_collision=filtered,
                 after_nms=len(group),candidates=candidates,elapsed_s=round(time.monotonic()-started,2))
     Path(output).write_text(json.dumps(result,allow_nan=False))
