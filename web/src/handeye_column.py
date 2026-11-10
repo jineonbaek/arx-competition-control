@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+from scipy.optimize import least_squares
 
 PACKAGE = Path(__file__).resolve().parents[1] / "public/models/lift2/diy-20261105"
 MARGIN = .020
@@ -72,6 +73,37 @@ class ColumnModel:
             parent = parent @ m
             parent[:3,:3] = parent[:3,:3] @ Rotation.from_rotvec(axis*angle).as_matrix()
         return parent
+
+    def inverse_wrist(self, q, lift, xyz_mm, rpy_deg, limits_deg):
+        """Local, bounded IK of the URDF wrist in base_link; XYZ Euler angles are RPY."""
+        target = np.asarray(xyz_mm, float) / 1000
+        shoulder = (self.lift @ self.parts[0][0])[:3,3].copy()
+        shoulder[2] += lift / NOMINAL_RAD_PER_M
+        if np.max(np.abs(target - shoulder)) > self.reach:
+            raise ValueError("目标在机械臂可达范围之外")
+        orientation = Rotation.from_euler("xyz", rpy_deg, degrees=True)
+        lo, hi = np.radians(limits_deg).T.copy()
+        if self.side == "right":
+            lo[0] = max(lo[0], math.radians(-35.8))
+        q = np.asarray(q, float)
+        if np.any(q < lo) or np.any(q > hi):
+            raise ValueError("当前起姿超出规划关节范围")
+
+        def residual(angles):
+            wrist = self.wrist_transform(angles, lift)
+            difference = orientation.inv() * Rotation.from_matrix(wrist[:3,:3])
+            return np.r_[wrist[:3,3] - target, difference.as_rotvec()]
+
+        fit = least_squares(residual, q, bounds=(lo, hi), max_nfev=100,
+                            ftol=1e-11, xtol=1e-11, gtol=1e-11)
+        error = fit.fun
+        if (not fit.success or not np.isfinite(error).all()
+                or np.linalg.norm(error[:3]) > .0005
+                or np.linalg.norm(error[3:]) > math.radians(.2)):
+            raise ValueError("当前姿态和关节限位内未找到足够精确的逆解")
+        if not self.check(q, fit.x, lift)["clear"]:
+            raise ValueError("腕部目标的关节路径接近中央立柱")
+        return fit.x.tolist()
 
     def pose(self, q, lift):
         parent = self.lift.copy()

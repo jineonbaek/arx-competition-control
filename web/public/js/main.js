@@ -179,11 +179,11 @@ function render(force=false) {
   $('gripper-actual').textContent='实际 '+fmt(arm.fresh?arm.gripper:NaN)+' · SDK 原值';
   $('gripper-range').textContent=validBounds(gp)?gp.join(' ～ ')+' · SDK 原值':'夹爪端点待确认';
   tcpInputs.forEach((input,i)=>{
-    input.disabled=!(connected && arm.fresh);
+    input.disabled=!(connected && arm.base_wrist);
     setInput(input,editor.tcp?.[i],1,force);
   });
-  $('tcp-actual').textContent=arm.fresh?'实际 XYZ '+arm.tcp.slice(0,3).map(v=>fmt(v*1000,1)).join(' / ')+' mm':'实际位姿 —';
-  for(const [id,type] of [['joint-send','arm.joints'],['tcp-send','arm.tcp'],['gripper-send','gripper'],['arm-stop','arm.stop']])button(id,side+':'+type);
+  $('tcp-actual').textContent=arm.base_wrist?'腕部 XYZ '+arm.base_wrist.slice(0,3).map(v=>fmt(v,1)).join(' / ')+' mm':'实际位姿 —';
+  for(const [id,type] of [['joint-send','arm.joints'],['tcp-send','arm.wrist'],['gripper-send','gripper'],['arm-stop','arm.stop']])button(id,side+':'+type);
   for(const [id,value] of [['gripper-open',limits.gripper_open_raw],['gripper-close',limits.gripper_closed_raw]]){
     button(id,side+':gripper'); $(id).disabled ||= !Number.isFinite(value);
   }
@@ -242,7 +242,7 @@ $('joint-send').addEventListener('click',async()=>{
 $('tcp-send').addEventListener('click',async()=>{
   if(!tcpInputs.every(x=>checkedNumber(x.value).valid)){$('tcp-error').textContent='末端位姿需要六个有效数值';return;}
   const side=editor.side,values=tcpInputs.map(x=>Number(x.value));
-  if(await command({type:'arm.tcp',arm:side,position_mm:values.slice(0,3),orientation_deg:values.slice(3)}))restoreGroup(side,'tcp');
+  if(await command({type:'arm.wrist',frame:'base_link',arm:side,position_mm:values.slice(0,3),orientation_deg:values.slice(3)}))restoreGroup(side,'tcp');
 });
 $('arm-stop').addEventListener('click',()=>command({type:'arm.stop',arm:editor.side}));
 for(const el of document.querySelectorAll('[data-arm-mode]')){

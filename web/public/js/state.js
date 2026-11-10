@@ -4,10 +4,14 @@ export function newEditor(side, feedback) {
   return followFeedback(editor, feedback);
 }
 export function followFeedback(editor, feedback) {
+  if (!feedback?.fresh || !Array.isArray(feedback.base_wrist)) {
+    editor.tcp=null;
+    editor.dirty.tcp=false;
+  }
   if (!feedback?.fresh) return editor;
   if (!editor.dirty.joints && Array.isArray(feedback.joints)) editor.joints = feedback.joints.map(v => v * 180 / Math.PI);
   if (!editor.dirty.gripper && Number.isFinite(feedback.gripper)) editor.gripper = feedback.gripper;
-  if (!editor.dirty.tcp && Array.isArray(feedback.tcp)) editor.tcp = feedback.tcp.map((v, i) => i < 3 ? v * 1000 : v * 180 / Math.PI);
+  if (!editor.dirty.tcp && Array.isArray(feedback.base_wrist)) editor.tcp = feedback.base_wrist.slice();
   return editor;
 }
 export function checkedNumber(value, min = -Infinity, max = Infinity) {

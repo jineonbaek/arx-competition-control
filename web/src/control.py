@@ -5,6 +5,11 @@ import math
 import threading
 import time
 from collections import deque
+from functools import lru_cache
+
+import numpy as np
+from scipy.spatial.transform import Rotation
+from handeye_column import ColumnModel
 
 DIRECTIONS = {
     "forward": (1, 0, 0), "backward": (-1, 0, 0),
@@ -16,7 +21,8 @@ ARM_MODES = {0: "力矩清零", 1: "机械臂复位", 2: "阻尼模式", 3: "重
 
 
 def number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    return ((type(value) is int and value.bit_length() <= 1023)
+            or (type(value) is float and math.isfinite(value)))
 
 
 def bounds(pair):
@@ -31,6 +37,11 @@ class Rejected(ValueError):
     pass
 
 
+@lru_cache(maxsize=2)
+def arm_model(side):
+    return ColumnModel(side=side)
+
+
 class Controller:
     def __init__(self, config, adapter, clock=time.monotonic):
         self.config = copy.deepcopy(config)
@@ -41,6 +52,13 @@ class Controller:
         self.body = None
         self.logs = deque(maxlen=100)
         self.serial = 0
+        self.command_epoch = 0
+        self.models = {}
+        for side in self.arms:
+            try:
+                self.models[side] = arm_model(side)
+            except (OSError, ValueError) as error:
+                self.log(f"{side} 整车模型不可用：{error}", "warning")
         self.chassis_owner = None
         self.chassis_deadline = 0
         self.chassis_message = None
@@ -125,6 +143,60 @@ class Controller:
                 return "专用底盘控制节点未连接"
         return ""
 
+    def wrist_feedback_reason(self, side):
+        if side not in self.models:
+            return "整车 CAD 模型缺失"
+        if not self.fresh(self.arms[side]) or not self.fresh(self.body):
+            return "等待新鲜机械臂和升降反馈"
+        if abs(self.body["received"] - self.arms[side]["received"]) > .20:
+            return "手臂和升降反馈时间未配对"
+        if not self.adapter.body_calibrated():
+            return "等待升降回零确认"
+        limits = self.config["body"].get("lift_limits_raw")
+        if not bounds(limits) or not limits[0] - .05 <= self.body["height"] <= limits[1] + .05:
+            return "升降反馈超出模型范围"
+        return ""
+
+    def wrist_reason(self, side):
+        return (self.arm_reason(side, "arm.joints") or self.wrist_feedback_reason(side)
+                or ("底盘正在运动" if self.chassis_owner is not None else ""))
+
+    def wrist_command(self, data, client):
+        fields = {"type","arm","frame","position_mm","orientation_deg"}
+        side = data.get("arm")
+        if set(data) != fields or side not in ("left","right") or data["frame"] != "base_link":
+            raise Rejected("腕部目标需要指定左右臂和整车 base_link")
+        xyz, rpy = data["position_mm"], data["orientation_deg"]
+        if not vector(xyz, 3) or not vector(rpy, 3) or max(map(abs,rpy)) > 360:
+            raise Rejected("腕部位置或姿态角无效")
+        with self.lock:
+            reason = self.wrist_reason(side)
+            if reason:
+                raise Rejected(reason)
+            q = self.arms[side]["joints"][:]
+            h = self.body["height"]
+            epoch = self.command_epoch
+            limits = self.config["arms"][side]["joint_limits_deg"]
+        try:
+            goal = self.models[side].inverse_wrist(q, h, xyz, rpy, limits)
+        except ValueError as error:
+            raise Rejected(str(error)) from error
+        with self.lock:
+            reason = self.wrist_reason(side)
+            if reason:
+                raise Rejected(reason)
+            if (self.command_epoch != epoch or abs(self.body["height"]-h) > .02 or
+                    max(abs(a-b) for a,b in zip(self.arms[side]["joints"], q)) > math.radians(.1)):
+                raise Rejected("规划期间指令或起姿已变化，请重新读取反馈")
+            command = {"type":"arm.joints", "arm":side, "joints":np.degrees(goal).tolist()}
+            result = self._submit(command, client)
+            self.command_epoch += 1
+        confirmation = (result or {}).get("_confirmation")
+        if confirmation:
+            confirmation()
+        self.log(f"{side} 腕部 base_link 点位目标已下发：{xyz} mm，RPY {rpy}°")
+        return {"ok":True, "message":"腕部点位目标已下发，等待到位反馈"}
+
     def snapshot(self):
         with self.lock:
             arms = {}
@@ -134,6 +206,11 @@ class Controller:
                     arms[side]["fresh"] = self.fresh(state)
                     arms[side]["age_s"] = max(0, self.clock() - state["received"])
                 arms[side] = arms[side] or {"fresh": False}
+                arms[side]["base_wrist"] = None
+                if not self.wrist_feedback_reason(side):
+                    pose = self.models[side].wrist_transform(state["joints"], self.body["height"])
+                    rpy = Rotation.from_matrix(pose[:3,:3]).as_euler("xyz", degrees=True)
+                    arms[side]["base_wrist"] = (pose[:3,3]*1000).tolist() + rpy.tolist()
             body = copy.deepcopy(self.body) or {"fresh": False}
             if self.body:
                 body["fresh"] = self.fresh(self.body)
@@ -142,6 +219,7 @@ class Controller:
             for side in ("left", "right"):
                 for kind in ("arm.joints", "arm.tcp", "gripper", "arm.stop"):
                     capabilities[side + ":" + kind] = self.arm_reason(side, kind)
+                capabilities[side + ":arm.wrist"] = self.wrist_reason(side)
                 for mode in ARM_MODES:
                     capabilities["%s:arm.mode.%d" % (side, mode)] = self.arm_reason(side, "arm.mode", mode)
             for kind in ("chassis", "chassis.stop", "lift", "lift.stop"):
@@ -160,9 +238,12 @@ class Controller:
 
     def submit(self, data, client):
         try:
+            if isinstance(data, dict) and data.get("type") == "arm.wrist":
+                return self.wrist_command(data, client)
             with self.lock:
                 was_moving = self.chassis_owner is not None
                 result = self._submit(data, client)
+                self.command_epoch += 1
                 confirmation = (result or {}).pop("_confirmation", None)
             # ROS feedback callbacks need this lock while the driver confirms.
             if confirmation:

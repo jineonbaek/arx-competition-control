@@ -47,7 +47,7 @@
         <div id="arm-feedback-detail" class="feedback-detail"></div>
         <details class="control-section arm-mode-section" open>
           <summary><span>机械臂模式</span><span id="arm-mode-target" class="subtle-tag">作用于左臂</span></summary>
-          <p id="arm-mode-note" class="hint">点击按钮向当前所选机械臂请求切换。关节控制自动使用 5，末端控制自动使用 4。</p>
+          <p id="arm-mode-note" class="hint">点击按钮向当前所选机械臂请求切换。关节目标和腕部逆解目标均通过关节控制模式 5 下发。</p>
           <div class="arm-mode-grid">
             <button id="arm-mode-0" class="button secondary arm-mode-button mode-danger" type="button" data-arm-mode="0" aria-describedby="arm-mode-note" disabled><strong>0 · 力矩清零</strong><span>不主动托举，机械臂可能下落；不是保持位置或急停。</span></button>
             <button id="arm-mode-1" class="button secondary arm-mode-button mode-warning" type="button" data-arm-mode="1" aria-describedby="arm-mode-note" disabled><strong>1 · 机械臂复位</strong><span>主动运动到驱动配置的初始姿态；不是零点标定。</span></button>
@@ -66,10 +66,10 @@
           <div id="gripper-range" class="range-label">夹爪端点待确认</div><div id="gripper-error" class="control-validation" role="alert"></div>
           <div class="section-actions"><div class="button-row"><button id="gripper-close" class="button secondary" disabled>闭合</button><button id="gripper-open" class="button secondary" disabled>打开</button></div><button id="gripper-send" class="button primary" disabled>发送到夹爪</button></div>
         </details>
-        <details class="control-section tcp-section"><summary><span>末端位姿</span><span id="tcp-mode" class="subtle-tag">mm / °</span></summary>
+        <details class="control-section tcp-section"><summary><span>腕部位姿 · 整车 base_link</span><span id="tcp-mode" class="subtle-tag">mm / °</span></summary>
           <div id="tcp-controls" class="tcp-grid"></div><div id="tcp-error" class="control-validation" role="alert"></div>
-          <p class="hint">显示 SDK 末端参考点；坐标与可达范围确认后可执行目标位姿。</p>
-          <div class="section-actions"><span id="tcp-actual" class="hint">实际位姿 —</span><button id="tcp-send" class="button primary" disabled>发送末端目标</button></div>
+          <p class="hint">控制点为所选臂的 J6 腕部原点。X 朝车头，Y 朝车左，Z 朝上；升降按名义行程换算。保持升降与底盘静止。点到点运动，路径检查覆盖中央立柱。</p>
+          <div class="section-actions"><span id="tcp-actual" class="hint">实际位姿 —</span><button id="tcp-send" class="button primary" disabled>发送腕部目标</button></div>
         </details>
       </section>
       <div class="vision-column">

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newEditor, followFeedback, checkedNumber, chassisKeyIntent } from '../public/js/state.js';
-const feedback={fresh:true,joints:[Math.PI/2,0,0,0,0,0],gripper:-1,tcp:[.1,.2,.3,Math.PI,0,0]};
+const feedback={fresh:true,joints:[Math.PI/2,0,0,0,0,0],gripper:-1,tcp:[.9,.8,.7,0,0,0],base_wrist:[100,200,300,180,0,0]};
 test('feedback maps units and missing data is not zero',()=>{
   const e=newEditor('left',feedback);
   assert.equal(e.joints[0],90);assert.equal(e.tcp[0],100);assert.equal(e.tcp[3],180);
