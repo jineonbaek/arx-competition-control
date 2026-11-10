@@ -12,6 +12,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from handle_preview import handle_line
 from handeye_column import ColumnModel
 from handeye_validation import CANDIDATE
 
@@ -30,7 +31,7 @@ def roi_pixels(value, w, h):
     return value
 
 
-def xyz_image(raw, scale, k):
+def camera_intrinsics(k):
     vendor=str(ROOT/'vision/vendor-python')
     if vendor not in sys.path:sys.path.insert(0,vendor)
     import pyrealsense2 as rs
@@ -39,6 +40,11 @@ def xyz_image(raw, scale, k):
     intr.fx,intr.fy,intr.ppx,intr.ppy=k['fx'],k['fy'],k['cx'],k['cy']
     intr.model=getattr(rs.distortion,k['model'].split('.')[-1])
     intr.coeffs=k['coeffs']
+    return rs, intr
+
+
+def xyz_image(raw, scale, k):
+    rs, intr = camera_intrinsics(k)
     if raw.dtype!=np.uint16 or raw.shape!=(intr.height,intr.width) or not np.isfinite(scale) or scale<=0:
         raise ValueError('D405 深度格式或单位无效')
     z=raw.astype(np.float32)*scale
@@ -141,6 +147,66 @@ class GraspPreview:
             except (FileNotFoundError,json.JSONDecodeError):pass
             time.sleep(.055)
         raise ValueError(reason)
+
+    def handle_view(self, view=None):
+        if view is None:
+            view = self.latest()
+        return {key:view.get(key) for key in ("id","time","image","width","height","frame_id")}
+
+    def handle_action(self, data):
+        if not isinstance(data,dict):
+            raise ValueError("无效参数")
+        if data.get("op") == "capture":
+            return self.handle_view(self.action({"op":"capture"}))
+        if data.get("op") not in ("plan","teach"):
+            raise ValueError("仅支持深度预览与示教记录")
+        with self.lock:
+            with np.load(CACHE/"frame.npz",allow_pickle=False) as f:
+                if str(f["id"]) != data.get("id") or "base_from_color" not in f:
+                    raise ValueError("快照已更新，请重新读取并框选")
+                xyz=f["xyz"]
+                roi=roi_pixels(data.get("roi"),xyz.shape[1],xyz.shape[0])
+                transform=f["base_from_color"]
+                line=handle_line(xyz,transform,roi,data.get("clearance_mm"))
+                rs,intr=camera_intrinsics(json.loads(str(f["intrinsics"])))
+                pixels=[]
+                for key in ("pre_mm","feature_mm"):
+                    camera=transform[:3,:3].T @ (np.asarray(line[key])*.001-transform[:3,3])
+                    if camera[2]<=0:
+                        raise ValueError("预抓点位于快照相机背面，请减小预抓距离")
+                    pixels.append(rs.rs2_project_point_to_pixel(intr,camera.tolist()))
+                line.update(pixels=pixels,roi=roi,id=data["id"])
+                height=float(f["lift_rad"])
+                captured=float(f["image_time"])
+            profile=CACHE.parent/"handle-teach-right.json"
+            if data["op"]=="teach":
+                if data.get("confirmed") is not True or not 0 <= time.time()-captured <= 900:
+                    raise ValueError("请用本次示教前的新快照并确认电池、平台与底盘位置")
+                samples=[]
+                for _ in range(6):
+                    state=self.ctrl.snapshot()
+                    arm=state["arms"]["right"]
+                    pose=arm.get("base_wrist")
+                    if (not arm.get("fresh") or pose is None or state["chassis_active"]
+                            or abs(state["body"]["height"]-height)>.05):
+                        raise ValueError("示教需要底盘、升降静止，且配对右腕反馈有效")
+                    samples.append((arm["timestamp"],pose,arm["joints"]))
+                    time.sleep(.08)
+                poses=np.asarray([item[1] for item in samples])
+                joints=np.asarray([item[2] for item in samples])
+                if (len({item[0] for item in samples})<4 or samples[-1][0]-samples[0][0]<.3
+                        or np.max(np.ptp(poses[:,:3],axis=0))>1 or np.max(np.ptp(joints,axis=0))>np.radians(.2)):
+                    raise ValueError("右腕尚未停稳，请稳定夹住后重新记录")
+                taught=dict(frame="base_link",feature_mm=line["feature_mm"],wrist_pose=poses[-1].tolist(),
+                            offset_mm=(poses[-1,:3]-line["feature_mm"]).tolist(),time=time.time(),
+                            snapshot=data["id"],roi=roi)
+                atomic_json(profile,taught)
+            taught=json.loads(profile.read_text()) if profile.is_file() else None
+            if taught:
+                for key,src in (("wrist_pre_mm","pre_mm"),("wrist_end_mm","feature_mm")):
+                    line[key]=(np.asarray(line[src])+taught["offset_mm"]).tolist()
+            line["teach"]=taught
+            return line
 
     def infer(self,data):
         view=self.latest()
