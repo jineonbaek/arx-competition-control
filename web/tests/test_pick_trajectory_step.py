@@ -91,6 +91,43 @@ class PickTrajectoryTests(unittest.TestCase):
         self.assertTrue(r['stop_required'])
         self.assertFalse(any(c[0]=='arm' and abs(c[1][2]+1.2)<1e-6 for c in self.adapter.calls))
 
+    def test_cancel_before_start_cannot_later_launch(self):
+        self.feedback(10.)
+        self.execution.cancel()
+        before=len(self.adapter.calls)
+        with self.assertRaises(ValueError):self.execution.start()
+        self.assertEqual(len(self.adapter.calls),before)
+
+    def test_backend_worker_drives_real_controller_monitor_and_reports_only_closure(self):
+        import tempfile
+        from pathlib import Path
+        from agent.pick_backend import PickExecutionBackend
+        self.feedback(10.)
+        original_start=self.adapter.trajectory_start
+        def start(*args):
+            result=original_start(*args)
+            self.state.update(command_epoch=5,request_id='test-job',status='reference_complete')
+            return result
+        self.adapter.trajectory_start=start
+        poll=self.execution.poll
+        def advance(**kwargs):
+            self.feedback(self.now+.11,-1.2 if self.monitor.stage=='closing' else -3.)
+            return poll(**kwargs)
+        self.execution.poll=advance
+        args={'plan_id':'p','plan':{'plan_id':'p','arm':'right'}}
+        with tempfile.TemporaryDirectory() as directory:
+            backend=PickExecutionBackend(self.execution,request_id='r',arguments=args,
+                journal=Path(directory)/'receipt.json',cancelled=lambda:False,timeout_s=2.)
+            try:
+                backend.invoke('execute_pick',args,'r')
+                self.assertTrue(backend.wait(3.))
+                result=backend.status('execute_pick','r')
+                self.assertEqual(result['status'],'completed',result)
+                self.assertFalse(result['data']['grasp_confirmed'])
+                self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
+                self.assertEqual(sum(c[0]=='arm' for c in self.adapter.calls),1)
+            finally:backend.cancel_and_wait(2.)
+
     def test_poll_before_start_does_not_close(self):
         self.feedback(10.1)
         with self.assertRaises(ValueError):self.execution.poll()

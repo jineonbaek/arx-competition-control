@@ -122,6 +122,10 @@ class ToolRegistry:
         except AgentError as error:
             result = {"ok": False, "tool": name, "data": None,
                       "error": {"code": error.code, "message": error.message, "retryable": error.retryable}}
+            pending = self.store.state.get('pending')
+            if (error.code in ('execution_pending', 'execution_unknown') and pending
+                    and pending.get('last_receipt')):
+                result['data'] = {'execution_receipt': copy.deepcopy(pending['last_receipt'])}
         if fingerprint and not (call_id in self.store.state["calls"]):
             self.store.state["calls"][call_id] = {"fingerprint": fingerprint, "result": result}
         self.store.save()
@@ -244,6 +248,9 @@ class ToolRegistry:
             raise AgentError('receipt_identity_mismatch', 'Receipt does not identify the requested execution; pending state retained')
         status = receipt.get("status") if isinstance(receipt, dict) else None
         if status in ("accepted", "running", "unknown") or status is None:
+            pending = self.store.state.get('pending')
+            if physical and pending and pending.get('request_id') == request_id:
+                pending['last_receipt'] = copy.deepcopy(receipt)
             raise AgentError("execution_pending" if status != "unknown" else "execution_unknown", "Operation has not produced a completed receipt")
         if status == "rejected":
             if physical:

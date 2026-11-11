@@ -94,7 +94,7 @@ class PickTrajectoryStep(PickCloseStep):
 
     def start(self):
         with self.lock:
-            if self.started:raise ValueError('Insertion cannot be replayed')
+            if self.started or self.monitor.failure:raise ValueError('Insertion cannot be replayed or resumed')
             self.started=True
             try:
                 self.controller.start_trajectory('right',self.plan,self.token,preflight=self.preflight)
@@ -103,6 +103,10 @@ class PickTrajectoryStep(PickCloseStep):
             except Exception as error:
                 self.controller.log('前伸轨迹未完成确认：'+str(error),'warning')
                 return self._stop(self.monitor.abort('execution_unknown'))
+
+    def cancel(self):
+        with self.lock:
+            return self._stop(self.monitor.abort('cancelled'))
 
     def poll(self,*,cancelled=False):
         with self.lock:

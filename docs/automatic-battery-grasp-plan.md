@@ -295,3 +295,23 @@ PickTrajectoryStep 直接串接 Controller 的整包轨迹与既有 PickCloseSte
 重复开始和目标不一致。均使用内存反馈与假适配器，不构造真实设备接口。
 网页阶段执行器与实际夹持视觉核验仍待绑定，TCP 和实机策略仍未填写。
 测试套件共享 GPU 互斥锁，web/tests 与 agent/tests 应顺序运行，不能并行。
+
+
+### 单次抓取与 Agent 回执桥接（源码完成，未部署）
+
+PickExecutionBackend 复用 ToolRegistry 的 execute_pick / get_execution_status 协议，
+接收确定性代码预先准备的 PickTrajectoryStep、精确的任务/目标/计划请求和截止时间。
+Agent 参数不能替换轨迹或目标。调用之前独占创建并落盘回执，重复请求查询原结果；
+进程恢复遇到非终态回执返回 unknown，绝不自动重发。异常后任务控制权仍留给恢复流程。
+
+独立执行线程每 20 ms 调用现有步骤的状态检查，模型响应速度不控制轨迹心跳。
+取消、有限截止时间、反馈/协议异常或回执写盘失败会请求停止，报告 unknown 和
+stop_request，不能据此声称已物理停稳。实际参考轨迹结束、实测腕位停稳、夹爪
+实测到位后，回执才为 completed；其含义仅为动作步骤完成，grasp_confirmed=false。
+ToolRegistry 保留 pending 的最近回执，并将阶段诊断交给 Agent；持物核验仍是下一阶段。
+
+验证使用真实 ToolRegistry/Controller/监测代码与假设备接口，覆盖重复提交、计划或
+目标冲突、进程恢复、取消、超时、未知阶段和磁盘写入失败。测试没有设备通信。
+新增开始前取消的防恢复检查。尚未将该后端注册到 9983；现有 WorkflowTools 仍只读。
+TCP、实机轨迹策略、粗调执行/纠偏的完整编排、全环境碰撞与抓后验证仍待完成。
+这一步没有变更部署或使任何物理工具可用。
