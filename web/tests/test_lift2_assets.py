@@ -40,3 +40,33 @@ class Lift2AssetsTests(unittest.TestCase):
         for name in fixed:
             mesh = root.find(f"link[@name='{name}']/visual/geometry/mesh")
             self.assertEqual([float(x) for x in mesh.get('scale').split()], [.001]*3)
+
+    def test_v2_fingers_preserve_mounting_transform_in_meters(self):
+        settings = MODEL["gripper_v2"]
+        folder = ROOT / "web/cad/gripper-v2"
+        for side, start in [("left", 17), ("right", 27)]:
+            for index, sign in enumerate(["positive_y", "negative_y"]):
+                source = (folder / settings[sign + "_finger"]).read_bytes()
+                count = struct.unpack_from("<I", source, 80)[0]
+                mesh = (PACKAGE / f"meshes/{side}_link{start+index}.STL").read_bytes()
+                total = struct.unpack_from("<I", mesh, 80)[0]
+                # The unchanged carriage consists of 3818 triangles.
+                self.assertEqual(total, count + 3818)
+                shift = settings["raw_to_finger_translation_mm"][sign]
+                for triangle in range(count):
+                    raw = struct.unpack_from("<9f", source, 84 + triangle * 50 + 12)
+                    placed = struct.unpack_from("<9f", mesh, 84 + (3818 + triangle) * 50 + 12)
+                    for coordinate, (actual, value) in enumerate(zip(placed, raw)):
+                        self.assertAlmostEqual(actual, (value + shift[coordinate % 3]) / 1000, places=7)
+
+    def test_supplied_battery_has_expected_dimensions(self):
+        battery = MODEL["battery"]
+        data = (ROOT / battery["path"]).read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), battery["sha256"])
+        count = struct.unpack_from("<I", data, 80)[0]
+        self.assertEqual(len(data), 84 + count * 50)
+        vertices = [struct.unpack_from("<3f", data, 84 + i * 50 + 12 + j * 12)
+                    for i in range(count) for j in range(3)]
+        for axis, expected in enumerate([82.35, 75, 195.28]):
+            self.assertAlmostEqual(max(v[axis] for v in vertices) - min(v[axis] for v in vertices),
+                                   expected, places=3)

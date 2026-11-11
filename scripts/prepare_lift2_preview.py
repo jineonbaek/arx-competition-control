@@ -35,7 +35,8 @@ def prepare(manifest, source, public):
     package = public / model["public_path"]
     files = {}
     for name, expected in model["sha256"].items():
-        data = (source / name).read_bytes()
+        local = model.get("local_assets", {}).get(name)
+        data = (ROOT / local if local else source / name).read_bytes()
         if hashlib.sha256(data).hexdigest() != expected:
             raise ValueError(f"Unexpected DIY delivery asset: {name}")
         files[package / name] = data
