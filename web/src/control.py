@@ -414,16 +414,16 @@ class Controller:
     def submit(self, data, client, *, preflight=None):
         try:
             if preflight is not None and (not callable(preflight) or not isinstance(data, dict)
-                    or data.get("type") != "gripper"):
-                raise Rejected("闭合复查仅用于任务夹爪指令")
+                    or data.get("type") not in ("gripper", "lift")):
+                raise Rejected("执行复查仅用于任务夹爪或升降指令")
             if isinstance(data, dict) and data.get("type") == "arm.wrist":
                 return self.wrist_command(data, client)
             with self.lock:
                 if preflight is not None:
                     if not self.motion_valid(client):
-                        raise Rejected("闭合复查需要有效任务控制权")
+                        raise Rejected("执行复查需要有效任务控制权")
                     if preflight(self.snapshot(), self.clock()) is not True:
-                        return {"ok": False, "deferred": True, "message": "闭合复查未许可，未下发"}
+                        return {"ok": False, "deferred": True, "message": "执行复查未许可，未下发"}
                 was_moving = self.chassis_owner is not None
                 result = self._submit(data, client)
                 self.command_epoch += 1
