@@ -84,7 +84,7 @@ class RunStore:
             handle.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
             handle.flush()
 
-    def save_observation(self, manifest, images):
+    def save_observation(self, manifest, images, *, geometry_archive=None):
         observation = copy.deepcopy(manifest)
         observation_id = "obs_" + uuid.uuid4().hex
         directory = self.path / "observations" / observation_id
@@ -94,6 +94,8 @@ class RunStore:
                 raise AgentError("invalid_observation", "Unexpected image camera")
             (directory / (camera + ".jpg")).write_bytes(body)
             observation["cameras"][camera]["image_file"] = camera + ".jpg"
+        if geometry_archive is not None:
+            (directory / "scene.npz").write_bytes(geometry_archive)
         observation.update(observation_id=observation_id, recorded_at=time.time())
         atomic_json(directory / "manifest.json", observation)
         self.state["observations"][observation_id] = str(directory.relative_to(self.path))

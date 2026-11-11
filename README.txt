@@ -256,3 +256,5 @@ was changed. Note Python lift command scale differs from ROS2 raw-angle input.
 低速连续性继续排查：reports/continuity-comparison/findings.txt。两次记录呈约0.393rad空间重复停顿；有限上下对比发现方向相关位置偏差。当前PID4011保持18.3rad，未增加力矩/增益；待核对电机铭牌。SDK活动时禁止并发寄存器查询，原解析器会混淆帧。
 
 低位双向诊断完成：18.3→2→5→2rad，原速度/增益/力矩不变。PID4011现保持2rad目标，反馈约2.429rad；分析reports/low-bidirectional-diagnostic/analysis.json。已补足上下运动记录，但尚未应用拟合参数，连续性问题未解决。
+
+2026-11-12 D405 识别→FoundationPose→点云→水平抓取参考线整合：见 docs/grasp-integration.md。新增 /grasp-integration.html 二级预览页，复用 Agent 工具回执；TCP 待标定，不生成腕部执行目标。已完成软件验证，并经用户授权部署至 9983，仅重载网页进程；未执行机器人运动。

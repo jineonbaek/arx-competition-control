@@ -24,6 +24,9 @@ class ChatError(Exception):
 
 
 class ArxgentChat:
+    registry_class = ToolRegistry
+    allowed_tools = READ_ONLY_TOOLS
+    request_limit = 20
     def __init__(self, config, root, *, runtime_factory=AgentRuntime, unavailable_reason=None):
         self.config, self.root, self.runtime_factory = config, Path(root), runtime_factory
         if config.motion_enabled or config.services:
@@ -132,8 +135,8 @@ class ArxgentChat:
                 raise ChatError(503, reason)
             if busy:
                 raise ChatError(409, 'arxgent 正在处理上一条消息。')
-            if len(session['requests']) >= 20:
-                raise ChatError(409, '本对话已达 20 轮，请开始新对话。')
+            if len(session['requests']) >= self.request_limit:
+                raise ChatError(409, f'本对话已达 {self.request_limit} 轮，请开始新对话。')
             if not self.worker_slot.acquire(blocking=False):
                 raise ChatError(503, 'arxgent 正在处理另一条对话，请稍后再试。')
             session['requests'][request_id] = fingerprint
@@ -154,7 +157,7 @@ class ArxgentChat:
             if job['status'] != 'cancelling':
                 job['phase'] = event['event']
             name = event.get('tool')
-            if event['event'] == 'tool' and name in READ_ONLY_TOOLS:
+            if event['event'] == 'tool' and name in self.allowed_tools:
                 if name not in job['tools']:
                     job['tools'].append(name)
                 session['activity'].append({'tool': name, 'status': 'running'})
@@ -172,7 +175,7 @@ class ArxgentChat:
                 session['run_dir'] = str(store.path)
                 if session['job']['status'] == 'cancelling' or self.closed:
                     (store.path / 'cancel.flag').touch(mode=0o600)
-            tools = ToolRegistry(self.config, store, allowed_tools=READ_ONLY_TOOLS)
+            tools = self.registry_class(self.config, store, allowed_tools=self.allowed_tools)
             runtime = self.runtime_factory(self.config, store, tools, progress=lambda event: self._progress(session, event),
                                            system_context='你的名字是 arxgent。你正在现有机器人网页控制台与用户连续对话。用简洁中文回答，可分点，但避免Markdown标题、表格或加粗。用户要求查看现场时，调用工具取得新图片；不要把旧观测当作实时。你只有只读工具，不能执行机器人运动。')
             result = runtime.continue_turn(text) if store.state['messages'] else runtime.run(text)

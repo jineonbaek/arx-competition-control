@@ -55,16 +55,18 @@ DESCRIPTIONS = {
 
 
 class ToolRegistry:
+    schemas = SCHEMAS
+    descriptions = DESCRIPTIONS
     def __init__(self, config, store, observations=None, backends=None, *, allowed_tools=None):
         self.config, self.store = config, store
         persisted = store.state.get('allowed_tools')
         if allowed_tools is not None:
-            if not set(allowed_tools) <= SCHEMAS.keys() or (persisted is not None and not set(allowed_tools) <= set(persisted)):
+            if not set(allowed_tools) <= self.schemas.keys() or (persisted is not None and not set(allowed_tools) <= set(persisted)):
                 raise AgentError('invalid_tool_policy', 'Tool policy cannot introduce unknown tools or broaden a saved run')
             persisted = sorted(allowed_tools)
             store.state['allowed_tools'] = persisted
             store.save()
-        self.allowed_tools = set(persisted) if persisted is not None else set(SCHEMAS)
+        self.allowed_tools = set(persisted) if persisted is not None else set(self.schemas)
         if observations is None:
             from .observations import ConsoleObservations
             observations = ConsoleObservations(config, store)
@@ -78,13 +80,13 @@ class ToolRegistry:
     def definitions(self, *, available_only=False):
         capabilities = self.capabilities()
         output = []
-        for name, schema in SCHEMAS.items():
+        for name, schema in self.schemas.items():
             if name not in self.allowed_tools:
                 continue
             available = capabilities.get(name, True)
             if available_only and not available:
                 continue
-            output.append({"type": "function", "function": {"name": name, "description": DESCRIPTIONS[name], "parameters": schema}})
+            output.append({"type": "function", "function": {"name": name, "description": self.descriptions[name], "parameters": schema}})
         return output
 
     def execute(self, name, arguments, call_id):
@@ -92,7 +94,7 @@ class ToolRegistry:
         try:
             if not isinstance(call_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", call_id):
                 raise AgentError("invalid_call_id", "Invalid tool call identity")
-            if name not in SCHEMAS:
+            if name not in self.schemas:
                 raise AgentError("unknown_tool", "Tool is not registered")
             if name not in self.allowed_tools:
                 raise AgentError('tool_not_allowed', 'Tool is outside this run execution policy')
@@ -101,7 +103,7 @@ class ToolRegistry:
                     arguments = strict_json(arguments)
                 except (ValueError, TypeError):
                     raise AgentError("invalid_arguments", "Tool arguments must be strict JSON") from None
-            validate(arguments, SCHEMAS[name])
+            validate(arguments, self.schemas[name])
             encoded = json.dumps([name, arguments], sort_keys=True, allow_nan=False)
             fingerprint = hashlib.sha256(encoded.encode()).hexdigest()
             previous = self.store.state["calls"].get(call_id)
