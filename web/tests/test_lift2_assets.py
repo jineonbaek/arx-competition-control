@@ -70,3 +70,12 @@ class Lift2AssetsTests(unittest.TestCase):
         for axis, expected in enumerate([82.35, 75, 195.28]):
             self.assertAlmostEqual(max(v[axis] for v in vertices) - min(v[axis] for v in vertices),
                                    expected, places=3)
+
+    def test_wrist_hand_grips_are_removed_from_mesh_geometry(self):
+        for name in ["left_link16.STL", "right_link26.STL"]:
+            data = (PACKAGE / "meshes" / name).read_bytes()
+            count = struct.unpack_from("<I", data, 80)[0]
+            self.assertEqual(count, 18166)
+            lowest_z = min(struct.unpack_from("<f", data, 84 + i * 50 + 20 + j * 12)[0]
+                           for i in range(count) for j in range(3))
+            self.assertGreaterEqual(lowest_z, -.04)

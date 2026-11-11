@@ -43,7 +43,7 @@ test('does not clamp feedback to CAD/control limits or use target inputs',async(
 test('updates actual URDF joint names and hides stale movable subtrees',async()=>{
   const {previewState,applyPreviewState}=await api();const calls={};
   const robot={joints:{},links:{body4:{visible:true},left_link11:{visible:true},right_link21:{visible:true}}};
-  for(const side of ['left','right'])for(let i=0;i<6;i++){const name=side+'_joint'+((side==='left'?11:21)+i);robot.joints[name]={setJointValue:v=>calls[name]=v};}
+  for(const side of ['left','right'])for(let i=0;i<8;i++){const name=side+'_joint'+((side==='left'?11:21)+i);robot.joints[name]={setJointValue:v=>calls[name]=v};robot.links[side+'_link'+((side==='left'?11:21)+i)]={visible:true};}
   robot.joints.joint4={setJointValue:v=>calls.joint4=v};
   const s=state();applyPreviewState(robot,previewState(s,100));
   assert.equal(calls.right_joint21,-.7);assert.equal(calls.left_joint16,.6);assert.equal(calls.joint4,.2);
@@ -58,4 +58,23 @@ test('top page entry is independent of controls and preview has no command trans
   const viewer=readFileSync(new URL('../public/js/robot-preview.js',import.meta.url),'utf8');
   assert.ok(viewer.includes('/api/state'));
   assert.doesNotMatch(viewer,/\/api\/command|\/api\/camera\/depth|EventSource|WebSocket|main\.js|keydown|keyCode/);
+});
+
+test('both jaws follow measured opening and reject missing or stale feedback',async()=>{
+  const {previewState,applyPreviewState}=await api();const s=state(),calls={};
+  s.limits={arms:Object.fromEntries(['left','right'].map(side=>[side,{gripper_open_raw:-3.14,gripper_closed_raw:0}]))};
+  s.arms.left.gripper=-3.14;s.arms.right.gripper=-1.57;
+  const robot={links:{body4:{}},joints:{joint4:{setJointValue(){}}}};
+  for(const [side,first] of [['left',11],['right',21]])for(let i=0;i<8;i++){
+    robot.links[side+'_link'+(first+i)]={};
+    robot.joints[side+'_joint'+(first+i)]={setJointValue:v=>calls[side+'_joint'+(first+i)]=v};
+  }
+  applyPreviewState(robot,previewState(s,100));
+  assert.equal(calls.left_joint17,.044);assert.equal(calls.left_joint18,.044);
+  assert.equal(calls.right_joint27,.022);assert.equal(calls.right_joint28,.022);
+  s.arms.right.gripper=0;assert.equal(previewState(s,100).right.fingerM,0);
+  s.arms.right.gripper=NaN;applyPreviewState(robot,previewState(s,100));
+  assert.equal(robot.links.right_link27.visible,false);assert.equal(robot.links.right_link28.visible,false);
+  assert.equal(robot.links.right_link21.visible,true);
+  assert.equal(previewState(s,103).left.gripperValid,false);
 });

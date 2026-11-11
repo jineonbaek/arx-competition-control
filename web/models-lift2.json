@@ -13,7 +13,7 @@
       "meshes/left_link13.STL": "7cea9b0622cf2397bbbc9930a2f60cdf7291f249bf1412242629f6abc6f94b06",
       "meshes/left_link14.STL": "9235ae2571892d0838507e3327d23a882420d63675cf0a73028e25b7c954d673",
       "meshes/left_link15.STL": "08747a4753ab52247e2f71500660647fef391e5b7a3f94b9fb0d447ff6c680fe",
-      "meshes/left_link16.STL": "d61fff9fc22912d6d58852501b8405b76c009589af9cc173c4bef8682221cfac",
+      "meshes/left_link16.STL": "a4b7bf292ec523057ad2233a424f668cd3324077f208faefc2ddb124d2926468",
       "meshes/left_link17.STL": "537394745cf4d668c4aa5fc3bcfed3361a2fce5f4bd033fe824a257b2af233be",
       "meshes/left_link18.STL": "d91222f5e48f10df2756909110712ead4e7d2bd8f3768772f97d7e58e7a77ae6",
       "meshes/right_link21.STL": "acf6803b96553812b62df4f1d0b71f501ca692786c25419ef4fc6f8f48c85045",
@@ -21,7 +21,7 @@
       "meshes/right_link23.STL": "3a629544f67eb46fec8bd2af1215b28bcfc979f3e9248da46a8fcab62b3860eb",
       "meshes/right_link24.STL": "e0e73423d346abf17082c20fb0cea0165b46ac25693eab7621eb220884a58ad6",
       "meshes/right_link25.STL": "3b5b46cfe8d8a87f65c70480eaa1260dab5e0588d8be285da98f7793f84a0852",
-      "meshes/right_link26.STL": "8aec01a9ab9c86b95682863eef860e583c6039cc5679238266a5811e00e8d817",
+      "meshes/right_link26.STL": "bb6c03c90b477dad767c733f8b3866ea32ce44e82d9af48f1769457efde3a307",
       "meshes/right_link27.STL": "b2418c008ed756694fe9f248f50a0ac3f6531cd235ad6156a598fab54eaad566",
       "meshes/right_link28.STL": "b962c3e43569cb8dbeae6885b83859900de416ffc249d0cf545a7087c1bd7110",
       "meshes/sensor_astra_pro_mm.STL": "27e4f93e73d04ac592fc3096fceed28da8ca2072e8c12e3b8d593c37978b4c17",
@@ -36,7 +36,9 @@
       "meshes/left_link17.STL": "web/cad/gripper-v2/left_link17.STL",
       "meshes/left_link18.STL": "web/cad/gripper-v2/left_link18.STL",
       "meshes/right_link27.STL": "web/cad/gripper-v2/right_link27.STL",
-      "meshes/right_link28.STL": "web/cad/gripper-v2/right_link28.STL"
+      "meshes/right_link28.STL": "web/cad/gripper-v2/right_link28.STL",
+      "meshes/left_link16.STL": "web/cad/gripper-v2/left_link16.STL",
+      "meshes/right_link26.STL": "web/cad/gripper-v2/right_link26.STL"
     },
     "gripper_v2": {
       "units": "mm",
@@ -63,7 +65,8 @@
           -34.72975
         ]
       },
-      "fit": "four M3 mounting holes; installation orientation requires visual comparison"
+      "fit": "four M3 mounting holes; installation orientation requires visual comparison",
+      "removed_wrist_hand_grip_triangles": 4810
     },
     "battery": {
       "path": "web/cad/gripper-v2/battery-print.stl",
@@ -105,6 +108,6 @@
     "lift_rad_per_m": 41.54,
     "lift_conversion": "nominal, not physically calibrated",
     "arm_mapping": "direct radians to corresponding six official joints; mounting/axis comparison pending",
-    "gripper_mapping": "not calibrated; model fingers remain at CAD zero"
+    "gripper_mapping": "measured raw open/closed ratio to 0..0.044 m per CAD jaw; nominal visualization, millimeter opening not calibrated"
   }
 }

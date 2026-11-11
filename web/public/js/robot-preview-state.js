@@ -10,7 +10,14 @@ export function previewState(snapshot, serverNowS) {
     const part = snapshot?.arms?.[side];
     const valid = fresh(part) && Array.isArray(part.joints) &&
       part.joints.length === 6 && part.joints.every(Number.isFinite);
-    return {valid, joints: valid ? part.joints.slice() : null};
+    const config = snapshot?.limits?.arms?.[side];
+    const open = config?.gripper_open_raw, closed = config?.gripper_closed_raw;
+    const gripperValid = fresh(part) && Number.isFinite(part.gripper) &&
+      Number.isFinite(open) && Number.isFinite(closed) && open !== closed;
+    // Map measured opening fraction to the CAD stroke; millimeters need calibration.
+    const ratio = gripperValid ? Math.max(0, Math.min(1, (part.gripper - closed) / (open - closed))) : null;
+    return {valid, joints: valid ? part.joints.slice() : null,
+      gripperValid, fingerM: gripperValid ? ratio * .044 : null};
   };
   const body = snapshot?.body;
   const valid = fresh(body) && Number.isFinite(body.height);
@@ -25,5 +32,10 @@ export function applyPreviewState(robot, value) {
     robot.links[side + '_link' + first].visible = value[side].valid;
     if (value[side].valid)
       value[side].joints.forEach((angle, i) => robot.joints[side + '_joint' + (first + i)].setJointValue(angle));
+    for (const index of [first + 6, first + 7]) {
+      robot.links[side + '_link' + index].visible = value[side].valid && value[side].gripperValid;
+      if (value[side].valid && value[side].gripperValid)
+        robot.joints[side + '_joint' + index].setJointValue(value[side].fingerM);
+    }
   }
 }
