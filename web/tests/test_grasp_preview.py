@@ -60,6 +60,7 @@ class PreviewTests(unittest.TestCase):
             np.testing.assert_allclose(view["points"][0][:3],nominal[:3,:3]@np.ones(3)+nominal[:3,3],atol=.0001)
             with np.load(Path(tmp)/"frame.npz") as f:
                 np.testing.assert_allclose(f["base_from_color"],nominal,atol=1e-10)
+                self.assertNotIn('left_joints',f.files)
 
     def test_handeye_preempts_grasp_and_restores_manual_setting(self):
         with tempfile.TemporaryDirectory() as d:
@@ -94,6 +95,7 @@ class HeadCaptureTests(unittest.TestCase):
             preview=GraspPreview(Mock(),Mock(),cache=root,camera='d435')
             k=dict(width=2,height=2,serial='head')
             meta=dict(color_intrinsics=k,depth=dict(scale_m_per_unit=.001),captured_at=5.)
+            meta['paired_left_feedback']=dict(timestamp=4.95,joints=[.1]*6)
             jpg=cv2.imencode('.jpg',np.zeros((2,2,3),np.uint8))[1].tobytes()
             png=cv2.imencode('.png',np.ones((2,2),np.uint16))[1].tobytes()
             with patch.object(gp,'HEAD_CALIBRATION',cal),patch.object(preview,'read_pair',
@@ -104,6 +106,8 @@ class HeadCaptureTests(unittest.TestCase):
                 np.testing.assert_allclose(view['base_from_color'],T)
                 with np.load(root/'frame.npz') as f:
                     self.assertEqual(str(f['camera_id']),'d435')
+                    np.testing.assert_allclose(f['left_joints'],[.1]*6)
+                    self.assertEqual(float(f['left_arm_time']),4.95)
                     self.assertEqual(str(f['calibration_sha256']),__import__('hashlib').sha256(cal.read_bytes()).hexdigest())
             preview.depth.acquire_grasp.assert_called_once_with('d435')
             preview.ctrl.submit.assert_not_called()
@@ -113,3 +117,14 @@ class HeadCaptureTests(unittest.TestCase):
         raw=np.full((2,2),2000,np.uint16)
         self.assertFalse(xyz_image(raw,.001,k).any())
         self.assertAlmostEqual(float(xyz_image(raw,.001,k,max_depth_m=3.)[0,0,2]),2.)
+
+class LeftPairTests(unittest.TestCase):
+    def test_requires_distinct_stable_paired_feedback(self):
+        from grasp_preview import paired_left
+        rows=[dict(timestamp=10+i*.1,joints=[0.]*6,fresh=True) for i in range(5)]
+        result=paired_left(rows,10.3)
+        self.assertEqual(result['timestamp'],10.3)
+        for bad in ([rows[0]]*5,[None]*5,rows[:2]):self.assertIsNone(paired_left(bad,10.3))
+        self.assertIsNone(paired_left(rows,12))
+        rows[-1]['joints'][0]=.1
+        self.assertIsNone(paired_left(rows,10.3))

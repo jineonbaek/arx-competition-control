@@ -62,6 +62,23 @@ def atomic_json(path, value):
     os.replace(tmp,path)
 
 
+def paired_left(rows, image_time):
+    """Optional stable left-arm evidence; old captures remain usable without it."""
+    try:
+        if not rows or any(not row or not row.get('fresh') for row in rows):return None
+        unique={float(row['timestamp']):row for row in rows}
+        stamps=np.array(sorted(unique))
+        joints=np.asarray([unique[t]['joints'] for t in stamps],float)
+        if (len(stamps)<4 or joints.shape!=(len(stamps),6) or
+                not np.isfinite(stamps).all() or not np.isfinite(joints).all() or
+                not np.isfinite(image_time) or stamps[-1]-stamps[0]<.35 or
+                np.max(np.ptp(joints,axis=0))>=np.radians(.25)):return None
+        i=int(np.argmin(abs(stamps-image_time)))
+        if abs(stamps[i]-image_time)>.2:return None
+        return dict(timestamp=float(stamps[i]),joints=joints[i].tolist())
+    except (KeyError, TypeError, ValueError):return None
+
+
 class GraspPreview:
     def __init__(self, controller, depth, cache=None, *, camera="d405"):
         if camera not in ("d435","d405"):raise ValueError("Unsupported RGB-D camera")
@@ -117,9 +134,11 @@ class GraspPreview:
             raise ValueError('相机外参不是有效刚性变换')
         ident=uuid.uuid4().hex
         tmp=self.cache/'frame.tmp.npz'
+        left=meta.get('paired_left_feedback')
+        extra={} if left is None else dict(left_joints=left['joints'],left_arm_time=left['timestamp'])
         np.savez_compressed(tmp,id=ident,camera_id=self.camera,calibration_sha256=hashlib.sha256(calibration_blob).hexdigest(),xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
                             intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
-                            image_time=meta['captured_at'])
+                            image_time=meta['captured_at'],**extra)
         yy,xx=np.nonzero(xyz[::4,::4,2]>0);yy*=4;xx*=4
         points_base = xyz[yy,xx] @ T[:3,:3].T + T[:3,3]
         points=np.column_stack((points_base.round(4),rgb[yy,xx])).tolist()
@@ -131,7 +150,7 @@ class GraspPreview:
         return view
 
     def read_pair(self):
-        start=time.time();end=time.monotonic()+16;history=[];reason='等待对齐深度帧'
+        start=time.time();end=time.monotonic()+16;history=[];left_history=[];reason='等待对齐深度帧'
         while time.monotonic()<end:
             if not self.depth.enabled(self.camera):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
             s=self.ctrl.snapshot();arm=s['arms']['right'];body=s['body']
@@ -143,6 +162,8 @@ class GraspPreview:
             stamp=arm['timestamp']
             if not history or stamp>history[-1][0]:history.append((stamp,q,body['height'],body['timestamp']))
             history=[v for v in history if stamp-v[0]<.75]
+            left_history.append((stamp,s['arms'].get('left')))
+            left_history=[v for v in left_history if stamp-v[0]<.75]
             try:
                 meta=json.loads((LIVE/(self.camera+'.json')).read_text());d=meta.get('depth',{})
                 t=meta.get('captured_at') or 0
@@ -156,6 +177,7 @@ class GraspPreview:
                         rgb=meta['raw_image_file'];z=d['image_file']
                         m=re.fullmatch(self.camera+r'-v-([a-f0-9]+-\d+)\.jpg',rgb)
                         if m and z==self.camera+'-z-'+m[1]+'.png':
+                            meta=dict(meta,paired_left_feedback=paired_left([v[1] for v in left_history],t))
                             return meta,(LIVE/rgb).read_bytes(),(LIVE/z).read_bytes(),paired,ts,height,body_time
                     reason='等待与静止右臂配对的 RGB-D 帧'
                 elif d.get('message'):reason=d['message']

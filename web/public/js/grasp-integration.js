@@ -33,7 +33,7 @@ function show(data){
  const observationStatus=o=>!o?'尚未进行':o.status==='localized'?'已定位：可见表面 '+xyz(o.location.surface_base_mm):o.status==='target_not_found'?'本帧未找到电池':o.status==='depth_rejected'?'识别到电池，但深度不足：'+o.message:'识别或分割复核未通过';
  image('head',head?.recognition?.overlay);el('head-status').textContent=observationStatus(head);
  el('wrist-status').textContent=observationStatus(wrist);
- if(coarse)el('coarse-status').textContent='升降建议 '+coarse.lift.target_rad.toFixed(2)+' SDK rad；CAD 零关节腕部参考 '+xyz(coarse.reference_wrist_base_mm)+'。向上够约 100 mm；'+(coarse.lift.clamped?'已限幅，距偏好高度还差 '+coarse.lift.preference_residual_mm.toFixed(1)+' mm。':'')+coarse.blockers.join('；')+'。未执行运动。';
+ if(coarse)el('coarse-status').textContent='升降建议 '+coarse.lift.target_rad.toFixed(2)+' SDK rad；CAD 零关节腕部参考 '+xyz(coarse.reference_wrist_base_mm)+'。向上够约 100 mm；'+(coarse.lift.clamped?'已限幅，距偏好高度还差 '+coarse.lift.preference_residual_mm.toFixed(1)+' mm。':'')+(coarse.lift.column_sweep?.status==='column_clear'?coarse.lift.column_sweep.message+'。':'')+coarse.blockers.join('；')+'。未执行运动。';
  image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
  const fit=data.quality;

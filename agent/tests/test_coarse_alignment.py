@@ -53,6 +53,8 @@ class CoarseTests(unittest.TestCase):
             result=plan(tools,ident,'coarse')
             self.assertEqual(result['observation_id'],ident)
             self.assertFalse(result['executable'])
+            self.assertEqual(result['lift']['column_sweep']['status'],'unavailable')
+            self.assertFalse(result['lift']['column_sweep']['both_arms_column_checked'])
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)
             with self.assertRaisesRegex(ValueError,'D435'):plan(tools,ident,'wrong')
