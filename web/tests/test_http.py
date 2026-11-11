@@ -43,6 +43,33 @@ class HTTPTests(unittest.TestCase):
         self.assertFalse(json.loads(body)["execution_enabled"])
         self.assertEqual(self.request("GET", "/%2e%2e/config/control.json")[0], 404)
         self.assertEqual(self.adapter.calls, [])
+
+    def test_tcp_capture_endpoint_records_feedback_without_dispatching_motion(self):
+        import numpy as np
+        class DeterministicWristModel:
+            def wrist_transform(self, joints, lift):
+                transform = np.eye(4)
+                transform[:3, 3] = [0.4, -0.1, 0.5 + lift / 100.0]
+                return transform
+        self.controller.models["right"] = DeterministicWristModel()
+        _, response_headers, _ = self.request("GET", "/tcp-calibration.html")
+        headers = {"Content-Type": "application/json",
+                   "Cookie": response_headers["Set-Cookie"].split(";")[0],
+                   "Origin": "http://127.0.0.1:%d" % self.port}
+        self.controller.update_body(6.0, [0.0] * 4, 0.0, 0.0, 0.0)
+        self.controller.update_arm("right", [0.0] * 6, -1.0, [0.0] * 6)
+
+        code, _, body = self.request("GET", "/api/tcp-calibration", headers={"Cookie": headers["Cookie"]})
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)["arms"]["right"]["sample_count"], 0)
+
+        code, _, body = self.request(
+            "POST", "/api/tcp-calibration",
+            json.dumps({"op": "capture", "arm": "right", "confirmed": True}), headers,
+        )
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["arms"]["right"]["sample_count"], 1)
+        self.assertEqual(self.adapter.calls, [])
     def test_origin_and_observation_guard(self):
         _, headers, _ = self.request("GET", "/")
         cookie = headers["Set-Cookie"].split(";")[0]

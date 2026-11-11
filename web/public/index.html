@@ -42,7 +42,7 @@
     <div class="dashboard">
       <section class="panel arm-panel" aria-labelledby="arm-title">
         <div class="panel-heading arm-heading"><div><span class="section-index">01 / ARM</span><h2 id="arm-title">机械臂控制</h2></div><div class="arm-switch" role="tablist" aria-label="选择机械臂"><button id="select-left" role="tab" aria-selected="true" class="selected">左臂</button><button id="select-right" role="tab" aria-selected="false">右臂</button></div></div>
-        <div class="arm-toolbar"><span id="arm-feedback-status" class="status-chip"><i></i>等待左臂反馈</span><div class="toolbar-actions"><button id="restore-feedback" class="text-button" type="button">恢复实时</button><button id="arm-stop" class="button stop-button" disabled>停止左臂</button></div></div>
+        <div class="arm-toolbar"><span id="arm-feedback-status" class="status-chip"><i></i>等待左臂反馈</span><div class="toolbar-actions"><a class="button secondary" href="tcp-calibration.html" target="_blank" rel="noopener noreferrer">TCP 标定采集</a><button id="restore-feedback" class="text-button" type="button">恢复实时</button><button id="arm-stop" class="button stop-button" disabled>停止左臂</button></div></div>
         <div id="arm-reason" class="section-note"></div>
         <div id="arm-feedback-detail" class="feedback-detail"></div>
         <details class="control-section arm-mode-section" open>

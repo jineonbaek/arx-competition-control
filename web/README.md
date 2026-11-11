@@ -285,3 +285,20 @@ Domain 0 未发现机械臂驱动；内核 CAN 网络接口只有 can5，can1/ca
 后续 normal 驱动必须显式将 arm_pub_topic_name 配成网页订阅的 /arm_l_status_full 和
 /arm_r_status_full（或两端一致修改）；normal 原样使用参数名发布，只有 vr_slave 自动加 _full。
 本次没有猜测切换话题或自动发现并接管驱动。
+
+## TCP 定点标定采集
+
+控制台的机械臂区域提供 `tcp-calibration.html` 入口。页面只读取左右臂关节、升降和
+`base_link -> J6 wrist` 正运动学，不调用 `Controller.submit()`，因此记录、求解和保存候选都不会
+发送机械臂、升降或底盘命令。
+
+操作者把最终工具尖端保持在同一个固定点，手动改变腕部方向并逐点确认。每臂至少 6 个样本，
+建议采集 8～12 个方向。后端用线性最小二乘求解 `R_i p + t_i = c`，返回腕部坐标系中的
+TCP 平移、固定点位置、秩、条件数、RMS、最大残差和逐点残差。姿态变化不足或反馈超过
+0.3 秒会拒绝记录或求解。
+
+结果只包含 XYZ 平移，不包含工具坐标系方向。点击保存后写入
+`web/hardware/runtime/tcp-calibration/candidates/`；它是待验证候选，不会自动写入控制配置，
+也不会启用厂家 `arm.tcp` 通道。枢轴算法的选型与交叉核对参考
+SciKit-Surgery `scikit-surgerycalibration/algorithms/pivot.py` 的 BSD-3-Clause 实现；本项目使用
+现有 NumPy 依赖重新实现最小线性求解，没有引入该项目的完整依赖树。

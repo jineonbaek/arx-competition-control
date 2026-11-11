@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TCP 标定采集 · ARX</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/tcp-calibration.css">
+  <script type="module" src="js/tcp-calibration.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">A</span><div><strong>ARX / CALIBRATION</strong><small>LIFT2S · 双 X5 TCP</small></div></div>
+    <a class="button secondary" href="/">返回控制台</a>
+  </header>
+  <main>
+    <div class="page-heading"><div><span class="eyebrow">FIXED POINT / PIVOT</span><h1>TCP 定点标定</h1><p>保持工具尖端接触同一个固定点，改变腕部方向并记录 J6 位姿。</p></div><span class="mode-badge">只读采样</span></div>
+    <div class="notice enabled" role="status">本页只读取关节与升降反馈，不发送机械臂、升降或底盘指令。实体急停保持可触达，每次记录前确认尖端没有滑动。</div>
+
+    <div class="tcp-layout">
+      <section class="panel tcp-capture-panel" aria-labelledby="capture-title">
+        <div class="panel-heading"><div><span class="section-index">01 / CAPTURE</span><h2 id="capture-title">记录当前腕部姿态</h2></div><div class="arm-tabs" role="tablist" aria-label="选择标定机械臂"><button id="tcp-arm-left" class="selected" role="tab" aria-selected="true" type="button">左臂</button><button id="tcp-arm-right" role="tab" aria-selected="false" type="button">右臂</button></div></div>
+        <div class="live-card">
+          <div><span>反馈状态</span><strong id="tcp-live-status">正在连接</strong></div>
+          <div><span>J6 腕部位姿 · base_link</span><strong id="tcp-live-pose">—</strong></div>
+        </div>
+        <ol class="tcp-instructions">
+          <li>安装最终工具并固定标定尖点或小凹槽。</li>
+          <li>用重力补偿手动拖动；让工具尖端始终接触同一个点。</li>
+          <li>每次改变腕部方向、停稳后勾选确认，再记录一次。</li>
+          <li>每只手至少 6 点，推荐 8～12 个方向；左右臂分别标定。</li>
+        </ol>
+        <label class="contact-confirm"><input id="tcp-contact-confirm" type="checkbox"> 我确认工具尖端仍在同一固定点，机械臂和升降已经停稳</label>
+        <div class="section-actions"><button id="tcp-reset" class="button secondary" type="button">清空当前臂</button><button id="tcp-capture" class="button primary" type="button" disabled>记录当前点</button></div>
+        <p id="tcp-error" class="tcp-error" role="alert"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="solve-title">
+        <div class="panel-heading"><div><span class="section-index">02 / SOLVE</span><h2 id="solve-title">求解与保存候选</h2></div><span id="tcp-count" class="subtle-tag">0 个样本</span></div>
+        <p class="hint">求解 <code>Rᵢp + tᵢ = c</code>。结果仅包含 J6 腕部到工具尖端的 XYZ 平移，不包含工具方向。</p>
+        <button id="tcp-solve" class="button primary" type="button" disabled>求解 TCP 偏移</button>
+        <div id="tcp-result" class="tcp-result" role="status"><p>至少记录 6 个姿态后可以求解。</p></div>
+        <label class="tool-label">工具名称（可选）<input id="tcp-label" type="text" maxlength="80" placeholder="例如：左手画笔 / 右手探针"></label>
+        <button id="tcp-save" class="button secondary" type="button" disabled>保存为候选 JSON</button>
+        <p id="tcp-saved" class="hint" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <section class="panel" aria-labelledby="samples-title">
+      <div class="panel-heading"><div><span class="section-index">03 / DATA</span><h2 id="samples-title">已记录样本</h2></div><span class="subtle-tag">XYZ：mm · RPY：°</span></div>
+      <div class="sample-table-wrap"><table><thead><tr><th>#</th><th>记录时间</th><th>腕部 XYZ</th><th>腕部 RPY</th><th>升降原值</th><th></th></tr></thead><tbody id="tcp-samples"><tr><td colspan="6">尚无样本</td></tr></tbody></table></div>
+    </section>
+  </main>
+</body>
+</html>

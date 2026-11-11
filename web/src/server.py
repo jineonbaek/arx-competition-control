@@ -22,6 +22,7 @@ from d435_cad import preview as d435_cad_preview
 from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
+from tcp_calibration import TcpCalibration
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
@@ -33,6 +34,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     grasps = GraspPreview(controller, depth_control)
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
+    tcp_calibration = TcpCalibration(controller)
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -114,6 +116,11 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 return self.json(200, depth_control.snapshot())
             if path == "/api/handeye":
                 return self.json(200, steps.state(self.client()))
+            if path == "/api/tcp-calibration":
+                client = self.client()
+                if not client:
+                    return self.json(403, {"message":"请先打开 TCP 标定页面"})
+                return self.json(200, tcp_calibration.state(client))
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
             if path == '/api/arxgent':
@@ -150,14 +157,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html") and not self.client():
+            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose'):
+            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -170,6 +177,8 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/tcp-calibration':
+                    return self.json(200, tcp_calibration.action(self.client(), strict_json(raw)))
                 if path == '/api/vision':
                     return self.json(200, vision.action(self.client(), strict_json(raw)))
                 if path == '/api/foundationpose':
