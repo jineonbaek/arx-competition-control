@@ -41,18 +41,20 @@ class DepthControl:
 
     def _release_locked(self,settings,scope):
         # If the worker fell back from a failed depth stream, preserve its fallback.
-        if settings['requested']['d405'] == scope['enabled']:
-            settings['requested']['d405']=scope['previous']
+        camera=scope.get('camera','d405')
+        if settings['requested'][camera] == scope['enabled']:
+            settings['requested'][camera]=scope['previous']
         settings.pop('handeye',None)
         self._write(settings)
 
     def acquire_handeye(self, enabled):
-        return self._acquire_d405(enabled,'handeye')
+        return self._acquire(enabled,'handeye','d405')
 
-    def acquire_grasp(self):
-        return self._acquire_d405(True,'grasp')
+    def acquire_grasp(self, camera='d405'):
+        return self._acquire(True,'grasp',camera)
 
-    def _acquire_d405(self, enabled, owner):
+    def _acquire(self, enabled, owner, camera):
+        if camera not in ('d435','d405'):raise ValueError('Unsupported RGB-D camera')
         if type(enabled) is not bool:raise ValueError('Invalid calibration depth mode')
         with self._lock():
             settings=self._read()
@@ -61,13 +63,13 @@ class DepthControl:
             if active:
                 if owner=='handeye' and active.get('owner')=='grasp':
                     self._release_locked(settings,active)
-                else:raise RuntimeError('D405 正在执行另一项临时采样')
+                else:raise RuntimeError('已有相机正在执行另一项临时采样')
             if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             os.kill(settings['pid'],0)
             token=uuid.uuid4().hex
-            settings['handeye']=dict(token=token,owner=owner,enabled=enabled,previous=settings['requested']['d405'],
+            settings['handeye']=dict(token=token,owner=owner,camera=camera,enabled=enabled,previous=settings['requested'][camera],
                                      expires=time.monotonic()+45)
-            settings['requested']['d405']=enabled
+            settings['requested'][camera]=enabled
             self._write(settings)
             return token
 
@@ -102,7 +104,7 @@ class DepthControl:
             state=depth.get('state') if acknowledged else ('starting' if requested else 'stopping')
             if not fresh:state='unavailable'
             result[key]=dict(requested=requested,state=state,
-                handeye_priority=key=='d405' and bool(settings.get('handeye')),
+                handeye_priority=bool(settings.get('handeye')) and key==settings['handeye'].get('camera','d405'),
                 active=fresh and depth.get('state')=='online',
                 color_online=fresh and meta.get('state')=='online',
                 message=depth.get('message') or meta.get('message') or '')
@@ -120,8 +122,8 @@ class DepthControl:
         with self._lock():
             settings=self._read()
             self._expire_locked(settings)
-            if manual and key=='d405' and settings.get('handeye'):
-                raise RuntimeError('D405 深度由正在采样的程序管理')
+            if manual and settings.get('handeye') and key==settings['handeye'].get('camera','d405'):
+                raise RuntimeError('深度由正在采样的程序管理')
             if type(settings.get('pid')) is not int:raise RuntimeError('相机采集服务未运行')
             try:os.kill(settings['pid'],0)
             except OSError:raise RuntimeError('相机采集服务未运行')

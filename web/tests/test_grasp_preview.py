@@ -81,3 +81,35 @@ class PreviewTests(unittest.TestCase):
         self.assertFalse(hasattr(preview,"infer"))
         preview.depth.acquire_grasp.assert_not_called()
         preview.ctrl.submit.assert_not_called()
+
+
+class HeadCaptureTests(unittest.TestCase):
+    def test_head_uses_fixed_cad_transform_not_wrist_or_lift(self):
+        import cv2, json
+        import grasp_preview as gp
+        T=np.eye(4);T[:3,3]=[.1,.2,1.2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);cal=root/'head.json'
+            cal.write_text(json.dumps(dict(serial='head',T_base_from_color_optical=T.tolist())))
+            preview=GraspPreview(Mock(),Mock(),cache=root,camera='d435')
+            k=dict(width=2,height=2,serial='head')
+            meta=dict(color_intrinsics=k,depth=dict(scale_m_per_unit=.001),captured_at=5.)
+            jpg=cv2.imencode('.jpg',np.zeros((2,2,3),np.uint8))[1].tobytes()
+            png=cv2.imencode('.png',np.ones((2,2),np.uint16))[1].tobytes()
+            with patch.object(gp,'HEAD_CALIBRATION',cal),patch.object(preview,'read_pair',
+                return_value=(meta,jpg,png,np.ones(6),5.,15.,5.)),patch.object(gp,'xyz_image',
+                return_value=np.ones((2,2,3),np.float32)),patch.object(gp,'ColumnModel') as model:
+                view=preview.capture()
+                model.assert_not_called()
+                np.testing.assert_allclose(view['base_from_color'],T)
+                with np.load(root/'frame.npz') as f:
+                    self.assertEqual(str(f['camera_id']),'d435')
+                    self.assertEqual(str(f['calibration_sha256']),__import__('hashlib').sha256(cal.read_bytes()).hexdigest())
+            preview.depth.acquire_grasp.assert_called_once_with('d435')
+            preview.ctrl.submit.assert_not_called()
+
+    def test_head_range_is_explicit_and_d405_default_unchanged(self):
+        k=dict(width=2,height=2,fx=10,fy=10,cx=0,cy=0,model='distortion.none',coeffs=[0]*5)
+        raw=np.full((2,2),2000,np.uint16)
+        self.assertFalse(xyz_image(raw,.001,k).any())
+        self.assertAlmostEqual(float(xyz_image(raw,.001,k,max_depth_m=3.)[0,0,2]),2.)

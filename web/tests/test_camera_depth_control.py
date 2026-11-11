@@ -53,6 +53,32 @@ class DepthControlTests(unittest.TestCase):
         self.control.release_handeye(token)
         self.assertFalse(self.control.enabled("d405"))
 
+    def test_head_capture_lease_restores_only_head_and_blocks_manual(self):
+        self.control.manual_request(dict(camera='d405',enabled=True))
+        token=self.control.acquire_grasp('d435')
+        self.assertTrue(self.control.enabled('d435'))
+        with self.assertRaises(RuntimeError):
+            self.control.manual_request(dict(camera='d435',enabled=False))
+        self.control.release_handeye(token)
+        self.assertFalse(self.control.enabled('d435'))
+        self.assertTrue(self.control.enabled('d405'))
+
+    def test_head_lease_expiry_and_handeye_preemption(self):
+        first=self.control.acquire_grasp('d435')
+        second=self.control.acquire_handeye(False)
+        self.control.release_handeye(first)
+        self.assertFalse(self.control.enabled('d435'))
+        self.assertFalse(self.control.enabled('d405'))
+        self.control.release_handeye(second)
+        self.control.acquire_grasp('d435')
+        data=self.control._read();data['handeye']['expires']=0;self.control._write(data)
+        self.assertFalse(self.control.enabled('d435'))
+
+    def test_invalid_capture_camera_does_not_change_requests(self):
+        before=self.control.path.read_bytes()
+        with self.assertRaises(ValueError):self.control.acquire_grasp('astra')
+        self.assertEqual(before,self.control.path.read_bytes())
+
     def test_restart_resets_previous_enabled_request(self):
         self.control.request({'camera':'d405','enabled':True})
         self.control.reset();self.assertFalse(self.control.enabled('d405'))

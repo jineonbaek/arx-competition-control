@@ -1,5 +1,6 @@
 """Shared D405 RGB-D capture, point clouds and taught horizontal handle previews."""
 import base64
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LIVE = ROOT / 'web/public/camera-live'
 # Keep the existing cache path so saved RGB-D snapshots remain readable.
 CACHE = ROOT / 'web/hardware/runtime/grasp-preview'
+HEAD_CALIBRATION = ROOT / 'vision/handeye/results/d435-cad-349622074226.json'
 
 
 def roi_pixels(value, w, h):
@@ -42,12 +44,12 @@ def camera_intrinsics(k):
     return rs, intr
 
 
-def xyz_image(raw, scale, k):
+def xyz_image(raw, scale, k, *, max_depth_m=1.5):
     rs, intr = camera_intrinsics(k)
     if raw.dtype!=np.uint16 or raw.shape!=(intr.height,intr.width) or not np.isfinite(scale) or scale<=0:
-        raise ValueError('D405 深度格式或单位无效')
+        raise ValueError('RGB-D 深度格式或单位无效')
     z=raw.astype(np.float32)*scale
-    v,u=np.nonzero((z>=.07)&(z<=1.5))
+    v,u=np.nonzero((z>=.07)&(z<=max_depth_m))
     xyz=np.zeros((*raw.shape,3),np.float32)
     if len(v):
         xyz[v,u]=[rs.rs2_deproject_pixel_to_point(intr,[float(x),float(y)],float(z[y,x])) for y,x in zip(v,u)]
@@ -61,7 +63,9 @@ def atomic_json(path, value):
 
 
 class GraspPreview:
-    def __init__(self, controller, depth, cache=None):
+    def __init__(self, controller, depth, cache=None, *, camera="d405"):
+        if camera not in ("d435","d405"):raise ValueError("Unsupported RGB-D camera")
+        self.camera=camera
         self._cache=Path(cache) if cache is not None else None
         self.ctrl=controller
         self.depth=depth
@@ -70,7 +74,7 @@ class GraspPreview:
 
     @property
     def cache(self):
-        return self._cache if self._cache is not None else CACHE
+        return self._cache if self._cache is not None else (CACHE if self.camera=="d405" else CACHE.parent/"grasp-head")
 
     def latest(self):
         path=self.cache/'view.json'
@@ -88,24 +92,32 @@ class GraspPreview:
         finally:self.lock.release()
 
     def capture(self):
-        if self.model is None:self.model=ColumnModel()
-        try:token=self.depth.acquire_grasp()
+        calibration_path=CANDIDATE if self.camera=='d405' else HEAD_CALIBRATION
+        calibration_blob=calibration_path.read_bytes()
+        cal=json.loads(calibration_blob)
+        if self.camera=='d405' and self.model is None:self.model=ColumnModel()
+        try:token=self.depth.acquire_grasp(self.camera)
         except (RuntimeError,OSError) as e:raise ValueError(str(e)) from e
         try:meta,jpeg,png,q,arm_time,height,body_time=self.read_pair()
         finally:self.depth.release_handeye(token)
         k=meta['color_intrinsics'];d=meta['depth']
-        cal=json.loads(CANDIDATE.read_text())
-        if k['serial']!=cal['camera']['serial']:raise ValueError('当前 D405 序列号与手眼外参不一致')
+        if calibration_path.read_bytes()!=calibration_blob:raise ValueError('采集期间外参发生变化')
+        serial=cal['camera']['serial'] if self.camera=='d405' else cal['serial']
+        if k['serial']!=serial:raise ValueError('当前相机序列号与外参不一致')
         raw=cv2.imdecode(np.frombuffer(png,np.uint8),cv2.IMREAD_UNCHANGED)
         bgr=cv2.imdecode(np.frombuffer(jpeg,np.uint8),cv2.IMREAD_COLOR)
         if raw is None or bgr is None or bgr.shape[:2]!=raw.shape:raise ValueError('RGB-D 图像尺寸不匹配')
-        xyz=xyz_image(raw,d['scale_m_per_unit'],k)
+        xyz=xyz_image(raw,d['scale_m_per_unit'],k,max_depth_m=1.5 if self.camera=='d405' else 3.)
         rgb=bgr[:,:,::-1].copy()
-        G=self.model.wrist_transform(q,height)
-        T=G@np.asarray(cal['T_right_link26_from_D405_color'])
+        if self.camera=='d405':
+            T=self.model.wrist_transform(q,height)@np.asarray(cal['T_right_link26_from_D405_color'])
+        else:T=np.asarray(cal['T_base_from_color_optical'],float)
+        if (T.shape!=(4,4) or not np.isfinite(T).all() or not np.allclose(T[3],[0,0,0,1])
+                or not np.allclose(T[:3,:3].T@T[:3,:3],np.eye(3),atol=1e-6) or np.linalg.det(T[:3,:3])<.99):
+            raise ValueError('相机外参不是有效刚性变换')
         ident=uuid.uuid4().hex
         tmp=self.cache/'frame.tmp.npz'
-        np.savez_compressed(tmp,id=ident,xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
+        np.savez_compressed(tmp,id=ident,camera_id=self.camera,calibration_sha256=hashlib.sha256(calibration_blob).hexdigest(),xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
                             intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
                             image_time=meta['captured_at'])
         yy,xx=np.nonzero(xyz[::4,::4,2]>0);yy*=4;xx*=4
@@ -121,7 +133,7 @@ class GraspPreview:
     def read_pair(self):
         start=time.time();end=time.monotonic()+16;history=[];reason='等待对齐深度帧'
         while time.monotonic()<end:
-            if not self.depth.enabled('d405'):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
+            if not self.depth.enabled(self.camera):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
             s=self.ctrl.snapshot();arm=s['arms']['right'];body=s['body']
             if not self.ctrl.adapter.body_calibrated():raise ValueError('升降回零状态未就绪')
             if s['chassis_active'] or not arm.get('fresh') or not body.get('fresh'):
@@ -132,7 +144,7 @@ class GraspPreview:
             if not history or stamp>history[-1][0]:history.append((stamp,q,body['height'],body['timestamp']))
             history=[v for v in history if stamp-v[0]<.75]
             try:
-                meta=json.loads((LIVE/'d405.json').read_text());d=meta.get('depth',{})
+                meta=json.loads((LIVE/(self.camera+'.json')).read_text());d=meta.get('depth',{})
                 t=meta.get('captured_at') or 0
                 if (len(history)>=4 and history[-1][0]-history[0][0]>=.35 and
                     history[0][0]<=t<=history[-1][0]+.05 and t>=start and -.05<=time.time()-t<.8 and
@@ -142,8 +154,8 @@ class GraspPreview:
                     stable=np.max(np.ptp([v[1] for v in history],axis=0))<np.radians(.25) and np.ptp([v[2] for v in history])<.05
                     if max(abs(t-ts),abs(t-body_time))<.20 and stable:
                         rgb=meta['raw_image_file'];z=d['image_file']
-                        m=re.fullmatch(r'd405-v-([a-f0-9]+-\d+)\.jpg',rgb)
-                        if m and z=='d405-z-'+m[1]+'.png':
+                        m=re.fullmatch(self.camera+r'-v-([a-f0-9]+-\d+)\.jpg',rgb)
+                        if m and z==self.camera+'-z-'+m[1]+'.png':
                             return meta,(LIVE/rgb).read_bytes(),(LIVE/z).read_bytes(),paired,ts,height,body_time
                     reason='等待与静止右臂配对的 RGB-D 帧'
                 elif d.get('message'):reason=d['message']

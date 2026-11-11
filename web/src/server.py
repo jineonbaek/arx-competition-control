@@ -33,6 +33,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
+    head_scene = GraspPreview(controller, depth_control, camera="d435")
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
     tcp_calibration = TcpCalibration(controller)
@@ -172,7 +173,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -194,6 +195,12 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     return self.json(200, vision.action(self.client(), strict_json(raw)))
                 if path == '/api/foundationpose':
                     return self.json(200,foundation.action(self.client(),strict_json(raw)))
+                if path == '/api/grasp-scene':
+                    data=strict_json(raw)
+                    if not isinstance(data,dict) or set(data)!={'camera'} or data['camera'] not in ('d435','d405'):
+                        raise ValueError('仅接受 camera=d435 或 d405')
+                    capture=head_scene if data['camera']=='d435' else grasps
+                    return self.json(200,capture.handle_action({'op':'capture'}))
                 if path == '/api/handle-preview':
                     return self.json(200, grasps.handle_action(strict_json(raw)))
                 if path == '/api/handeye':

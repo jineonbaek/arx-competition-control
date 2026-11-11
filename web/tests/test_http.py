@@ -178,6 +178,25 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(len(self.adapter.calls), 2)
 
 
+    def test_grasp_scene_routes_cameras_and_keeps_origin_guard(self):
+        from unittest.mock import patch
+        import grasp_preview
+        _,response,_=self.request('GET','/')
+        headers={'Cookie':response['Set-Cookie'].split(';')[0],
+                 'Content-Type':'application/json','Origin':f'http://127.0.0.1:{self.port}'}
+        seen=[]
+        def capture(owner,data):
+            seen.append(owner.camera)
+            return {'id':'frozen','frame_id':'base_link'}
+        with patch.object(grasp_preview.GraspPreview,'handle_action',capture):
+            for camera in ('d435','d405'):
+                self.assertEqual(self.request('POST','/api/grasp-scene',json.dumps({'camera':camera}),headers)[0],200)
+            for invalid in ({'camera':'astra'},{'camera':'d435','op':'move'},[],{}):
+                self.assertEqual(self.request('POST','/api/grasp-scene',json.dumps(invalid),headers)[0],400)
+            self.assertEqual(self.request('POST','/api/grasp-scene','{"camera":"d435"}',dict(headers,Origin='http://evil.invalid'))[0],403)
+        self.assertEqual(seen,['d435','d405'])
+        self.assertEqual(self.adapter.calls,[])
+
     def test_handle_preview_survives_without_candidate_endpoint(self):
         from unittest.mock import patch
         import grasp_preview
