@@ -108,6 +108,42 @@ async function start() {
     robot.rotation.x = -Math.PI / 2;
     robot.position.y = .168;
     scene.add(robot);
+    // Vehicle axes share the URDF root's Z-up transform and base_link origin.
+    const frame = new THREE.Group();
+    frame.name = 'base_link_axes';
+    const axes = new THREE.AxesHelper(.35);
+    axes.material.depthTest = false;
+    axes.renderOrder = 100;
+    frame.add(axes);
+    for (const [label, position, color] of [
+      ['X · 车头', [.43, 0, 0], '#ff5555'],
+      ['Y · 车左', [0, .43, 0], '#65df7a'],
+      ['Z · 向上', [0, 0, .43], '#58aaff'],
+      ['base_link · 原点', [-.12, -.12, .03], '#ffffff']
+    ]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512; canvas.height = 96;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#09101ce6';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = color;
+      ctx.font = 'bold 42px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, 256, 48);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(canvas), depthTest: false
+      }));
+      sprite.name = label;
+      sprite.renderOrder = 101;
+      sprite.scale.set(.30, .056, 1);
+      sprite.position.set(...position);
+      frame.add(sprite);
+    }
+    const origin = new THREE.Mesh(new THREE.SphereGeometry(.012, 16, 12),
+      new THREE.MeshBasicMaterial({color: 0xffffff, depthTest: false}));
+    origin.renderOrder = 100;
+    frame.add(origin);
+    robot.add(frame);
     const box = new THREE.Box3().setFromObject(robot);
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const fit = () => {
