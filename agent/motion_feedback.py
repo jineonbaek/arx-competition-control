@@ -91,6 +91,97 @@ def tool_feedback(snapshot,model,wrist_from_tool,target_base_tool,*,now,max_age_
         if abs(height-expected_lift_rad)>lift_tolerance_rad:raise ValueError('Lift changed during arm motion')
     except (KeyError,TypeError) as error:raise ValueError('Invalid robot feedback') from error
     actual=rigid(model.wrist_transform(q,height)@tcp)
-    angle=np.degrees(Rotation.from_matrix(target[:3,:3].T@actual[:3,:3]).magnitude())
+    rotation=Rotation.from_matrix(target[:3,:3].T@actual[:3,:3])
+    angle=np.degrees(rotation.magnitude())
     return dict(base_from_tool=actual.tolist(),position_error_mm=((actual[:3,3]-target[:3,3])*1000).tolist(),
-                orientation_error_deg=float(angle),joints_rad=q.tolist(),sample_time=float(stamps.min()))
+                orientation_error_deg=float(angle),orientation_error_rotvec_deg=np.degrees(rotation.as_rotvec()).tolist(),
+                joints_rad=q.tolist(),sample_time=float(stamps.min()))
+
+
+class PickMonitor:
+    """Insertion/closure feedback sequence for the executor, with no command transport.
+
+    start_closing grants one closure only on a new, still-settled sample. The caller
+    must submit immediately under its control lock, and abort on an uncertain reply.
+    This monitor neither owns the controller nor proves collision clearance or hold.
+    """
+    def __init__(self,model,wrist_from_tool,target_base_tool,*,expected_lift_rad,
+                 lift_tolerance_rad,max_pair_skew_s,started_at,arm_policy,
+                 gripper_target,gripper_policy):
+        if wrist_from_tool is None:raise ValueError('TCP pending')
+        if (not np.isfinite([expected_lift_rad,lift_tolerance_rad,max_pair_skew_s]).all()
+                or not 0<=expected_lift_rad<=18 or min(lift_tolerance_rad,max_pair_skew_s)<=0):
+            raise ValueError('Invalid lift or pairing policy')
+        self.model=model;self.tcp=rigid(wrist_from_tool).copy()
+        self.target=rigid(target_base_tool).copy()
+        self.feedback_policy=dict(expected_lift_rad=expected_lift_rad,
+            lift_tolerance_rad=lift_tolerance_rad,max_pair_skew_s=max_pair_skew_s,
+            max_age_s=arm_policy['max_age_s'])
+        self.arm=ArrivalMonitor(np.zeros(6),started_at=started_at,**arm_policy)
+        if self.arm.tolerance.shape!=(6,):raise ValueError('Arm policy needs XYZ and rotation-vector tolerances')
+        self.gripper_target=float(gripper_target);self.gripper_policy=dict(gripper_policy)
+        # Validate both policies before any caller can start a physical operation.
+        self.gripper=ArrivalMonitor([self.gripper_target],started_at=started_at,**self.gripper_policy)
+        self.stage='inserting';self.last_poll=started_at
+        self.last_value=None;self.last_sample=None;self.arrival_sample=None
+        self.failure=None
+
+    def _receipt(self,close=False):
+        return dict(status=self.failure or self.stage,close_permitted=close,
+                    stop_required=self.failure is not None,grasp_confirmed=False)
+
+    def abort(self,reason):
+        if self.failure is None:self.failure=str(reason) if reason else 'execution_unknown'
+        return self._receipt()
+
+    def _read(self,snapshot,now,ready,cancelled):
+        if self.failure:return None
+        if cancelled:self.abort('cancelled');return None
+        if ready is not True:self.abort('driver_fault');return None
+        if not np.isfinite(now) or now<self.last_poll:
+            self.abort('invalid_clock');return None
+        self.last_poll=now
+        try:
+            measured=tool_feedback(snapshot,self.model,self.tcp,self.target,now=now,**self.feedback_policy)
+            value=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
+            stamp=measured['sample_time']
+            if self.last_sample is not None and stamp<self.last_sample:raise ValueError('Out-of-order feedback')
+            if self.stage!='inserting':
+                if np.any(np.abs(value)>self.arm.tolerance):raise ValueError('Tool drifted after arrival')
+                if self.last_sample is not None and stamp>self.last_sample:
+                    if (stamp-self.last_sample>self.arm.max_age or
+                            np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
+                        raise ValueError('Tool is no longer settled')
+            return value,stamp
+        except (ValueError,TypeError,KeyError):
+            self.abort('feedback_invalid');return None
+
+    def update(self,snapshot,now,*,ready,cancelled=False):
+        sample=self._read(snapshot,now,ready,cancelled)
+        if sample is None:return self._receipt()
+        value,stamp=sample
+        self.last_value=value.copy();self.last_sample=stamp
+        if self.stage=='inserting':
+            r=self.arm.update(value,stamp,now,ready=ready,cancelled=cancelled)
+            if r['stop_required']:return self.abort(r['status'])
+            if r['arrived']:self.stage='ready_to_close';self.arrival_sample=stamp
+        elif self.stage=='closing':
+            try:
+                arm=snapshot['arms']['right']
+                r=self.gripper.update([arm['gripper']],arm['received'],now,ready=ready,cancelled=cancelled)
+            except (KeyError,TypeError,ValueError):return self.abort('gripper_feedback_invalid')
+            if r['stop_required']:return self.abort(r['status'])
+            if r['arrived']:self.stage='awaiting_hold_verification'
+        return self._receipt()
+
+    def start_closing(self,snapshot,now,*,ready,cancelled=False):
+        if self.failure:return self._receipt()
+        if self.stage!='ready_to_close':return self.update(snapshot,now,ready=ready,cancelled=cancelled)
+        sample=self._read(snapshot,now,ready,cancelled)
+        if sample is None:return self._receipt()
+        value,stamp=sample
+        if stamp<=self.arrival_sample:return self._receipt()
+        self.last_value=value.copy();self.last_sample=stamp
+        self.gripper=ArrivalMonitor([self.gripper_target],started_at=now,**self.gripper_policy)
+        self.stage='closing'
+        return self._receipt(close=True)
