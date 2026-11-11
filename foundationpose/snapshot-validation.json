@@ -1,0 +1,34 @@
+{
+  "status": "complete",
+  "mask_pixels": 3149,
+  "registration_s": 2.7472928500001217,
+  "total_s": 10.973934036000173,
+  "peak_allocated_mib": 2942.865234375,
+  "T_camera_from_object": [
+    [
+      0.6083944439888,
+      -0.23902954161167145,
+      0.7567834258079529,
+      -0.448885440826416
+    ],
+    [
+      -0.7698156237602234,
+      -0.4096040427684784,
+      0.48949816823005676,
+      0.1190667673945427
+    ],
+    [
+      0.19297710061073303,
+      -0.8803915977478027,
+      -0.43320944905281067,
+      0.8021292686462402
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "test": "Official mustard RGB-D, automatic GrabCut mask, real GPU inference and projected mesh contour; no live camera or robot command"
+}

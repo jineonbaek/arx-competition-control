@@ -56,6 +56,17 @@ FoundationPose 需要相匹配的 CAD、彩色图、对齐彩色的深度图、�
 
     bash run-demo.sh --scene /绝对路径/电池序列 --mesh runtime/battery/battery-m.obj --frames 1
 
-结果 T_camera_from_object 把 CAD 中的米制点转换到相机光学坐标（X 右、Y 下、Z 前）。接入机器人时，还要使用拍照时的手眼外参与真实腕位，转换到 base_link。当前安装尚未提供 9983 窗口或电池实拍测试，也未生成或执行机械臂动作。
+结果 T_camera_from_object 把 CAD 中的米制点转换到相机光学坐标（X 右、Y 下、Z 前）。接入机器人时，还要使用拍照时的手眼外参与真实腕位，转换到 base_link。9983 的 D405 相机卡片现已提供 FoundationPose 位姿验证二级页面（集成源码在 main 的 web/ 下），尚未验收电池实拍精度，也未生成或执行机械臂动作。
 
 当前可先继续用既有 D405 提手预览。下一阶段把冻结 RGB-D 与分割遮罩送入此独立环境，检查 CAD 叠加和提手坐标，再讨论运动。
+
+
+## D405 网页验证入口
+
+http://192.168.58.14:9983/foundationpose.html
+
+点击「采集 RGB-D」后，D405 临时开启深度，采集结束恢复原开关。框住完整电池，再点击「估计位姿」，后台运行本目录的 run-snapshot.sh。先用 CPU GrabCut 提取轮廓，再按 D405 内参同步校正 RGB-D 与轮廓畸变，调用 FoundationPose，并把当前电池 CAD 轮廓投回原图。页面显示原图、实际深度、前景轮廓、CAD 叠加、整车 base_link 下的中心位置与姿态。
+
+模型按次加载，进程完成后退出释放显存。关闭页面或「取消计算」可结束当前任务，最长 90 秒后强制停止。打开页面和采集快照都不加载 GPU 模型。web 服务不导入 torch，只通过子进程使用本独立环境。每次推理的 NPZ 与结果保存在主工作区 web/hardware/runtime/foundationpose/，与提手示教数据隔离。
+
+电池 STL 默认读取本工作树 web/cad/gripper-v2/battery-print.stl，按 0.001 转成米；结果包含 mesh_sha256，便于核对。UI 的物体坐标显示 CAD 包围盒中心；T_base_from_object 的原点仍是 CAD 原点，二者不能混用。CAD 叠加效果和遮罩必须通过实拍核验后，才适合做抓取目标计算。
