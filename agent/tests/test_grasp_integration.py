@@ -109,6 +109,54 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(result['pose']['overlay'],'diagnostic-image')
             self.assertFalse(result['executable'])
 
+    def test_head_handoff_is_bound_to_evidence_and_gates_geometry(self):
+        import hashlib
+        from PIL import Image
+        from agent.grasp_geometry import ROOT
+        from agent.grasp_pipeline import head_evidence
+        f=frame();f['camera_id']=np.array('d435');f['id']=np.array('b'*32)
+        blob=io.BytesIO();np.savez(blob,**f)
+        head=save_frame(self.store,blob.getvalue(),source='test',camera='d435')
+        hid=head['observation_id']
+        folder=self.store.path/'head';folder.mkdir()
+        Image.fromarray(np.full((20,30),255,np.uint8)).save(folder/'mask.png')
+        receipt=dict(observation_id=hid,camera='d435',status='localized',
+            recognition={'status':'perception_accepted'})
+        (folder/'result.json').write_text(json.dumps(receipt))
+        self.store.state['battery_observations']={hid:'head/result.json'}
+        output=self.store.path/'handoff';output.mkdir()
+        expected=head_evidence(self.store,hid,output)
+        def segment_fixture(store,ident,output,cancelled):
+            Image.fromarray(np.full((20,30),255,np.uint8)).save(output/'mask.png')
+            return dict(status='perception_accepted',bbox_xyxy=[0,0,30,20])
+        report=pose();report['quality']=dict(version=1,status='consistent')
+        report['mesh_sha256']=hashlib.sha256((ROOT/'web/cad/gripper-v2/battery-print.stl').read_bytes()).hexdigest()
+        match=dict(head_snapshot_id=expected['snapshot_id'],head_scene_sha256=expected['scene_sha256'],
+            head_mask_sha256=expected['mask_sha256'],quality=dict(version=1,status='consistent'))
+        for handoff in (None,{**match,'head_snapshot_id':'wrong'},
+                {**match,'head_scene_sha256':'wrong'},{**match,'head_mask_sha256':'wrong'},
+                {**match,'quality':dict(version=1,status='rejected')},
+                {**match,'quality':dict(version=2,status='consistent')},match):
+            report['camera_handoff']=handoff
+            with patch('agent.grasp_pipeline.segment',side_effect=segment_fixture),patch(
+                    'agent.grasp_pipeline.estimate',return_value=report) as estimate:
+                if handoff is None or any(handoff[k]!=match[k] for k in ('head_snapshot_id','head_scene_sha256','head_mask_sha256')):
+                    with self.assertRaisesRegex(ValueError,'Cross-camera receipt'):
+                        pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
+                    continue
+                result=pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
+                good=handoff['quality']==match['quality']
+                self.assertEqual(result['status'],'preview_complete' if good else 'handoff_rejected')
+                self.assertEqual('geometry' in result,good)
+                self.assertFalse(result['executable'])
+                self.assertEqual(result['camera_handoff']['head_observation_id'],hid)
+                self.assertEqual(estimate.call_args.kwargs['head'],expected)
+        receipt['status']='recognition_rejected';(folder/'result.json').write_text(json.dumps(receipt))
+        with patch('agent.grasp_pipeline.estimate') as estimate:
+            with self.assertRaisesRegex(ValueError,'Head target'):
+                pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
+            estimate.assert_not_called()
+
     def test_worker_timeout_and_cancel_leave_no_child(self):
         with self.assertRaises(AgentError) as e:
             run_worker([sys.executable,"-c","import time; time.sleep(30)"],self.store.path,self.store.path/"timeout.log",lambda:False,.15)

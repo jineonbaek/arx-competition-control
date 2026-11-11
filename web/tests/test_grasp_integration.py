@@ -41,13 +41,18 @@ class PreviewChatTests(unittest.TestCase):
             p=pose();p['quality']={'version':1,'status':'consistent'}
             import hashlib
             p['mesh_sha256']=hashlib.sha256((ROOT/'web/cad/gripper-v2/battery-print.stl').read_bytes()).hexdigest()
+            def estimate(store,ident,recognition,output,cancelled,head=None):
+                self.assertIsNotNone(head)
+                return {**p,'camera_handoff':dict(head_snapshot_id=head['snapshot_id'],
+                    head_scene_sha256=head['scene_sha256'],head_mask_sha256=head['mask_sha256'],
+                    quality={'version':1,'status':'consistent'},identity_confirmed=False)}
             client=str(uuid.uuid4());state=chat.snapshot(client)
             payload={'action':'send','conversation_id':state['conversation_id'],'request_id':str(uuid.uuid4()),'message':'从 D435 开始生成抓取流程预览，预抓 50 mm。'}
             with patch.dict('os.environ',{'QWEN_BASE_URL':'https://example.invalid/v1','DASHSCOPE_API_KEY':'fixture'}),patch(
                 'agent.observations.ConsoleObservations.robot_state',return_value={'available':True}),patch(
                 'agent.battery_observation.capture',side_effect=capture) as cap,patch(
                 'agent.battery_observation.segment',side_effect=recognize) as rec,patch(
-                'agent.grasp_pipeline.segment') as repeated,patch('agent.grasp_pipeline.estimate',return_value=p):
+                'agent.grasp_pipeline.segment') as repeated,patch('agent.grasp_pipeline.estimate',side_effect=estimate):
                 chat.handle(client,payload);chat.handle(client,payload)
                 end=time.monotonic()+5
                 while chat.snapshot(client)['busy'] and time.monotonic()<end:time.sleep(.01)

@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 ROOT=Path(__file__).resolve().parent
+sys.path.insert(0,str(ROOT.parent))
 
 
 def image_url(rgb):
@@ -53,13 +54,18 @@ def main():
     parser.add_argument("--mask",type=Path,help="Reviewed mask in raw image pixels; skip GrabCut")
     parser.add_argument("--mesh",type=Path,default=ROOT.parent/"web/cad/gripper-v2/battery-print.stl")
     parser.add_argument("--mesh-scale",type=float,default=.001)
+    parser.add_argument('--head-frame',type=Path)
+    parser.add_argument('--head-mask',type=Path)
+    parser.add_argument('--head-id')
     args=parser.parse_args()
+    if any((args.head_frame,args.head_mask,args.head_id)) and not all((args.head_frame,args.head_mask,args.head_id)):
+        parser.error('Head frame, mask and ID are required together')
     if not np.isfinite(args.mesh_scale) or args.mesh_scale<=0:parser.error("Invalid mesh scale")
     started=time.perf_counter()
     with np.load(args.frame,allow_pickle=False) as f:
         if str(f["id"])!=args.id:raise ValueError("快照已更新")
         rgb=f["rgb"];depth=f["raw_depth"].astype(np.float32)*float(f["scale"])
-        k=json.loads(str(f["intrinsics"]));base=f["base_from_color"]
+        k=json.loads(str(f["intrinsics"]));base=f["base_from_color"];image_time=float(f["image_time"])
     if rgb.shape[:2]!=depth.shape or not np.isfinite(base).all():raise ValueError("Invalid RGB-D geometry")
     supplied=cv2.imread(str(args.mask),cv2.IMREAD_GRAYSCALE) if args.mask else None
     if args.mask and supplied is None:raise ValueError("Cannot read recognition mask")
@@ -69,19 +75,9 @@ def main():
     mask_vis[mask]=(mask_vis[mask]*.6+np.array([0,210,255])*.4).astype(np.uint8)
     sys.path.insert(0,"/home/arx/arx-competition-control/vision/vendor-python")
     import pyrealsense2 as rs
-    intr=rs.intrinsics()
-    intr.width,intr.height=k["width"],k["height"]
-    intr.fx,intr.fy,intr.ppx,intr.ppy=k["fx"],k["fy"],k["cx"],k["cy"]
-    intr.model=getattr(rs.distortion,k["model"].split(".")[-1]);intr.coeffs=k["coeffs"]
+    from foundationpose.camera_geometry import rectify, cross_camera_fit
+    color,z,fg,K,maps,intr=rectify(rgb,depth,mask,k,rs)
     h,w=depth.shape
-    # The network renders a pinhole camera. Rectify RGB, aligned depth and mask together.
-    rays=[rs.rs2_project_point_to_pixel(intr,[(x-k["cx"])/k["fx"],(y-k["cy"])/k["fy"],1.])
-          for y in range(h) for x in range(w)]
-    maps=np.asarray(rays,np.float32).reshape(h,w,2)
-    color=cv2.remap(rgb,maps[...,0],maps[...,1],cv2.INTER_LINEAR)
-    z=cv2.remap(depth,maps[...,0],maps[...,1],cv2.INTER_NEAREST)
-    fg=cv2.remap(mask.astype(np.uint8),maps[...,0],maps[...,1],cv2.INTER_NEAREST).astype(bool)
-    K=np.array([[k["fx"],0,k["cx"]],[0,k["fy"],k["cy"]],[0,0,1]],float)
     from estimater import FoundationPose,ScorePredictor,PoseRefinePredictor,dr,trimesh,nvdiffrast_render
     from scipy.spatial.transform import Rotation
     import torch
@@ -139,6 +135,21 @@ def main():
         if source_hash==profile["mesh_sha256"]["battery-print.stl"] and np.isclose(args.mesh_scale,.001):
             from battery_grip import draw_reference
             grip=draw_reference(profile,transform,pose,project,vis)
+    handoff=None
+    if args.head_frame:
+        head_mask=cv2.imread(str(args.head_mask),cv2.IMREAD_GRAYSCALE)
+        if head_mask is None:raise ValueError('Cannot read frozen head mask')
+        def render_head(K,H,W,T):
+            _,d,_=nvdiffrast_render(K=K,H=H,W=W,mesh=mesh,
+                ob_in_cams=torch.as_tensor(T[None],dtype=torch.float32,device='cuda'),glctx=est.glctx)
+            return d[0].detach().cpu().numpy()
+        with np.load(args.head_frame,allow_pickle=False) as head:
+            if str(head['id'])!=args.head_id:raise ValueError('Head snapshot mismatch')
+            if float(head['image_time'])>image_time:
+                raise ValueError('Head evidence must precede wrist evidence')
+            handoff=cross_camera_fit(head,head_mask,transform,rs,render_head)
+        handoff['head_scene_sha256']=hashlib.sha256(args.head_frame.read_bytes()).hexdigest()
+        handoff['head_mask_sha256']=hashlib.sha256(args.head_mask.read_bytes()).hexdigest()
     report=dict(id=args.id,roi=args.roi,status="complete",frame="base_link",translation_unit="mm",
         T_camera_from_object=pose.tolist(),T_base_from_object=transform.tolist(),
         center_base_mm=(center_base*1000).tolist(),center_camera_mm=(center_cam*1000).tolist(),
@@ -146,7 +157,7 @@ def main():
         model_size_mm=(mesh.extents*1000).tolist(),mask_pixels=int(mask.sum()),
         mesh_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),registration_s=seconds,
         total_s=time.perf_counter()-started,peak_allocated_mib=torch.cuda.max_memory_allocated()/2**20,
-        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,quality=quality,
+        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,quality=quality,camera_handoff=handoff,
         message="仅位姿预览；请核对轮廓和 CAD 叠加，未生成运动指令")
     args.output.write_text(json.dumps(report,allow_nan=False))
     print("result",str(args.output),flush=True)

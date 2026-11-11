@@ -10,6 +10,7 @@ from .coarse_alignment import plan as plan_coarse
 PREVIEW_TOOLS={"get_system_status","observe_scene","read_observation","capture_grasp_scene","preview_battery_grasp","observe_battery","plan_coarse_alignment"}
 
 class GraspTools(ToolRegistry):
+    require_head_evidence=False
     schemas={k:v for k,v in ToolRegistry.schemas.items() if k in PREVIEW_TOOLS}
     schemas.update(plan_coarse_alignment=object_schema({"observation_id":TEXT},["observation_id"]),
         observe_battery=object_schema({"camera":{"type":"string","enum":["d435","d405"]}},["camera"]),
@@ -17,7 +18,7 @@ class GraspTools(ToolRegistry):
         preview_battery_grasp=object_schema({"observation_id":TEXT,
             "clearance_mm":{"type":"number","minimum":1,"maximum":200}},["observation_id","clearance_mm"]))
     descriptions={k:v for k,v in ToolRegistry.descriptions.items() if k in PREVIEW_TOOLS}
-    descriptions.update(plan_coarse_alignment="Use this run's localized D435 evidence and CAD neutral wrist height to propose lift with a 100 mm upward arm reach preference. Surface is not grip center; proposal is non-executable and reports unchecked sweep and observation pose. TCP remains empty. No movement.",
+    descriptions.update(plan_coarse_alignment="Use this run's localized D435 evidence and CAD neutral wrist height to propose lift with a 100 mm upward arm reach preference. Surface is not grip center; proposal is non-executable and reports nominal dual-arm column sweep and observer IK/view checks, with environment clearance still unverified. TCP remains empty. No movement.",
         observe_battery="Freeze selected RGB-D camera, recognize one shape-defined battery and estimate its visible surface in base_link. D435 is coarse CAD localization; D405 is wrist-calibrated. Surface point is not a grip point. Returns explicit not-found/rejection and evidence ID. No robot motion.",
         capture_grasp_scene="Freeze paired D405 RGB-D and snapshot-time base_link transform using the existing owner. Temporary depth lease; no robot motion.",
         preview_battery_grasp="On one frozen D405 scene: reviewed battery recognition, FoundationPose, cloud evidence and +X constant-YZ contact-point path. TCP pending; no wrist targets or commands.")
@@ -32,11 +33,12 @@ class GraspTools(ToolRegistry):
             if name=="capture_grasp_scene":return grasp_scene.capture(self)
             if name=="preview_battery_grasp":
                 result=pipeline(self.store,a["observation_id"],a["clearance_mm"],
-                    self.store.path/"previews"/call_id,self.progress)
+                    self.store.path/"previews"/call_id,self.progress,
+                    head_observation_id=self._localized('d435') if self.require_head_evidence else None)
                 self.store.state["grasp_preview"]=str(Path("previews")/call_id/"result.json")
                 return {"observation_id":a["observation_id"],"status":result["status"],"message":result["message"],
                     "tcp_status":"pending","executable":False,"result_file":self.store.state["grasp_preview"],
-                    "quality":result.get("quality"),"depth":result.get("geometry",{}).get("depth"),"path":result.get("geometry",{}).get("path")}
+                    "quality":result.get("quality"),"camera_handoff":result.get("camera_handoff"),"depth":result.get("geometry",{}).get("depth"),"path":result.get("geometry",{}).get("path")}
             return super()._dispatch(name,a,call_id)
         except AgentError:raise
         except (OSError,ValueError,KeyError) as e:
@@ -47,6 +49,7 @@ WORKFLOW_TOOLS={'get_system_status','read_observation','observe_battery','plan_c
 
 class WorkflowTools(GraspTools):
     """Enforce prerequisite evidence even if the model asks for stages out of order."""
+    require_head_evidence=True
     def _localized(self,camera):
         import json
         ident=self.store.state.get('latest_battery_observations',{}).get(camera)

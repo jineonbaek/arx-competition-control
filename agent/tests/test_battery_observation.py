@@ -142,6 +142,21 @@ class WorkflowGateTests(unittest.TestCase):
         self.assertNotIn('grasp_preview',self.store.state)
         self.assertFalse(self.store.state['latest_battery_observations'])
 
+    def test_workflow_passes_latest_head_evidence_to_fine_preview(self):
+        self.store.state['latest_battery_observations']={'d435':'head','d405':'wrist'}
+        self.store.state['battery_observations']={}
+        for camera,ident in self.store.state['latest_battery_observations'].items():
+            path=self.store.path/(ident+'.json')
+            path.write_text(json.dumps(dict(observation_id=ident,camera=camera,status='localized')))
+            self.store.state['battery_observations'][ident]=path.name
+        result=dict(status='handoff_rejected',message='mismatch',camera_handoff={'identity_confirmed':False})
+        with patch('agent.grasp_tools.pipeline',return_value=result) as pipeline:
+            out=self.tools.execute('preview_battery_grasp',{'observation_id':'wrist','clearance_mm':50},'fine')
+        self.assertTrue(out['ok'])
+        self.assertEqual(pipeline.call_args.kwargs['head_observation_id'],'head')
+        self.assertEqual(out['data']['camera_handoff'],result['camera_handoff'])
+        self.assertFalse(out['data']['executable'])
+
     def test_depth_failure_preserves_recognition_reason_and_never_localizes(self):
         obs=self.save_head()
         def accepted(store,ident,output,cancelled):

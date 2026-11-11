@@ -73,7 +73,7 @@ def segment(store,ident,output,cancelled):
             break
     return result
 
-def estimate(store,ident,recognition,output,cancelled):
+def estimate(store,ident,recognition,output,cancelled,head=None):
     if store.observation(ident).get("camera_id","d405")!="d405":
         raise ValueError("Fine grasp estimation requires a D405 observation")
     frame=frame_path(store,ident)
@@ -83,6 +83,8 @@ def estimate(store,ident,recognition,output,cancelled):
         str(FP/".venv/bin/python"),str(ROOT/"foundationpose/infer_snapshot.py"),
         "--frame",str(frame),"--id",source_id,"--roi",*map(str,recognition["bbox_xyxy"]),
         "--mask",str(output/"mask.png"),"--output",str(result)]
+    if head:
+        command += ['--head-frame',head['frame'],'--head-mask',head['mask'],'--head-id',head['snapshot_id']]
     code=run_worker(command,FP,output/"pose.log",cancelled,120)
     if code:raise AgentError("pose_failed","FoundationPose 失败；请检查本次 pose.log")
     report=json.loads(result.read_text())
@@ -90,10 +92,33 @@ def estimate(store,ident,recognition,output,cancelled):
         raise ValueError("Pose receipt does not match recognition")
     return report
 
-def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
+def head_evidence(store,ident,output):
+    observation=store.observation(ident)
+    if observation.get('camera_id')!='d435':raise ValueError('Handoff requires D435 evidence')
+    relative=store.state.get('battery_observations',{}).get(ident)
+    if not relative:raise ValueError('Missing head recognition receipt')
+    path=(store.path/relative).resolve()
+    if not path.is_relative_to(store.path.resolve()):raise ValueError('Invalid head evidence path')
+    receipt=json.loads(path.read_text())
+    if (receipt.get('observation_id')!=ident or receipt.get('camera')!='d435'
+            or receipt.get('status')!='localized'
+            or receipt.get('recognition',{}).get('status')!='perception_accepted'):
+        raise ValueError('Head target has not been localized')
+    archive=frame_path(store,ident)
+    mask_path=path.parent/'mask.png'
+    if not mask_path.resolve().is_relative_to(store.path.resolve()):raise ValueError('Invalid head mask path')
+    mask_blob=mask_path.read_bytes()
+    frozen=output/'head-mask.png';frozen.write_bytes(mask_blob)
+    return dict(observation_id=ident,frame=str(archive),mask=str(frozen),
+        snapshot_id=observation['source_snapshot'],scene_sha256=observation['scene_sha256'],
+        mask_sha256=hashlib.sha256(mask_blob).hexdigest())
+
+
+def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None,*,head_observation_id=None):
     output.mkdir(parents=True,exist_ok=True)
     cancelled=lambda:store.cancelled
     frame=frame_path(store,ident)
+    head=head_evidence(store,head_observation_id,output) if head_observation_id else None
     with gpu_slot():
         progress("recognition")
         relative=store.state.get('battery_observations',{}).get(ident)
@@ -112,7 +137,7 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
             result.update(status="recognition_rejected",message="识别未通过复核，本次没有估计位姿或生成路径。")
         else:
             progress("foundationpose")
-            pose=estimate(store,ident,recognition,output,cancelled)
+            pose=estimate(store,ident,recognition,output,cancelled,head=head)
             mesh=ROOT/"web/cad/gripper-v2/battery-print.stl"
             if pose.get("mesh_sha256")!=hashlib.sha256(mesh.read_bytes()).hexdigest():
                 raise ValueError("Pose CAD mismatch")
@@ -122,12 +147,24 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
             result.update(pose=pose,quality=quality)
             if not isinstance(quality,dict) or quality.get('version')!=1 or quality.get('status')!='consistent':
                 result.update(status='pose_rejected',message='CAD 位姿与深度表面核对未通过；保留识别和位姿叠加，不生成抓取线段。')
+            elif head and (not isinstance(pose.get('camera_handoff'),dict)
+                    or pose['camera_handoff'].get('head_snapshot_id')!=head['snapshot_id']
+                    or pose['camera_handoff'].get('head_scene_sha256')!=head['scene_sha256']
+                    or pose['camera_handoff'].get('head_mask_sha256')!=head['mask_sha256']):
+                raise ValueError('Cross-camera receipt does not match frozen head evidence')
+            elif head and (pose['camera_handoff'].get('quality',{}).get('version')!=1
+                    or pose['camera_handoff'].get('quality',{}).get('status')!='consistent'):
+                result.update(status='handoff_rejected',camera_handoff=pose['camera_handoff'],
+                    message='D405 位姿投回 D435 后与原目标不一致或证据不足；未生成抓取线段。')
             else:
                 progress("pointcloud_path")
                 with np.load(frame,allow_pickle=False) as f:
                     geometry=preview_geometry(f,np.asarray(Image.open(output/"mask.png").convert("L")),pose,clearance_mm)
                 result.update(status="preview_complete",geometry=geometry,
                     message="识别、位姿表面核对、点云与接触点路径已串联；等待 TCP 与运动验证。")
+        if head and result.get('pose',{}).get('camera_handoff'):
+            result['camera_handoff']={**pose['camera_handoff'],'head_observation_id':head['observation_id'],
+                'wrist_observation_id':ident}
         if cancelled():raise AgentError("cancelled","预览已取消")
         atomic_json(output/"result.json",result)
         progress(result["status"])

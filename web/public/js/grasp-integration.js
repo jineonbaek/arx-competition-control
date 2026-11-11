@@ -2,7 +2,7 @@ import * as THREE from '../vendor/lift2-preview/three.module.js';
 import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 const el=id=>document.getElementById(id);
 let state=null,shown=null,geometry=null,submitting=false;
-const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过',pose_rejected:'位姿与深度表面不一致'};
+const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过',pose_rejected:'位姿与深度表面不一致',handoff_rejected:'两台相机的目标几何未对应'};
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.005,5);camera.up.set(0,0,1);
 let renderer,orbit;const objects=new THREE.Group();scene.add(objects);
 function render(){renderer?.render(scene,camera);}
@@ -39,7 +39,9 @@ function show(data){
  image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
  const fit=data.quality;
- const fitText=fit?'CAD 深度表面核对：'+({consistent:'一致',rejected:'需复核',insufficient_depth:'有效深度不足'}[fit.status]||fit.status)+'；中位偏差 '+(fit.median_abs_depth_mm?.toFixed(1)??'无')+' mm，P90 '+(fit.p90_abs_depth_mm?.toFixed(1)??'无')+' mm；轮廓覆盖 '+(100*fit.mask_coverage).toFixed(1)+'%。仅为一致性筛查，尚未验证实物精度。':'';
+ let fitText=fit?'CAD 深度表面核对：'+({consistent:'一致',rejected:'需复核',insufficient_depth:'有效深度不足'}[fit.status]||fit.status)+'；中位偏差 '+(fit.median_abs_depth_mm?.toFixed(1)??'无')+' mm，P90 '+(fit.p90_abs_depth_mm?.toFixed(1)??'无')+' mm；轮廓覆盖 '+(100*fit.mask_coverage).toFixed(1)+'%。仅为一致性筛查，尚未验证实物精度。':'';
+ const handoff=data.camera_handoff;
+ if(handoff){const h=handoff.quality;fitText+=' D435→D405 接管核对：'+(h?.status==='consistent'?'几何一致':'未通过')+'；头部深度中位偏差 '+(h?.median_abs_depth_mm?.toFixed(1)??'无')+' mm，P90 '+(h?.p90_abs_depth_mm?.toFixed(1)??'无')+' mm。'+handoff.note;}
  el('quality').textContent=fitText;
  if(!data.geometry)return;
  geometry=data.geometry;cloud(geometry);
