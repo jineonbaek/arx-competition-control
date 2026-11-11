@@ -61,14 +61,19 @@ def atomic_json(path, value):
 
 
 class GraspPreview:
-    def __init__(self, controller, depth):
+    def __init__(self, controller, depth, cache=None):
+        self._cache=Path(cache) if cache is not None else None
         self.ctrl=controller
         self.depth=depth
         self.model=None
         self.lock=threading.Lock()
 
+    @property
+    def cache(self):
+        return self._cache if self._cache is not None else CACHE
+
     def latest(self):
-        path=CACHE/'view.json'
+        path=self.cache/'view.json'
         view = json.loads(path.read_text()) if path.exists() else {}
         # A legacy capture has no exposure-time lift value for a base_link conversion.
         return view if view.get("base_from_color") and view.get("frame_id") == "base_link" else {"id": None}
@@ -77,7 +82,7 @@ class GraspPreview:
         if not isinstance(data,dict):raise ValueError('无效预览请求')
         if not self.lock.acquire(blocking=False):raise ValueError('已有采集正在运行')
         try:
-            CACHE.mkdir(parents=True,exist_ok=True)
+            self.cache.mkdir(parents=True,exist_ok=True)
             if data.get('op')=='capture':return self.capture()
             raise ValueError('未知预览操作')
         finally:self.lock.release()
@@ -99,7 +104,7 @@ class GraspPreview:
         G=self.model.wrist_transform(q,height)
         T=G@np.asarray(cal['T_right_link26_from_D405_color'])
         ident=uuid.uuid4().hex
-        tmp=CACHE/'frame.tmp.npz'
+        tmp=self.cache/'frame.tmp.npz'
         np.savez_compressed(tmp,id=ident,xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
                             intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
                             image_time=meta['captured_at'])
@@ -109,8 +114,8 @@ class GraspPreview:
         view=dict(id=ident,frame_id='base_link',base_from_color=T.tolist(),time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
                   image='data:image/jpeg;base64,'+base64.b64encode(jpeg).decode(),result=None,
                   paired_ms=round(abs(arm_time-meta['captured_at'])*1000),roi=None)
-        os.replace(tmp,CACHE/'frame.npz')
-        atomic_json(CACHE/'view.json',view)
+        os.replace(tmp,self.cache/'frame.npz')
+        atomic_json(self.cache/'view.json',view)
         return view
 
     def read_pair(self):
@@ -159,7 +164,7 @@ class GraspPreview:
         if data.get("op") not in ("plan","teach"):
             raise ValueError("仅支持深度预览与示教记录")
         with self.lock:
-            with np.load(CACHE/"frame.npz",allow_pickle=False) as f:
+            with np.load(self.cache/"frame.npz",allow_pickle=False) as f:
                 if str(f["id"]) != data.get("id") or "base_from_color" not in f:
                     raise ValueError("快照已更新，请重新读取并框选")
                 xyz=f["xyz"]
@@ -176,7 +181,7 @@ class GraspPreview:
                 line.update(pixels=pixels,roi=roi,id=data["id"])
                 height=float(f["lift_rad"])
                 captured=float(f["image_time"])
-            profile=CACHE.parent/"handle-teach-right.json"
+            profile=self.cache.parent/"handle-teach-right.json"
             if data["op"]=="teach":
                 if data.get("confirmed") is not True or not 0 <= time.time()-captured <= 900:
                     raise ValueError("请用本次示教前的新快照并确认电池、平台与底盘位置")

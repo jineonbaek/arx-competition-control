@@ -17,6 +17,7 @@ from control import Controller, Rejected
 from handeye_steps import Steps
 from grasp_preview import GraspPreview
 from vision_preview import VisionPreview
+from foundationpose_preview import FoundationPosePreview
 from d435_cad import preview as d435_cad_preview
 from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
@@ -26,11 +27,12 @@ WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None):
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     vision = vision or VisionPreview()
+    foundation = foundation or FoundationPosePreview(controller,depth_control)
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -102,6 +104,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
                 finally:
                     self.close_connection=True
                 return
+            if path == "/api/foundationpose":
+                if not self.client():return self.json(403, {"message":"请先打开位姿验证页"})
+                return self.json(200,foundation.snapshot())
             if path == "/api/handle-preview":
                 if not self.client():return self.json(403, {"message":"请先打开提手预览页"})
                 return self.json(200, grasps.handle_view())
@@ -145,14 +150,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/handle.html", "/vision.html") and not self.client():
+            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision'):
+            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -167,6 +172,8 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
                 raw = self.rfile.read(length)
                 if path == '/api/vision':
                     return self.json(200, vision.action(self.client(), strict_json(raw)))
+                if path == '/api/foundationpose':
+                    return self.json(200,foundation.action(self.client(),strict_json(raw)))
                 if path == '/api/handle-preview':
                     return self.json(200, grasps.handle_action(strict_json(raw)))
                 if path == '/api/handeye':
@@ -208,7 +215,8 @@ def main():
     controller = Controller(config, adapter)
     arxgent = ArxgentChat.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision))
+    foundation = FoundationPosePreview(controller,DepthControl())
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision, foundation=foundation))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -223,6 +231,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        foundation.close()
         vision.close()
         arxgent.close()
         adapter.close()
