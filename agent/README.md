@@ -108,3 +108,26 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s agent/tests -v
 ```
 
 测试包含严格参数、缺失能力、幂等回执、未知执行恢复、抓取与持物分离、3秒放置验证、HTTP相机与模型流、取消/预算/图片回传。完整比赛链使用明确标注的测试替身；通过不意味着机器人通过实机任务。
+
+
+### Coarse execution integration (source only)
+
+`BatteryExecutionTools` reuses the existing Agent tool validation, durable pending
+request and receipt-query handling. Its sequence is D435 observation -> nominal
+coarse plan -> `execute_coarse_alignment` -> `get_execution_status` -> a newly
+captured D405 observation -> pose/cloud/path preview. An unchanged pre-motion
+D405 image cannot satisfy the post-action evidence barrier.
+
+`CoarseExecutionBackend` runs the checked `CoarseAlignmentStep` independently of
+model polling, using the same journal, duplicate protection, cancellation and
+deadline loop as pick execution. Completion means lift/observer settling and a
+requirement to observe again; it does not mean the battery is seen or held.
+Failures retain pending recovery and per-axis unverified stop receipts.
+
+This registry is **not selected by the 9983 service**. It requires an explicitly
+injected local backend plus `motion_enabled`. The current `plan_coarse_alignment`
+output remains non-executable because full environment/self-collision validation
+and production execution preparation are not implemented. It is rejected by the
+execution tool even when motion is enabled. TCP remains unset; no wrist grasp
+execution permission is inferred from coarse alignment. These software-only tests
+use synthetic plans/feedback and do not establish physical performance.

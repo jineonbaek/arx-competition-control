@@ -5,6 +5,7 @@ from .contracts import AgentError
 
 # operation: (allowed source stages, next stage, sends physical commands)
 OPERATIONS = {
+    "execute_coarse_alignment": (("COARSE_PLANNED",), "COARSE_ALIGNED", True),
     "generate_grasp_candidates": (("TARGET_IDENTIFIED", "GRASP_CANDIDATE_READY", "PICK_PLANNED"), "GRASP_CANDIDATE_READY", False),
     "plan_pick": (("GRASP_CANDIDATE_READY", "PICK_PLANNED"), "PICK_PLANNED", False),
     "execute_pick": (("PICK_PLANNED",), "PICK_EXECUTED", True),
@@ -34,7 +35,13 @@ class Mission:
         self.require(OPERATIONS[operation][0])
         if not isinstance(data, dict):
             raise AgentError("invalid_backend_result", "Backend data must be an object")
-        if operation == "generate_grasp_candidates":
+        if operation == "execute_coarse_alignment":
+            height=data.get('achieved_lift_rad')
+            if (data.get('observer_ready') is not True or data.get('new_observation_required') is not True
+                    or type(height) not in (int,float) or not math.isfinite(height) or not 0<=height<=18):
+                raise AgentError('operation_not_confirmed', 'Measured coarse alignment and a new observation are required')
+            self.data['coarse_alignment_receipt']=dict(data)
+        elif operation == "generate_grasp_candidates":
             candidates = data.get("candidates")
             if not isinstance(candidates, list) or not candidates or len(candidates) > 100:
                 raise AgentError("no_grasp_candidate", "No bounded candidate set was returned")
