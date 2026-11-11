@@ -30,7 +30,9 @@ def validate_frame(f):
         if not np.isfinite(float(f[key])):raise ValueError("Invalid paired feedback")
     if max(abs(float(f["image_time"])-float(f[key])) for key in ("arm_time","body_time"))>.20:
         raise ValueError("Unpaired image and robot feedback")
-    valid=(xyz[...,2]>.07)&(xyz[...,2]<1.5)
+    camera=str(f["camera_id"]) if "camera_id" in f else "d405"
+    if camera not in ("d435","d405"):raise ValueError("Unknown geometry camera")
+    valid=(xyz[...,2]>.07)&(xyz[...,2]<(3. if camera=="d435" else 1.5))
     if np.count_nonzero(valid)<100 or not np.allclose(xyz[...,2][valid],raw[valid]*float(f["scale"]),atol=1e-5):
         raise ValueError("Point cloud and raw depth disagree")
     return rigid(f["base_from_color"])

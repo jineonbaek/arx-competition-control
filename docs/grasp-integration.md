@@ -69,3 +69,34 @@ cd /home/arx/arx-grasp-integration
 node --input-type=module --check < web/public/js/grasp-integration.js
 git diff --check
 ```
+
+
+## 2026-11-12: full workflow continuation (not deployed)
+
+The two-tool D405 preview is not the requested complete grasp workflow. The next
+implementation follows the original staged plan: D435 observe/localize, coarse
+lift and observation-pose planning, execute approved plan, D405 reobserve,
+FoundationPose and cloud checks, TCP-based continuous horizontal insertion,
+closure and evidence-based grasp verification. The Agent chooses business-stage
+tools; deterministic code owns geometry, prerequisites and execution receipts.
+
+Implemented in this continuation: camera-specific frozen RGB-D capture, temporary
+D435 depth lease with restoration, immutable D435/D405 archives, and
+`observe_battery(camera)` (recognition plus robust coarse surface localization).
+D435 uses its own CAD extrinsic and a software depth window up to 3 m, not a claim
+of precision at that range. Surface coordinates are not a handle grip pose.
+Ambiguous depth layers and insufficient mask depth are rejected. Archived source
+images/candidate overlays remain available on failed recognition.
+
+User preference: the coarse lift should place the nominal wrist reference about
+100 mm below the battery grip height; the arm then reaches up and forward and
+uses D405 to correct Y/Z before +X insertion. This is a planning preference, not
+a fixed camera offset or direct subtraction from lift actuator radians.
+TCP stays empty until supplied by the user. Old taught offsets are not substituted.
+
+Still required: checked coarse/observation plans, actual Agent orchestration in
+the UI, same-target handoff, model/cloud validation, continuous IK and tool swept
+collision checks, command ownership, feedback execution/cancellation, and grasp
+verification. No new implementation in this continuation has moved hardware,
+restarted drivers or been deployed to 9983. Full acceptance still requires an
+observed successful end-to-end grasp; unit tests alone do not establish that.

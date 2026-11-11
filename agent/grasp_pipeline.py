@@ -1,5 +1,6 @@
 """Serial perception workers over a frozen observation, with bounded cancellation."""
 import base64
+from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
@@ -37,8 +38,18 @@ def run_worker(command,cwd,log,cancelled,timeout):
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid,signal.SIGKILL);child.wait()
 
+@contextmanager
+def gpu_slot():
+    # Shared by integrated recognition and pose; standalone diagnostic pages use their own workers.
+    with Path("/tmp/arx-grasp-integration-gpu.lock").open("a") as handle:
+        try:fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:raise AgentError("gpu_busy","另一项整合任务正在使用模型")
+        yield
+
+
 def segment(store,ident,output,cancelled):
-    image=store.image_path(ident,"d405")
+    camera=store.observation(ident).get("camera_id","d405")
+    image=store.image_path(ident,camera)
     log=output/"recognition.log"
     code=run_worker([str(VISION/".venv/bin/python"),str(VISION/"pipeline.py"),
         "--image",str(image),"--attempts","1"],VISION,log,cancelled,420)
@@ -56,11 +67,15 @@ def segment(store,ident,output,cancelled):
         if len(x)<100:raise ValueError("Empty battery mask")
         result["bbox_xyxy"]=[int(x.min()),int(y.min()),int(x.max()+1),int(y.max()+1)]
         (output/"mask.png").write_bytes((source/"mask.png").read_bytes())
-    if (source/"overlay.png").is_file():
-        result["overlay"]="data:image/png;base64,"+base64.b64encode((source/"overlay.png").read_bytes()).decode()
+    for name in ("overlay.png","candidates.png","rgb.png"):
+        if (source/name).is_file():
+            result["overlay"]="data:image/png;base64,"+base64.b64encode((source/name).read_bytes()).decode()
+            break
     return result
 
 def estimate(store,ident,recognition,output,cancelled):
+    if store.observation(ident).get("camera_id","d405")!="d405":
+        raise ValueError("Fine grasp estimation requires a D405 observation")
     frame=frame_path(store,ident)
     with np.load(frame,allow_pickle=False) as f:source_id=str(f["id"])
     result=output/"pose.json"
@@ -79,11 +94,7 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
     output.mkdir(parents=True,exist_ok=True)
     cancelled=lambda:store.cancelled
     frame=frame_path(store,ident)
-    # Cross-process lock covers this integrated workflow; existing standalone model pages remain independent.
-    lock=Path("/tmp/arx-grasp-integration-gpu.lock")
-    with lock.open("a") as handle:
-        try:fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:raise AgentError("gpu_busy","另一项整合预览正在使用模型")
+    with gpu_slot():
         progress("recognition")
         recognition=segment(store,ident,output,cancelled)
         result=dict(observation_id=ident,recognition=recognition,executable=False,tcp_status="pending")
