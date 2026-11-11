@@ -37,6 +37,11 @@ class Rejected(ValueError):
     pass
 
 
+class _MotionToken:
+    """Process-local capability; never supplied by a browser or serialized."""
+    pass
+
+
 @lru_cache(maxsize=2)
 def arm_model(side):
     return ColumnModel(side=side)
@@ -54,6 +59,8 @@ class Controller:
         self.logs = deque(maxlen=100)
         self.serial = 0
         self.command_epoch = 0
+        self.motion_owner = None
+        self.motion_interrupted = False
         self.models = {}
         for side in self.arms:
             try:
@@ -64,6 +71,46 @@ class Controller:
         self.chassis_deadline = 0
         self.chassis_message = None
         self.base_sequences = {}
+
+    def reserve_motion(self, expected_epoch):
+        """Reserve this controller only; the executor must also verify physical rest."""
+        with self.lock:
+            if (type(expected_epoch) is not int or expected_epoch != self.command_epoch
+                    or not self.config["execution_enabled"]):
+                raise Rejected("控制权申请时指令状态已变化或真实控制未启用")
+            if self.motion_owner is not None or self.chassis_owner is not None:
+                raise Rejected("已有任务或底盘运动占用控制权")
+            self.motion_owner = _MotionToken()
+            self.motion_interrupted = False
+            self.command_epoch += 1
+            return self.motion_owner
+
+    def motion_valid(self, token):
+        with self.lock:
+            return isinstance(token, _MotionToken) and token is self.motion_owner and not self.motion_interrupted
+
+    def release_motion(self, token):
+        """Executor cleanup, after finishing or verifying its stop requests."""
+        with self.lock:
+            if not isinstance(token, _MotionToken) or token is not self.motion_owner:
+                raise Rejected("任务控制权已失效")
+            self.motion_owner = None
+            self.motion_interrupted = False
+            self.command_epoch += 1
+
+    def _check_motion_owner(self, kind, client):
+        # Called under the same lock as dispatch, including after unlocked wrist IK.
+        if isinstance(client, _MotionToken) and client is not self.motion_owner:
+            raise Rejected("旧任务控制权已失效")
+        if self.motion_owner is None:
+            return
+        if kind in ("arm.stop", "lift.stop", "chassis.stop"):
+            if client is not self.motion_owner:
+                self.motion_interrupted = True
+                self.command_epoch += 1
+            return
+        if client is not self.motion_owner or self.motion_interrupted:
+            raise Rejected("自动任务占用控制权或已被人工停止；禁止继续运动")
 
     def log(self, text, level="info"):
         with self.lock:
@@ -184,6 +231,7 @@ class Controller:
         if not vector(xyz, 3) or not vector(rpy, 3) or max(map(abs,rpy)) > 360:
             raise Rejected("腕部位置或姿态角无效")
         with self.lock:
+            self._check_motion_owner("arm.wrist", client)
             reason = self.wrist_reason(side)
             if reason:
                 raise Rejected(reason)
@@ -196,6 +244,7 @@ class Controller:
         except ValueError as error:
             raise Rejected(str(error)) from error
         with self.lock:
+            self._check_motion_owner("arm.wrist", client)
             reason = self.wrist_reason(side)
             if reason:
                 raise Rejected(reason)
@@ -247,6 +296,8 @@ class Controller:
                                "linear": self.config["body"]["max_linear_m_s"],
                                "angular": self.config["body"]["max_angular_rad_s"]},
                     "chassis_active": self.chassis_owner is not None,
+                    "motion_reserved": self.motion_owner is not None,
+                    "motion_interrupted": self.motion_interrupted, "command_epoch": self.command_epoch,
                     "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
                     "logs": list(self.logs)}
 
@@ -286,6 +337,7 @@ class Controller:
         chassis_vector = kind in ("chassis","chassis.nav_sdk") and set(data) == {"type", "x", "y", "omega", "sequence"}
         if not chassis_vector and (kind not in schemas or set(data) != schemas[kind]):
             raise Rejected("指令类型或字段无效")
+        self._check_motion_owner(kind, client)
         if "arm" in data:
             side = data["arm"]
             if side not in self.arms:
@@ -349,7 +401,7 @@ class Controller:
         sequence = data.get("sequence")
         if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= self.base_sequences.get(client, 0):
             raise Rejected("底盘指令序号已过期")
-        if self.chassis_owner and self.chassis_owner != client:
+        if self.chassis_owner and self.chassis_owner != client and kind != "chassis.stop":
             raise Rejected("底盘正在由另一网页控制")
         self.base_sequences[client] = sequence
         if kind == "chassis.stop":
