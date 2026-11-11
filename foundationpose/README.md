@@ -70,3 +70,20 @@ http://192.168.58.14:9983/foundationpose.html
 模型按次加载，进程完成后退出释放显存。关闭页面或「取消计算」可结束当前任务，最长 90 秒后强制停止。打开页面和采集快照都不加载 GPU 模型。web 服务不导入 torch，只通过子进程使用本独立环境。每次推理的 NPZ 与结果保存在主工作区 web/hardware/runtime/foundationpose/，与提手示教数据隔离。
 
 电池 STL 默认读取本工作树 web/cad/gripper-v2/battery-print.stl，按 0.001 转成米；结果包含 mesh_sha256，便于核对。UI 的物体坐标显示 CAD 包围盒中心；T_base_from_object 的原点仍是 CAD 原点，二者不能混用。CAD 叠加效果和遮罩必须通过实拍核验后，才适合做抓取目标计算。
+
+
+## 提手夹持参考与伸入深度
+
+analyze_grip.py 对主工作区电池 STL、两片新版夹指及 URDF 四孔拟合安装关系进行离线测量，写出公开几何 JSON 与 SVG：
+
+    source env.sh
+    python analyze_grip.py --output /home/arx/arx-competition-control/web/public/cad
+    python -m unittest test_battery_grip.py test_snapshot.py
+
+候选按凸起朝下、J6 -90°、两指尖齐平装配。40×14 mm 提手孔中心距前沿 25.5346 mm，取 26 mm 作为指尖候选伸入量；此时越过前端实体桥约 7.4654 mm。G 位于实体桥内部的夹持中点，不在空孔中，也不是腕部原点。
+
+根据用户指出的内侧让位槽核对：槽深约 5 mm，槽宽 38 mm；凸起高约 3.2 mm，宽 32 mm。名义深度间隙约 1.8 mm、左右各约 3 mm。槽中央剖面比两侧端齿后退，不表示下夹指整体较短。图中虚线显示齐平的端齿，金色突出真正的内侧槽底。
+
+battery_grip.py 将固定物体参考点通过本次 FoundationPose 位姿转换为相机和 base_link 坐标，并投回原图；只有模型 SHA256 与测量配置一致时才标点。额外输出凸起朝下与伸入方向相对整车 +X 的偏差，尚不产生运动目标。
+
+检查范围只有名义 CAD 夹紧方向采样及凸起顶点槽内覆盖，不是整机碰撞安全认证。两片夹指 STL 并非 watertight，故使用表面射线而非假定实体包含；不处理机架、无人机、柔性、摩擦、打印/安装容差或实机 TCP。26 mm 是几何候选，实物夹稳后才可验收。

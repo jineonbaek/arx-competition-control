@@ -111,6 +111,14 @@ def main():
     axes=project(np.vstack([center,center+np.eye(3)*.06]))
     for i,c in enumerate([(255,70,70),(70,255,70),(70,140,255)],1):
         cv2.line(vis,tuple(axes[0]),tuple(axes[i]),c,3,cv2.LINE_AA)
+    grip=None
+    profile_path=Path("/home/arx/arx-competition-control/web/public/cad/battery-grip.json")
+    source_hash=hashlib.sha256(source.read_bytes()).hexdigest()
+    if profile_path.is_file():
+        profile=json.loads(profile_path.read_text())
+        if source_hash==profile["mesh_sha256"]["battery-print.stl"] and np.isclose(args.mesh_scale,.001):
+            from battery_grip import draw_reference
+            grip=draw_reference(profile,transform,pose,project,vis)
     report=dict(id=args.id,roi=args.roi,status="complete",frame="base_link",translation_unit="mm",
         T_camera_from_object=pose.tolist(),T_base_from_object=transform.tolist(),
         center_base_mm=(center_base*1000).tolist(),center_camera_mm=(center_cam*1000).tolist(),
@@ -118,7 +126,7 @@ def main():
         model_size_mm=(mesh.extents*1000).tolist(),mask_pixels=int(mask.sum()),
         mesh_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),registration_s=seconds,
         total_s=time.perf_counter()-started,peak_allocated_mib=torch.cuda.max_memory_allocated()/2**20,
-        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,
+        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,
         message="仅位姿预览；请核对轮廓和 CAD 叠加，未生成运动指令")
     args.output.write_text(json.dumps(report,allow_nan=False))
     print("result",str(args.output),flush=True)
