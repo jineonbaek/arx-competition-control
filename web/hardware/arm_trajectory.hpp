@@ -20,6 +20,13 @@ class ArmTrajectory {
   double start_=0,last_tick_=0,last_lease_=0;
 public:
   ArmTrajectory(const ArmLimits& limits,TrajectoryPolicy p):limits_(limits),policy_(p) {
+    if(!std::isfinite(limits.max_delta_deg)||limits.max_delta_deg<=0)
+      throw std::invalid_argument("Invalid tracking limit");
+    for(const auto& range:limits.degrees)
+      if(!std::isfinite(range[0])||!std::isfinite(range[1])||range[0]>=range[1])
+        throw std::invalid_argument("Invalid joint limits");
+    if(!std::isfinite(limits.gripper[0])||!std::isfinite(limits.gripper[1])||limits.gripper[0]>=limits.gripper[1])
+      throw std::invalid_argument("Invalid gripper limits");
     for(double v:{p.speed_deg_s,p.acceleration_deg_s2,p.start_tolerance_deg,p.tracking_tolerance_deg,
                   p.max_tick_gap_s,p.lease_s,p.max_duration_s,p.start_speed_deg_s})
       if(!std::isfinite(v)||v<=0)throw std::invalid_argument("Invalid trajectory policy");

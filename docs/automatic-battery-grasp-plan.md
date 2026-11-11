@@ -235,3 +235,31 @@ Python 规划相同的五次标量曲线取样。显式策略约束关节速度�
 纯 C++ 自检和 Python/C++ 1001 时刻的数值对照均通过；这些测试没有链接
 厂家 SDK 或访问 ROS/CAN。此内核尚无 ROS 下发接入口，不改变现有运行行为，
 也不包含 TCP、碰撞检查或急停硬件功能。
+
+
+### X5 驱动轨迹接入口（源码完成，默认关闭、未部署）
+
+驱动源码现已使用上述内核。只有本机 `arms.<side>.trajectory_policy` 存在并
+完整通过参数检查时，才注册 `/web/<side>/trajectory`（std_msgs/String）。
+配置包含 speed_deg_s、acceleration_deg_s2、start_tolerance_deg、
+tracking_tolerance_deg、max_tick_gap_s、lease_s、max_duration_s、start_speed_deg_s。
+没有填写这些实机参数，现有配置不变；TCP 仍为空。
+
+`/web/<side>/trajectory_status` 给出 driver_instance、command_epoch、enabled、
+request_id、status、reason、ready、manual_joint_active。start 请求必须携带
+刚读取的 driver_instance/command_epoch、唯一 request_id、version=1、
+interpolation=segment_quintic_scalar、time_from_start_s 和 joint_waypoints_rad。
+kind=keepalive 只续租相同 driver_instance/request_id 的运行中轨迹，不启动运动。
+完整时间曲线一次接收，节点用 rad、相对时间用 s，最大 1024 个节点、256 KiB。
+手工指令、停止及故障使 command_epoch 变化，旧 start 请求不能重新启动。
+
+运行时拒绝普通关节、模式及夹爪指令；原 stop 服务始终可打断。停止先清除
+轨迹和旧关节目标，再判断是否有可信反馈，避免反馈失效时漏清目标。健康时
+请求保持实测位置，否则请求阻尼；两者都是软件请求，不能证明已物理停稳。
+控制循环延迟超限、心跳失效或跟踪超差不追赶漏掉的时间，直接终止。
+参考曲线完成后不自动闭合，仍需上层实测停稳和控制权检查。
+
+验证仅包括隔离目录编译、无 SDK/CAN 的 C++ 测试和 Python 数值对照。
+没有运行新驱动、替换主工作区二进制、修改运行配置或发 ROS/CAN 指令。
+上层 Agent/Controller 的轨迹传输适配仍未绑定；driver_supported/executable
+保持 false。运行参数、驱动线程时序、实机跟踪/停车效果和环境碰撞仍未验收。

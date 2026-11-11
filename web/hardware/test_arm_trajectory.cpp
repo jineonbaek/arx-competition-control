@@ -66,5 +66,11 @@ int main(int argc,char** argv){
      assert(t.tick(.01,actual,true).empty());assert(t.reason()=="feedback_invalid");}
     {auto broken=policy;broken.start_speed_deg_s=NAN;bool rejected=false;
      try{ArmTrajectory t(limits,broken);}catch(...){rejected=true;}assert(rejected);}
+    {auto broken=limits;broken.degrees[0][0]=NAN;bool rejected=false;
+     try{ArmTrajectory t(broken,policy);}catch(...){rejected=true;}assert(rejected);}
+    {ArmTrajectory t(limits,policy);t.start(p,std::vector<double>(7,0),std::vector<double>(7,0),0);
+     t.cancel("manual_stop");bool rejected=false;
+     try{t.start(p,std::vector<double>(7,0),std::vector<double>(7,0),1);}catch(...){rejected=true;}
+     assert(rejected&&t.reason()=="manual_stop");}
     std::cout<<"arm trajectory checks passed\n";
 }

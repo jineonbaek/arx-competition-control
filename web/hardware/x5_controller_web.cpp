@@ -1,4 +1,4 @@
-#include "arm_limits.hpp"
+#include "arm_trajectory.hpp"
 #include "arx_x5_src/interfaces/InterfacesThread.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <arx5_arm_msg/msg/robot_status.hpp>
@@ -53,6 +53,15 @@ int main(int argc,char** argv) {
   std::ifstream file(std::string(ROOT)+"/web/config/control.json");
   auto config=nlohmann::json::parse(file).at("arms").at(side);
   ArmLimits limits{config.at("joint_limits_deg").get<decltype(ArmLimits::degrees)>(),config.at("gripper_limits_raw").get<decltype(ArmLimits::gripper)>(),config.at("max_delta_deg").get<double>()};
+  // No trajectory endpoint exists until a separately reviewed execution policy is installed.
+  std::unique_ptr<ArmTrajectory> trajectory;
+  if(config.contains("trajectory_policy")) {
+    const auto& p=config.at("trajectory_policy");
+    trajectory=std::make_unique<ArmTrajectory>(limits,TrajectoryPolicy{
+      p.at("speed_deg_s"),p.at("acceleration_deg_s2"),p.at("start_tolerance_deg"),
+      p.at("tracking_tolerance_deg"),p.at("max_tick_gap_s"),p.at("lease_s"),
+      p.at("max_duration_s"),p.at("start_speed_deg_s")});
+  }
   int lock=open((std::string(ROOT)+"/web/hardware/runtime/"+can+".lock").c_str(),O_CREAT|O_RDWR|O_CLOEXEC,0600);
   if(lock<0 || flock(lock,LOCK_EX|LOCK_NB)!=0) throw std::runtime_error(can+" controller already running");
   ArmCanFeedback monitor(can);
@@ -71,12 +80,70 @@ int main(int argc,char** argv) {
   int current_mode=2;
   std::vector<double> reference(6,0),goal(6,0);
   auto last_step=Clock::now();
+  auto seconds=[](){return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();};
+  const std::string driver_instance=std::to_string(getpid())+"-"+std::to_string(Clock::now().time_since_epoch().count());
+  uint64_t command_epoch=0;
+  auto trajectory_pub=node->create_publisher<std_msgs::msg::String>("/web/"+side+"/trajectory_status",1);
+  auto publish_trajectory=[&](){
+    std_msgs::msg::String msg;
+    msg.data=nlohmann::json{{"driver_instance",driver_instance},{"command_epoch",command_epoch},
+      {"enabled",bool(trajectory)},{"request_id",trajectory?trajectory->id():""},
+      {"status",trajectory?trajectory->status():"disabled"},{"reason",trajectory?trajectory->reason():""},
+      {"ready",healthy},{"manual_joint_active",joint_active}}.dump();
+    trajectory_pub->publish(msg);
+  };
   auto hold=[&](){
     auto p=arm->getJointPositons();
     if(p.size()!=7 || !std::all_of(p.begin(),p.end(),[](double v){return std::isfinite(v);})) return false;
     joint_active=false;reference.assign(p.begin(),p.begin()+6);goal=reference;
     arm->setJointPositions(reference);arm->setCatch(p[6]);arm->setArmStatus(5);current_mode=5;return true;
   };
+  auto stop_reference=[&](const std::string& reason){
+    ++command_epoch;
+    if(trajectory) trajectory->cancel(reason);
+    joint_active=false;
+    bool held=healthy && monitor.fresh() && hold();
+    if(!held){arm->setArmStatus(2);current_mode=2;}
+    publish_trajectory();return held;
+  };
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr trajectory_sub;
+  if(trajectory) trajectory_sub=node->create_subscription<std_msgs::msg::String>("/web/"+side+"/trajectory",1,
+    [&](std_msgs::msg::String::ConstSharedPtr msg){
+      std::string id,reason;bool heartbeat=false,started=false;
+      try {
+        if(msg->data.size()>262144) throw std::invalid_argument("Trajectory payload too large");
+        auto request=nlohmann::json::parse(msg->data);
+        id=request.at("request_id").get<std::string>();
+        if(id.size()>64)throw std::invalid_argument("Invalid request ID");
+        if(request.at("driver_instance")!=driver_instance)throw std::invalid_argument("Stale driver instance");
+        const auto kind=request.at("kind").get<std::string>();
+        if(kind=="keepalive") {
+          heartbeat=true;bool was_active=trajectory->active();
+          if(!trajectory->keepalive(id,seconds())) {
+            if(was_active&&!trajectory->active())stop_reference(trajectory->reason());
+            throw std::invalid_argument("Trajectory lease inactive or expired");
+          }
+        } else if(kind=="start") {
+          if(request.at("command_epoch")!=command_epoch)throw std::invalid_argument("Stale command epoch");
+          if(!healthy||!monitor.fresh()||joint_active)throw std::invalid_argument("Arm not ready or manual motion active");
+          auto actual=arm->getJointPositons();
+          trajectory->start(request,actual,arm->getJointVelocities(),seconds());started=true;
+          ++command_epoch;
+          joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
+          arm->setJointPositions(reference);arm->setCatch(actual[6]);arm->setArmStatus(5);current_mode=5;
+        } else throw std::invalid_argument("Unsupported trajectory command");
+      } catch(const std::exception& error){
+        reason=error.what();if(started)stop_reference("dispatch_failed");
+      }
+      // Successful keepalives do not flood the shared command acknowledgement channel.
+      if(!heartbeat||!reason.empty()) {
+        std_msgs::msg::String ack;
+        ack.data=nlohmann::json{{"request_id",id.substr(0,64)},{"ok",reason.empty()},
+          {"message",reason.empty()?"Driver accepted trajectory":reason},{"kind","trajectory"}}.dump();
+        ack_pub->publish(ack);
+      }
+      publish_trajectory();
+    });
   auto sub=node->create_subscription<arx5_arm_msg::msg::RobotCmd>(config.at("command_topic").get<std::string>(),1,
     [&](arx5_arm_msg::msg::RobotCmd::ConstSharedPtr msg){
       auto separator=msg->header.frame_id.find('|');
@@ -86,6 +153,7 @@ int main(int argc,char** argv) {
       auto actual=arm->getJointPositons();
       std::string reason;
       if(!healthy || !monitor.fresh()) reason="Arm driver not ready or CAN feedback stale";
+      else if(trajectory && trajectory->active()) reason="Trajectory active; use arm stop first";
       else if(kind=="gripper") {
         if(msg->mode!=5 || !limits.valid_gripper(msg->gripper)) reason="Gripper target outside software limits";
       } else if(kind=="arm.joints") {
@@ -94,6 +162,7 @@ int main(int argc,char** argv) {
         if(msg->mode<0 || msg->mode>3) reason="Unsupported manual mode";
       } else reason="Unsupported command kind";
       if(reason.empty()) {
+        ++command_epoch;
         if(kind=="gripper") {
           // Gripper commands preserve the arm goal; 0 is a valid close target.
           if(current_mode!=5) {joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
@@ -110,22 +179,32 @@ int main(int argc,char** argv) {
     });
   auto stop=node->create_service<std_srvs::srv::Trigger>("/web/"+side+"/stop",
     [&](std_srvs::srv::Trigger::Request::SharedPtr,std_srvs::srv::Trigger::Response::SharedPtr response){
-      response->success=monitor.fresh() && hold();
-      if(!response->success) arm->setArmStatus(2);
+      response->success=stop_reference("manual_stop");
       response->message=response->success?"Holding measured arm and gripper positions":"Feedback unavailable; requested damping";
     });
+  unsigned status_ticks=0;
   auto timer=node->create_wall_timer(std::chrono::milliseconds(10),[&](){
     bool fresh=monitor.fresh();
     auto errors=arm->getErrorCode();
     bool no_error=std::all_of(errors.begin(),errors.end(),[](int x){return x==0;});
     auto pos=arm->getJointPositons(),vel=arm->getJointVelocities(),cur=arm->getJointCurrent();
-    bool valid=pos.size()==7 && vel.size()==7 && cur.size()==7 && std::all_of(pos.begin(),pos.end(),[](double x){return std::isfinite(x);});
+    auto finite=[](const auto& values){return values.size()==7 && std::all_of(values.begin(),values.end(),[](double x){return std::isfinite(x);});};
+    bool valid=finite(pos) && finite(vel) && finite(cur);
     if(fresh && valid && no_error && !initialized && !fault_latched){initialized=hold();RCLCPP_INFO(node->get_logger(),"%s measured-position hold initialized",side.c_str());}
     healthy=fresh && valid && no_error && initialized && !fault_latched;
-    if((!fresh && was_fresh) || (!no_error && seen_feedback)) {arm->setArmStatus(2);initialized=false;fault_latched=true;joint_active=false;}
+    if((!fresh && was_fresh) || ((!no_error || !valid) && seen_feedback)) {
+      if(!fault_latched)++command_epoch;
+      arm->setArmStatus(2);current_mode=2;initialized=false;fault_latched=true;joint_active=false;healthy=false;
+    }
     if(fresh!=was_fresh) RCLCPP_INFO(node->get_logger(),"%s CAN feedback %s",side.c_str(),fresh?"fresh":"stale");
     was_fresh=fresh;seen_feedback|=fresh;
     std_msgs::msg::Bool ready;ready.data=healthy;ready_pub->publish(ready);
+    if(trajectory && trajectory->active()) {
+      auto next=trajectory->tick(seconds(),pos,healthy);
+      if(trajectory->status()=="failed")stop_reference(trajectory->reason());
+      else if(!next.empty()){reference=next;goal=next;arm->setJointPositions(reference);}
+    }
+    if(status_ticks++%10==0)publish_trajectory();
     if(!fresh || !valid) return;
     if(healthy && joint_active) {
       auto now=Clock::now();double dt=std::min(.02,std::chrono::duration<double>(now-last_step).count());last_step=now;
