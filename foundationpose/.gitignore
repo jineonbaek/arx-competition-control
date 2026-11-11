@@ -1,0 +1,6 @@
+.venv/
+upstream/
+weights/
+demo_data/
+runtime/
+__pycache__/
