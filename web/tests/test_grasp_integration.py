@@ -38,7 +38,7 @@ class PreviewChatTests(unittest.TestCase):
             def recognize(store,ident,out,cancelled):
                 Image.fromarray(np.full((20,30),255,np.uint8)).save(out/'mask.png')
                 return {'status':'perception_accepted','bbox_xyxy':[0,0,30,20]}
-            p=pose()
+            p=pose();p['quality']={'version':1,'status':'consistent'}
             import hashlib
             p['mesh_sha256']=hashlib.sha256((ROOT/'web/cad/gripper-v2/battery-print.stl').read_bytes()).hexdigest()
             client=str(uuid.uuid4());state=chat.snapshot(client)

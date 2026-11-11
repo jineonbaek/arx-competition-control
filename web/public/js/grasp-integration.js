@@ -2,7 +2,7 @@ import * as THREE from '../vendor/lift2-preview/three.module.js';
 import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 const el=id=>document.getElementById(id);
 let state=null,shown=null,geometry=null,submitting=false;
-const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过'};
+const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过',pose_rejected:'位姿与深度表面不一致'};
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.005,5);camera.up.set(0,0,1);
 let renderer,orbit;const objects=new THREE.Group();scene.add(objects);
 function render(){renderer?.render(scene,camera);}
@@ -36,13 +36,16 @@ function show(data){
  if(coarse)el('coarse-status').textContent='升降建议 '+coarse.lift.target_rad.toFixed(2)+' SDK rad；CAD 零关节腕部参考 '+xyz(coarse.reference_wrist_base_mm)+'。向上够约 100 mm；'+(coarse.lift.clamped?'已限幅，距偏好高度还差 '+coarse.lift.preference_residual_mm.toFixed(1)+' mm。':'')+coarse.blockers.join('；')+'。未执行运动。';
  image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
+ const fit=data.quality;
+ const fitText=fit?'CAD 深度表面核对：'+({consistent:'一致',rejected:'需复核',insufficient_depth:'有效深度不足'}[fit.status]||fit.status)+'；中位偏差 '+(fit.median_abs_depth_mm?.toFixed(1)??'无')+' mm，P90 '+(fit.p90_abs_depth_mm?.toFixed(1)??'无')+' mm；轮廓覆盖 '+(100*fit.mask_coverage).toFixed(1)+'%。仅为一致性筛查，尚未验证实物精度。':'';
+ el('quality').textContent=fitText;
  if(!data.geometry)return;
  geometry=data.geometry;cloud(geometry);
  const g=geometry;
  const rows=[['预抓参考点 G',xyz(g.path.pre_mm)],['夹持参考点 G',xyz(g.path.end_mm)],['CAD 夹指伸入量',g.grip.insertion_mm+' mm'],['腕部起终点','等待 TCP 标定']];
  el('metrics').replaceChildren(...rows.map(([name,value])=>{const box=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value;box.append(dt,dd);return box;}));
  el('stamp').textContent='冻结快照 '+g.snapshot_id+' · '+new Date(g.image_time*1000).toLocaleString('zh-CN');
- el('quality').textContent='电池有效深度 '+g.depth.valid_pixels+' / '+g.depth.mask_pixels+'（'+(g.depth.valid_ratio*100).toFixed(1)+'%）；电池插入方向偏离 +X '+g.grip.approach_x_error_deg.toFixed(1)+'°；凸起朝下偏差 '+g.grip.bump_down_error_deg.toFixed(1)+'°。这些数值供核对，不代表碰撞检查通过。';
+ el('quality').textContent=fitText+' 电池有效深度 '+g.depth.valid_pixels+' / '+g.depth.mask_pixels+'（'+(g.depth.valid_ratio*100).toFixed(1)+'%）；电池插入方向偏离 +X '+g.grip.approach_x_error_deg.toFixed(1)+'°；凸起朝下偏差 '+g.grip.bump_down_error_deg.toFixed(1)+'°。这些数值供核对，不代表碰撞检查通过。';
  el('blockers').textContent=g.blockers.join('；')+'。'+g.note;
 }
 async function request(path,body){

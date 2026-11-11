@@ -90,6 +90,25 @@ class PipelineTests(unittest.TestCase):
             result=pipeline(self.store,self.obs["observation_id"],50,self.store.path/"preview")
         estimate.assert_not_called();self.assertFalse(result["executable"])
         self.assertNotIn("geometry",result)
+    def test_pose_depth_rejection_preserves_overlay_without_path(self):
+        import hashlib
+        from PIL import Image
+        from agent.grasp_geometry import ROOT
+        def segment_fixture(store,ident,output,cancelled):
+            Image.fromarray(np.full((20,30),255,np.uint8)).save(output/'mask.png')
+            return dict(status='perception_accepted',bbox_xyxy=[0,0,30,20])
+        report=pose();report['mesh_sha256']=hashlib.sha256((ROOT/'web/cad/gripper-v2/battery-print.stl').read_bytes()).hexdigest()
+        report['overlay']='diagnostic-image'
+        for quality in (None,dict(version=1,status='rejected'),dict(version=1,status='insufficient_depth'),dict(version=1,status='consistent')):
+            report['quality']=quality
+            with patch('agent.grasp_pipeline.segment',side_effect=segment_fixture),patch('agent.grasp_pipeline.estimate',return_value=report):
+                result=pipeline(self.store,self.obs['observation_id'],50,self.store.path/'quality')
+            good=quality and quality['status']=='consistent'
+            self.assertEqual(result['status'],'preview_complete' if good else 'pose_rejected')
+            self.assertEqual('geometry' in result,bool(good))
+            self.assertEqual(result['pose']['overlay'],'diagnostic-image')
+            self.assertFalse(result['executable'])
+
     def test_worker_timeout_and_cancel_leave_no_child(self):
         with self.assertRaises(AgentError) as e:
             run_worker([sys.executable,"-c","import time; time.sleep(30)"],self.store.path,self.store.path/"timeout.log",lambda:False,.15)

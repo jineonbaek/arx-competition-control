@@ -36,7 +36,7 @@ class GraspTools(ToolRegistry):
                 self.store.state["grasp_preview"]=str(Path("previews")/call_id/"result.json")
                 return {"observation_id":a["observation_id"],"status":result["status"],"message":result["message"],
                     "tcp_status":"pending","executable":False,"result_file":self.store.state["grasp_preview"],
-                    "depth":result.get("geometry",{}).get("depth"),"path":result.get("geometry",{}).get("path")}
+                    "quality":result.get("quality"),"depth":result.get("geometry",{}).get("depth"),"path":result.get("geometry",{}).get("path")}
             return super()._dispatch(name,a,call_id)
         except AgentError:raise
         except (OSError,ValueError,KeyError) as e:

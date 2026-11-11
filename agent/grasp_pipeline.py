@@ -118,11 +118,16 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
                 raise ValueError("Pose CAD mismatch")
             profile=json.loads(PROFILE.read_text())
             if profile["mesh_sha256"]["battery-print.stl"]!=pose["mesh_sha256"]:raise ValueError("Grip profile CAD mismatch")
-            progress("pointcloud_path")
-            with np.load(frame,allow_pickle=False) as f:
-                geometry=preview_geometry(f,np.asarray(Image.open(output/"mask.png").convert("L")),pose,clearance_mm)
-            result.update(status="preview_complete",pose=pose,geometry=geometry,
-                message="识别、位姿、点云与接触点路径已串联；等待 TCP 与运动验证。")
+            quality=pose.get('quality')
+            result.update(pose=pose,quality=quality)
+            if not isinstance(quality,dict) or quality.get('version')!=1 or quality.get('status')!='consistent':
+                result.update(status='pose_rejected',message='CAD 位姿与深度表面核对未通过；保留识别和位姿叠加，不生成抓取线段。')
+            else:
+                progress("pointcloud_path")
+                with np.load(frame,allow_pickle=False) as f:
+                    geometry=preview_geometry(f,np.asarray(Image.open(output/"mask.png").convert("L")),pose,clearance_mm)
+                result.update(status="preview_complete",geometry=geometry,
+                    message="识别、位姿表面核对、点云与接触点路径已串联；等待 TCP 与运动验证。")
         if cancelled():raise AgentError("cancelled","预览已取消")
         atomic_json(output/"result.json",result)
         progress(result["status"])

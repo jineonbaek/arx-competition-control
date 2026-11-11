@@ -119,7 +119,10 @@ def main():
                 edges.append([pixels[i].tolist(),pixels[j].tolist()])
     _,render_depth,_=nvdiffrast_render(K=K,H=h,W=w,mesh=mesh,
         ob_in_cams=torch.as_tensor(pose[None],dtype=torch.float32,device="cuda"),glctx=est.glctx)
-    silhouette=(render_depth[0].detach().cpu().numpy()>0).astype(np.uint8)
+    from pose_quality import assess_depth_fit
+    rendered_z=render_depth[0].detach().cpu().numpy()
+    quality=assess_depth_fit(fg,z,rendered_z)
+    silhouette=(rendered_z>0).astype(np.uint8)
     contours,_=cv2.findContours(silhouette,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
     for contour in contours:
         uv=contour[:,0,:]
@@ -143,7 +146,7 @@ def main():
         model_size_mm=(mesh.extents*1000).tolist(),mask_pixels=int(mask.sum()),
         mesh_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),registration_s=seconds,
         total_s=time.perf_counter()-started,peak_allocated_mib=torch.cuda.max_memory_allocated()/2**20,
-        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,
+        overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,quality=quality,
         message="仅位姿预览；请核对轮廓和 CAD 叠加，未生成运动指令")
     args.output.write_text(json.dumps(report,allow_nan=False))
     print("result",str(args.output),flush=True)

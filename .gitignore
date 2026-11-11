@@ -57,3 +57,6 @@ logs/
 # Downloaded display-only CAD and browser dependencies
 /web/public/models/lift2/
 /web/public/vendor/lift2-preview/
+
+# Offline FoundationPose replay artifacts
+/foundationpose/runtime/
