@@ -1,3 +1,5 @@
+> 2026-11-11 更新：已停用并清理 GraspNet 候选推理。当前保留 RGB-D、点云、手眼坐标转换、提手框选、示教偏移和水平线段预览。以下关于 GraspNet/AnyGrasp 的选型内容作为历史讨论保留，当前实现见 vision/README.md。
+
 # 美团决赛机器人：Agent、Qwen视觉与点云抓取方案讨论总结
 
 > 整理日期：2026-11-06，Asia/Hong_Kong。

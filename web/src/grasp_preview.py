@@ -1,9 +1,8 @@
-"""One D405 snapshot and GPU result for read-only GraspNet visualization."""
+"""Shared D405 RGB-D capture, point clouds and taught horizontal handle previews."""
 import base64
 import json
 import os
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -18,8 +17,8 @@ from handeye_validation import CANDIDATE
 
 ROOT = Path(__file__).resolve().parents[2]
 LIVE = ROOT / 'web/public/camera-live'
+# Keep the existing cache path so saved RGB-D snapshots remain readable.
 CACHE = ROOT / 'web/hardware/runtime/grasp-preview'
-DEMO = Path.home() / 'arx-graspnet-demo/grasp'
 
 
 def roi_pixels(value, w, h):
@@ -76,11 +75,10 @@ class GraspPreview:
 
     def action(self,data):
         if not isinstance(data,dict):raise ValueError('无效预览请求')
-        if not self.lock.acquire(blocking=False):raise ValueError('已有采集或推理正在运行')
+        if not self.lock.acquire(blocking=False):raise ValueError('已有采集正在运行')
         try:
             CACHE.mkdir(parents=True,exist_ok=True)
             if data.get('op')=='capture':return self.capture()
-            if data.get('op')=='infer':return self.infer(data)
             raise ValueError('未知预览操作')
         finally:self.lock.release()
 
@@ -207,25 +205,3 @@ class GraspPreview:
                     line[key]=(np.asarray(line[src])+taught["offset_mm"]).tolist()
             line["teach"]=taught
             return line
-
-    def infer(self,data):
-        view=self.latest()
-        if not view.get('id') or view['id']!=data.get('id'):raise ValueError('快照已更新，请重新框选')
-        roi=roi_pixels(data.get('roi'),view['width'],view['height'])
-        executable=DEMO/'.venv/bin/python'
-        if not executable.is_file():raise ValueError('ROG GraspNet 环境缺失')
-        output=CACHE/'inference.json'
-        env=dict(os.environ,OMP_NUM_THREADS='4',OPENBLAS_NUM_THREADS='4',MKL_NUM_THREADS='4')
-        try:
-            run=subprocess.run([str(executable),str(ROOT/'vision/grasp/infer_d405.py'),str(DEMO),
-                                str(CACHE/'frame.npz'),view['id'],str(output),*map(str,roi)],
-                               env=env,capture_output=True,text=True,timeout=90)
-        except subprocess.TimeoutExpired as e:raise ValueError('GraspNet 推理超时') from e
-        if run.returncode:
-            msg=(run.stderr.strip() or run.stdout.strip()).splitlines()
-            raise ValueError('GraspNet 推理失败：'+(msg[-1][:300] if msg else '进程异常退出'))
-        result=json.loads(output.read_text())
-        if result['id']!=view['id'] or result['roi']!=roi:raise ValueError('推理结果与快照不匹配')
-        view.update(result=result,roi=roi)
-        atomic_json(CACHE/'view.json',view)
-        return view

@@ -150,4 +150,27 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(post({**move, "sequence": 2}), 400)
         self.assertEqual(len(self.adapter.calls), 2)
 
+
+    def test_handle_preview_survives_without_candidate_endpoint(self):
+        from unittest.mock import patch
+        import grasp_preview
+        code, response, page = self.request("GET", "/handle.html")
+        self.assertEqual(code, 200)
+        self.assertIn(b"js/handle.js", page)
+        headers={"Cookie":response["Set-Cookie"].split(";")[0],
+                 "Content-Type":"application/json", "Origin":f"http://127.0.0.1:{self.port}"}
+        frozen={"id":"saved", "frame_id":"base_link", "points":[[.4,-.25,.7,0,0,0]]}
+        with patch.object(grasp_preview.GraspPreview,"latest",return_value=frozen):
+            code,_,body=self.request("GET","/api/handle-preview",headers=headers)
+            self.assertEqual(code,200)
+            self.assertEqual(json.loads(body)["points"],frozen["points"])
+        for path in ("/grasp.html","/js/grasp.js","/api/grasp-preview"):
+            self.assertEqual(self.request("GET",path,headers=headers)[0],404)
+        self.assertEqual(self.request("POST","/api/grasp-preview",'{"op":"infer"}',headers)[0],404)
+        self.assertEqual(self.request("POST","/api/handle-preview",'{"op":"infer"}',headers)[0],400)
+        home=self.request("GET","/")[2]
+        self.assertNotIn(b'href="grasp.html"',home)
+        self.assertIn(b'href="handle.html"',home)
+        self.assertEqual(self.adapter.calls,[])
+
 if __name__ == "__main__": unittest.main()

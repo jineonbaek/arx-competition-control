@@ -71,3 +71,13 @@ class PreviewTests(unittest.TestCase):
             self.assertFalse(control.enabled('d405'))
             control.release_handeye(arm)
             self.assertFalse(control.enabled('d405'))
+
+
+    def test_removed_inference_cannot_acquire_depth_or_command_robot(self):
+        preview=GraspPreview(Mock(),Mock())
+        with tempfile.TemporaryDirectory() as tmp, patch("grasp_preview.CACHE", Path(tmp)):
+            with self.assertRaisesRegex(ValueError,"未知预览操作"):
+                preview.action({"op":"infer"})
+        self.assertFalse(hasattr(preview,"infer"))
+        preview.depth.acquire_grasp.assert_not_called()
+        preview.ctrl.submit.assert_not_called()

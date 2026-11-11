@@ -105,9 +105,6 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
             if path == "/api/handle-preview":
                 if not self.client():return self.json(403, {"message":"请先打开提手预览页"})
                 return self.json(200, grasps.handle_view())
-            if path == "/api/grasp-preview":
-                if not self.client():return self.json(403, {"message":"请先打开抓取预览页"})
-                return self.json(200, grasps.latest())
             if path == "/api/camera/depth":
                 return self.json(200, depth_control.snapshot())
             if path == "/api/handeye":
@@ -148,14 +145,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/grasp.html", "/handle.html", "/vision.html") and not self.client():
+            if path in ("/", "/handeye.html", "/handle.html", "/vision.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/grasp-preview', '/api/handle-preview', '/api/vision'):
+            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -172,8 +169,6 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None):
                     return self.json(200, vision.action(self.client(), strict_json(raw)))
                 if path == '/api/handle-preview':
                     return self.json(200, grasps.handle_action(strict_json(raw)))
-                if path == '/api/grasp-preview':
-                    return self.json(200, grasps.action(strict_json(raw)))
                 if path == '/api/handeye':
                     return self.json(200, steps.action(self.client(), strict_json(raw)))
                 if path == '/api/camera/depth':

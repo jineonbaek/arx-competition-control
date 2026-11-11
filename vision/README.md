@@ -2,7 +2,7 @@
 
 三台相机默认只采集彩色画面。9983 的每路深度按钮控制实际深度流，每次启动采集进程都会恢复深度关闭。旧 YOLOE 检测服务、专用依赖和权重已移除。
 
-D435 / D405 的按需识别窗口使用 Grounding DINO、Qwen 和 SAM2；运行入口在 web/src/vision_preview.py，模型环境位于 ROG 的 /home/arx/arx-vision-demo/vision/demo。GraspNet 的抓取候选预览见 9983 D405 相机卡片。新的比赛实拍参考和尺寸图见 config/field-battery/，共享裁剪参考为 config/battery-reference.png。
+D435 / D405 的按需识别窗口使用 Grounding DINO、Qwen 和 SAM2；运行入口在 web/src/vision_preview.py，模型环境位于 ROG 的 /home/arx/arx-vision-demo/vision/demo。D405 相机卡片保留提手线段预览，使用 RGB-D、手眼外参和示教偏移生成固定 Y/Z、沿 X 的几何线段，不运行 GraspNet 候选模型。新的比赛实拍参考和尺寸图见 config/field-battery/，共享裁剪参考为 config/battery-reference.png。
 
 ## 运行
 
@@ -25,3 +25,9 @@ python3 vision/scripts/setup-depth.py
 参考：
 - https://dev.realsenseai.com/docs/projection-in-realsense-sdk-2-0/
 - https://dev.realsenseai.com/docs/projection-texture-mapping-and-occlusion-with-intel-realsense-depth-cameras/
+
+## GraspNet 清理（2026-11-11）
+
+已移除候选页面、推理 API、推理脚本和独立 demo 的模型/环境。共享的 web/src/grasp_preview.py 与 web/public/css/grasp.css 继续服务提手预览，名称保留以避免影响已有调用。保留 web/hardware/runtime/grasp-preview 下的冻结 RGB-D、点云及同级 handle-teach-right.json 示教偏移。手眼标定、相机深度按需租约和机器人控制接口不变。
+
+当前抓取方向是视觉定位提手加固定姿态水平前伸。docs/competition-agent-vision-plan.md 中 GraspNet/AnyGrasp 方案属于历史讨论，不再作为当前候选生成入口。FoundationPose 尚需单独验证。
