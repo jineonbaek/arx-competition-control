@@ -5,17 +5,20 @@ from .tools import ToolRegistry,TEXT
 from . import grasp_scene
 from .grasp_pipeline import pipeline
 from .battery_observation import observe
+from .coarse_alignment import plan as plan_coarse
 
-PREVIEW_TOOLS={"get_system_status","observe_scene","read_observation","capture_grasp_scene","preview_battery_grasp","observe_battery"}
+PREVIEW_TOOLS={"get_system_status","observe_scene","read_observation","capture_grasp_scene","preview_battery_grasp","observe_battery","plan_coarse_alignment"}
 
 class GraspTools(ToolRegistry):
     schemas={k:v for k,v in ToolRegistry.schemas.items() if k in PREVIEW_TOOLS}
-    schemas.update(observe_battery=object_schema({"camera":{"type":"string","enum":["d435","d405"]}},["camera"]),
+    schemas.update(plan_coarse_alignment=object_schema({"observation_id":TEXT},["observation_id"]),
+        observe_battery=object_schema({"camera":{"type":"string","enum":["d435","d405"]}},["camera"]),
         capture_grasp_scene=object_schema(),
         preview_battery_grasp=object_schema({"observation_id":TEXT,
             "clearance_mm":{"type":"number","minimum":1,"maximum":200}},["observation_id","clearance_mm"]))
     descriptions={k:v for k,v in ToolRegistry.descriptions.items() if k in PREVIEW_TOOLS}
-    descriptions.update(observe_battery="Freeze selected RGB-D camera, recognize one shape-defined battery and estimate its visible surface in base_link. D435 is coarse CAD localization; D405 is wrist-calibrated. Surface point is not a grip point. Returns explicit not-found/rejection and evidence ID. No robot motion.",
+    descriptions.update(plan_coarse_alignment="Use this run's localized D435 evidence and CAD neutral wrist height to propose lift with a 100 mm upward arm reach preference. Surface is not grip center; proposal is non-executable and reports unchecked sweep and observation pose. TCP remains empty. No movement.",
+        observe_battery="Freeze selected RGB-D camera, recognize one shape-defined battery and estimate its visible surface in base_link. D435 is coarse CAD localization; D405 is wrist-calibrated. Surface point is not a grip point. Returns explicit not-found/rejection and evidence ID. No robot motion.",
         capture_grasp_scene="Freeze paired D405 RGB-D and snapshot-time base_link transform using the existing owner. Temporary depth lease; no robot motion.",
         preview_battery_grasp="On one frozen D405 scene: reviewed battery recognition, FoundationPose, cloud evidence and +X constant-YZ contact-point path. TCP pending; no wrist targets or commands.")
     def __init__(self,config,store,*args,**kwargs):
@@ -24,6 +27,7 @@ class GraspTools(ToolRegistry):
         self.progress=lambda stage:None
     def _dispatch(self,name,a,call_id):
         try:
+            if name=="plan_coarse_alignment":return plan_coarse(self,a["observation_id"],call_id)
             if name=="observe_battery":return observe(self,a["camera"],call_id)
             if name=="capture_grasp_scene":return grasp_scene.capture(self)
             if name=="preview_battery_grasp":

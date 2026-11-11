@@ -100,3 +100,9 @@ collision checks, command ownership, feedback execution/cancellation, and grasp
 verification. No new implementation in this continuation has moved hardware,
 restarted drivers or been deployed to 9983. Full acceptance still requires an
 observed successful end-to-end grasp; unit tests alone do not establish that.
+
+### D435 升降粗规划阶段
+
+`plan_coarse_alignment(observation_id)` 读取本任务已成功定位的 D435 不可变快照，按交付 CAD 零关节腕位和现有 41.54 rad/m 名义比例，提出“腕部参考高度低于目标可见表面约 100 mm”的升降目标，并遵守 control.json 的升降范围。显示被限幅后的高度残差。它不会把 base_link 的目标 Z 直接当成升降行程，也不会把当前实测轴值四舍五入当作 CAD 常量。
+
+这是粗规划建议：可见表面中心还不是提手点；双臂随升降的扫掠、观察姿态 IK 和视野仍待后续阶段检查，所以返回 executable=false。零关节姿态仅作计算参考，不会调用复位。TCP 字段为空，旧示教偏移不参与。
