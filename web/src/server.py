@@ -23,12 +23,13 @@ from camera_depth_control import DepthControl
 from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
 from tcp_calibration import TcpCalibration
+from grasp_integration import GraspIntegration
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None):
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
@@ -68,6 +69,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path in ("/api/grasp-integration", "/api/grasp-integration/result"):
+                if not self.client():return self.json(403, {"message":"请先打开抓取链路预览页"})
+                if grasp_integration is None:return self.json(503, {"message":"抓取链路预览未启用"})
+                try:
+                    result=grasp_integration.result(self.client()) if path.endswith("/result") else grasp_integration.snapshot(self.client())
+                    return self.json(200,result)
+                except ChatError as error:return self.json(error.status,{"message":error.message})
             if path == "/api/d435-cad":
                 try:
                     return self.json(200, d435_cad_preview(controller.snapshot().get("body") or {}))
@@ -157,14 +165,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html") and not self.client():
+            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -177,6 +185,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/grasp-integration':
+                    if grasp_integration is None:return self.json(503,{"message":"抓取链路预览未启用"})
+                    return self.json(202,grasp_integration.handle(self.client(),strict_json(raw)))
                 if path == '/api/tcp-calibration':
                     return self.json(200, tcp_calibration.action(self.client(), strict_json(raw)))
                 if path == '/api/vision':
@@ -223,9 +234,10 @@ def main():
     adapter = RosAdapter(config)
     controller = Controller(config, adapter)
     arxgent = ArxgentChat.from_repository(WEB_ROOT.parent, args.port)
+    grasp_integration = GraspIntegration.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,DepthControl())
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision, foundation=foundation))
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision, foundation=foundation, grasp_integration=grasp_integration))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -243,6 +255,7 @@ def main():
         foundation.close()
         vision.close()
         arxgent.close()
+        grasp_integration.close()
         adapter.close()
         server.server_close()
 
