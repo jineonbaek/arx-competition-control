@@ -58,6 +58,28 @@ class PipelineTests(unittest.TestCase):
         self.store=RunStore.create(self.temp.name);self.addCleanup(self.store.close)
         buf=io.BytesIO();np.savez(buf,**frame());self.blob=buf.getvalue()
         self.obs=save_frame(self.store,self.blob,source="test")
+    def test_capture_uses_current_handle_api_and_checks_frame_identity(self):
+        from agent.grasp_scene import capture
+        from agent.tests.test_transport import Server,response
+        root=Path(self.temp.name)/"owner"
+        archive=root/"web/hardware/runtime/grasp-preview/frame.npz"
+        archive.parent.mkdir(parents=True);archive.write_bytes(self.blob)
+        cal=root/"cal.json";cal.write_text("{}")
+        def respond(path,body):
+            self.assertEqual(path,"/api/handle-preview")
+            self.assertEqual(json.loads(body),{"op":"capture"})
+            return response({"id":"a"*32})
+        with Server(respond) as server,patch("agent.grasp_scene.ROOT",root),patch("agent.grasp_scene.CALIBRATION",cal):
+            registry=GraspTools(Config(console_url=server.url),self.store)
+            captured=capture(registry)
+            self.assertEqual(captured["source_snapshot"],"a"*32)
+            self.assertEqual(len(captured["calibration_sha256"]),64)
+            other=frame();other["id"]=np.array("b"*32)
+            buf=io.BytesIO();np.savez(buf,**other);archive.write_bytes(buf.getvalue())
+            with self.assertRaises(AgentError) as error:capture(registry)
+            self.assertEqual(error.exception.code,"stale_snapshot")
+        self.assertTrue(all(method=="POST" for method,_,_ in server.requests))
+
     def test_archive_identity_and_tamper(self):
         with self.assertRaises(AgentError):save_frame(self.store,self.blob,source="test",expected_id="wrong")
         path=frame_path(self.store,self.obs["observation_id"])

@@ -1,5 +1,4 @@
 """Reuse the existing 9983 D405 capture owner; archive one immutable scene."""
-import base64
 import hashlib
 import io
 import json
@@ -11,8 +10,8 @@ from PIL import Image
 from .contracts import AgentError
 from .grasp_geometry import validate_frame
 
-MAIN=Path("/home/arx/arx-competition-control")
-CALIBRATION=MAIN/"vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json"
+ROOT=Path(__file__).resolve().parents[1]
+CALIBRATION=ROOT/"vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json"
 
 def save_frame(store,blob,*,source,expected_id=None,calibration_sha256=None):
     with np.load(io.BytesIO(blob),allow_pickle=False) as f:
@@ -32,10 +31,10 @@ def save_frame(store,blob,*,source,expected_id=None,calibration_sha256=None):
 def capture(registry):
     url=registry.config.console_url
     digest=hashlib.sha256(CALIBRATION.read_bytes()).hexdigest()
-    req=Request(url+"/api/grasp-preview",data=b'{"op":"capture"}',
+    req=Request(url+"/api/handle-preview",data=b'{"op":"capture"}',
         headers={"Origin":url,"Cookie":"arx_web_session="+str(uuid.uuid4()),"Content-Type":"application/json"})
     with urlopen(req,timeout=25) as response:view=json.load(response)
-    blob=(MAIN/"web/hardware/runtime/grasp-preview/frame.npz").read_bytes()
+    blob=(ROOT/"web/hardware/runtime/grasp-preview/frame.npz").read_bytes()
     if hashlib.sha256(CALIBRATION.read_bytes()).hexdigest()!=digest:
         raise AgentError("calibration_changed","采集期间外参变化")
     return save_frame(registry.store,blob,source="9983_d405_paired",expected_id=view["id"],calibration_sha256=digest)
