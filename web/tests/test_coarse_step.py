@@ -117,4 +117,40 @@ class CoarseStepTests(unittest.TestCase):
         self.assertTrue(self.settle_lift()['stop_required'])
         self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
 
+    def stationary(self):
+        self.plan=dict(version=1,kind='stationary',joint_position_rad=[0.]*6)
+        self.step=self.make()
+
+    def test_stationary_observer_waits_for_new_settled_feedback_without_arm_command(self):
+        self.stationary()
+        self.assertEqual(self.settle_lift()['status'],'settling_observer')
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+        # Lift completion's last sample must not also establish arm settling.
+        self.assertEqual(self.step.poll()['status'],'settling_observer')
+        for t in (10.32,10.42,10.53):
+            self.feedback(t);r=self.step.poll()
+        self.assertEqual(r['status'],'ready_to_observe')
+        self.assertTrue(r['new_observation_required'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+        self.q[0]=.02;self.feedback(10.6)
+        self.assertTrue(self.step.poll()['stop_required'])
+
+    def test_stationary_observer_cannot_hide_a_target_or_bypass_arm_preflight(self):
+        self.plan=dict(version=1,kind='stationary',joint_position_rad=[.001]*6)
+        with self.assertRaises(ValueError):self.make()
+        self.assertEqual(self.adapter.calls,[])
+        self.stationary();self.step.arm_preflight=lambda *_:False
+        self.settle_lift();self.feedback(10.4)
+        self.assertTrue(self.step.poll()['stop_required'])
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+
+    def test_stationary_observer_stale_or_cancelled_never_completes(self):
+        for fault in ('stale','cancel'):
+            self.setUp();self.stationary();self.settle_lift()
+            if fault=='stale':self.now=11.
+            r=self.step.poll(cancelled=fault=='cancel')
+            self.assertTrue(r['stop_required'])
+            self.assertFalse(r['new_observation_required'])
+            self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+
 if __name__=='__main__':unittest.main()

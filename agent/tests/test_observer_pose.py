@@ -39,6 +39,7 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(result['status'],'observer_candidate')
         np.testing.assert_allclose(result['joints_rad'],f['joints'])
         self.assertFalse(result['arm_move_required'])
+        self.assertEqual(result['stationary_plan'],dict(version=1,kind='stationary',joint_position_rad=f['joints'].tolist()))
 
     def test_missing_pair_bounds_calibration_or_unreachable_never_returns_targets(self):
         cases=[]

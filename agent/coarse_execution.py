@@ -25,15 +25,24 @@ class CoarseAlignmentStep:
                 or min(self.fixed_tolerance,self.skew)<=0
                 or any(q.shape!=(6,) or not np.isfinite(q).all() for q in self.initial.values())):
             raise ValueError('Invalid coarse alignment feedback policy')
-        points=np.asarray(self.plan['joint_waypoints_rad'],float)
-        times=np.asarray(self.plan['time_from_start_s'],float)
-        if (points.ndim!=2 or points.shape[1:]!=(6,) or len(points)<2
-                or times.shape!=(len(points),) or not np.isfinite(points).all()
-                or not np.isfinite(times).all() or times[0]!=0 or np.any(np.diff(times)<=0)
-                or np.any(np.abs(points[0]-self.initial['right'])>self.fixed_tolerance)
-                or self.plan.get('version')!=1 or self.plan.get('interpolation')!='segment_quintic_scalar'):
-            raise ValueError('Observer plan must start at the fixed right-arm pose')
-        self.endpoint=points[-1].copy()
+        self.stationary=self.plan.get('kind')=='stationary'
+        if self.stationary:
+            endpoint=np.asarray(self.plan.get('joint_position_rad'),float)
+            if (set(self.plan)!={'version','kind','joint_position_rad'} or self.plan['version']!=1
+                    or endpoint.shape!=(6,) or not np.isfinite(endpoint).all()
+                    or not np.array_equal(endpoint,self.initial['right'])):
+                raise ValueError('Stationary observer must retain the exact prepared joint pose')
+            self.endpoint=endpoint.copy()
+        else:
+            points=np.asarray(self.plan['joint_waypoints_rad'],float)
+            times=np.asarray(self.plan['time_from_start_s'],float)
+            if (points.ndim!=2 or points.shape[1:]!=(6,) or len(points)<2
+                    or times.shape!=(len(points),) or not np.isfinite(points).all()
+                    or not np.isfinite(times).all() or times[0]!=0 or np.any(np.diff(times)<=0)
+                    or np.any(np.abs(points[0]-self.initial['right'])>self.fixed_tolerance)
+                    or self.plan.get('version')!=1 or self.plan.get('interpolation')!='segment_quintic_scalar'):
+                raise ValueError('Observer plan must start at the fixed right-arm pose')
+            self.endpoint=points[-1].copy()
         self.lift_policy=copy.deepcopy(lift_policy);self.arm_policy=copy.deepcopy(arm_policy)
         now=controller.clock()
         self.lift=ArrivalMonitor([self.target],started_at=now,**self.lift_policy)
@@ -134,7 +143,12 @@ class CoarseAlignmentStep:
                             if np.any(np.abs(actual-self.initial['right'])>self.fixed_tolerance):
                                 raise ValueError('Observer start no longer matches the checked path')
                             return True
-                        self.controller.start_trajectory('right',self.plan,self.token,preflight=observer_start)
+                        if self.stationary:
+                            observer_start(self.controller.snapshot(),self.controller.clock())
+                            self.arm=ArrivalMonitor(self.endpoint,started_at=self.controller.clock(),**self.arm_policy)
+                            self.stage='settling_observer'
+                        else:
+                            self.controller.start_trajectory('right',self.plan,self.token,preflight=observer_start)
                 elif self.stage=='observing_motion':
                     r=self.controller.poll_trajectory(self.token,preflight=self._guard)
                     if r['status']=='reference_complete':

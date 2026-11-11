@@ -74,7 +74,8 @@ def assess_observer(frame, location, lift_rad, calibration, limits_deg):
                 note='预测视野仅覆盖 D435 已见表面的中央 90% 范围，非完整电池。未检查遮挡、环境和自碰撞；升降及移动后必须重新确认同一目标。')
 
         current=candidate(q)
-        if current:return current
+        if current:
+            return current|dict(stationary_plan=dict(version=1,kind='stationary',joint_position_rad=q.tolist()))
         orientations=[Rotation.from_matrix(model.wrist_transform(q,lift_rad)[:3,:3]).as_euler('xyz',degrees=True),
                       np.array([0.,0.,0.]),np.array([-90.,0.,0.])]
         best=None;cost=float('inf')
