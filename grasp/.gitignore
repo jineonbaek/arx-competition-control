@@ -1,6 +1,0 @@
-upstream/
-.venv/
-models/
-runtime/
-__pycache__/
-*.so
