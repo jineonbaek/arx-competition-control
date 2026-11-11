@@ -55,8 +55,29 @@ class CoarseTests(unittest.TestCase):
             self.assertFalse(result['executable'])
             self.assertEqual(result['lift']['column_sweep']['status'],'unavailable')
             self.assertFalse(result['lift']['column_sweep']['both_arms_column_checked'])
+            self.assertEqual(result['observer']['status'],'observer_unavailable')
+            self.assertIsNone(result['observer']['joints_rad'])
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)
             with self.assertRaisesRegex(ValueError,'D435'):plan(tools,ident,'wrong')
+
+    def test_archived_head_frame_reaches_observer_planner_without_tcp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=RunStore.create(directory);self.addCleanup(store.close)
+            f=frame();f.update(camera_id=np.array('d435'),joints=np.zeros(6))
+            blob=io.BytesIO();np.savez(blob,**f)
+            obs=save_frame(store,blob.getvalue(),source='fixture',camera='d435')
+            ident=obs['observation_id']
+            evidence=dict(observation_id=ident,camera='d435',status='localized',
+                location=dict(surface_base_mm=[500,-250,750],kind='visible_surface_not_grip',
+                    surface_bounds_p90_base_mm=[[460,-290,690],[540,-210,810]]))
+            atomic_json(store.path/'result.json',evidence)
+            store.state['battery_observations']={ident:'result.json'}
+            result=plan(GraspTools(Config(),store),ident,'coarse')
+            self.assertEqual(result['observer']['status'],'observer_candidate')
+            self.assertEqual(len(result['observer']['calibration_sha256']),64)
+            self.assertEqual(result['observer']['lift_rad'],result['lift']['target_rad'])
+            self.assertFalse(result['executable']);self.assertIsNone(result['tcp'])
+            self.assertFalse(result['observer']['executable'])
 
 if __name__=='__main__':unittest.main()

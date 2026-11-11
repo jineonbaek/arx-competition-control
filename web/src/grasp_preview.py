@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import re
-import sys
 import threading
 import time
 import uuid
@@ -12,6 +11,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from camera_geometry import camera_intrinsics
 from handle_preview import handle_line
 from handeye_column import ColumnModel
 from handeye_validation import CANDIDATE
@@ -30,18 +30,6 @@ def roi_pixels(value, w, h):
     if not (0<=x<r<=w and 0<=y<b<=h and r-x>=12 and b-y>=12):
         raise ValueError('选框超出图像或小于 12 像素')
     return value
-
-
-def camera_intrinsics(k):
-    vendor=str(ROOT/'vision/vendor-python')
-    if vendor not in sys.path:sys.path.insert(0,vendor)
-    import pyrealsense2 as rs
-    intr=rs.intrinsics()
-    intr.width,intr.height=k['width'],k['height']
-    intr.fx,intr.fy,intr.ppx,intr.ppy=k['fx'],k['fy'],k['cx'],k['cy']
-    intr.model=getattr(rs.distortion,k['model'].split('.')[-1])
-    intr.coeffs=k['coeffs']
-    return rs, intr
 
 
 def xyz_image(raw, scale, k, *, max_depth_m=1.5):

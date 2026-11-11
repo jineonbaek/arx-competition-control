@@ -31,6 +31,7 @@ def surface_location(frame, mask):
     return dict(frame='base_link',unit='mm',kind='visible_surface_not_grip',
         surface_base_mm=(np.median(base,axis=0)*1000).tolist(),
         surface_spread_p90_mm=(spread*1000).tolist(),support_pixels=len(surface),
+        surface_bounds_p90_base_mm=(np.percentile(base,[5,95],axis=0)*1000).tolist(),
         valid_pixels=len(points),mask_pixels=int(foreground.sum()),
         precision_validated=False,
         note='可见表面粗位置，不是提手夹持点；升降后必须由 D405 重测。')

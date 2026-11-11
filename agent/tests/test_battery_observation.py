@@ -49,6 +49,7 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(result['kind'],'visible_surface_not_grip')
         self.assertFalse(result['precision_validated'])
         self.assertEqual(result['support_pixels'],450)
+        np.testing.assert_allclose(result['surface_bounds_p90_base_mm'],[[300,-250,1100]]*2,atol=.01)
 
     def test_head_capture_requests_own_endpoint_and_verifies_calibration(self):
         from agent.grasp_scene import capture

@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 import numpy as np
 from web.src.handeye_column import ColumnModel, NOMINAL_RAD_PER_M, PACKAGE
-from .grasp_scene import frame_path
+from .grasp_scene import frame_path, CALIBRATION
 from .storage import atomic_json
 from .lift_sweep import assess_lift
+from .observer_pose import assess_observer
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -58,11 +59,20 @@ def plan(registry,observation_id,call_id):
             'left_arm_time','body_time','lift_rad') if k in frame}
     config_path=ROOT/'web/config/control.json'
     config_blob=config_path.read_bytes()
-    limits=json.loads(config_blob)['body']['lift_limits_raw']
+    config=json.loads(config_blob)
+    limits=config['body']['lift_limits_raw']
     result=coarse_geometry(location['surface_base_mm'],height,ColumnModel(),limits)
     sweep=assess_lift(feedback,result['lift']['target_rad'])
     result['lift']['column_sweep']=sweep
     if sweep['status']!='column_clear':result['blockers'].append(sweep['message'])
+    calibration_blob=CALIBRATION.read_bytes()
+    observer=assess_observer(feedback,location,result['lift']['target_rad'],
+        json.loads(calibration_blob),config['arms']['right']['joint_limits_deg'])
+    observer['calibration_sha256']=hashlib.sha256(calibration_blob).hexdigest()
+    result['observer']=observer
+    result['blockers'].remove('尚未求解可达且能看见电池的 D405 观察姿态')
+    result['blockers'].append(observer['message'] if observer['status']!='observer_candidate'
+        else '观察姿态仅预测视野与立柱间隙；环境、自碰撞、遮挡及移动后的同目标确认尚未验证')
     result.update(observation_id=observation_id,
         calibration_sha256=store.observation(observation_id).get('calibration_sha256'),
         urdf_sha256=hashlib.sha256((PACKAGE/'urdf/lift2_with_sensors.urdf').read_bytes()).hexdigest(),
