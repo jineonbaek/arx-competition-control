@@ -117,7 +117,9 @@ class PickMonitor:
         self.feedback_policy=dict(expected_lift_rad=expected_lift_rad,
             lift_tolerance_rad=lift_tolerance_rad,max_pair_skew_s=max_pair_skew_s,
             max_age_s=arm_policy['max_age_s'])
-        self.arm=ArrivalMonitor(np.zeros(6),started_at=started_at,**arm_policy)
+        self.arm_policy=dict(arm_policy)
+        self.arm=ArrivalMonitor(np.zeros(6),started_at=started_at,**self.arm_policy)
+        self.settling_started=False
         if self.arm.tolerance.shape!=(6,):raise ValueError('Arm policy needs XYZ and rotation-vector tolerances')
         self.gripper_target=float(gripper_target);self.gripper_policy=dict(gripper_policy)
         # Validate both policies before any caller can start a physical operation.
@@ -125,6 +127,15 @@ class PickMonitor:
         self.stage='inserting';self.last_poll=started_at
         self.last_value=None;self.last_sample=None;self.arrival_sample=None
         self.failure=None
+
+    def begin_settling(self,now):
+        """Start the arrival window once the reference trajectory has ended."""
+        if (self.failure or self.stage!='inserting' or self.last_sample is not None
+                or self.settling_started or not np.isfinite(now) or now<self.last_poll):
+            raise ValueError('Cannot restart an active or interrupted arrival monitor')
+        self.arm=ArrivalMonitor(np.zeros(6),started_at=now,**self.arm_policy)
+        self.last_poll=now
+        self.settling_started=True
 
     def _receipt(self,close=False):
         return dict(status=self.failure or self.stage,close_permitted=close,

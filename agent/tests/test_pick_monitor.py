@@ -63,6 +63,15 @@ class PickMonitorTests(unittest.TestCase):
         self.assertFalse(r['grasp_confirmed'])
         self.assertEqual(len(adapter.calls),1)
 
+    def test_settling_window_is_one_shot_and_cannot_revive_failed_monitor(self):
+        g=self.make();g.begin_settling(20.)
+        self.assertEqual(g.arm.start,20.)
+        with self.assertRaises(ValueError):g.begin_settling(21.)
+        g=self.make();g.abort('cancelled')
+        with self.assertRaises(ValueError):g.begin_settling(20.)
+        g=self.make();g.update(self.state(10.1),10.1,ready=True)
+        with self.assertRaises(ValueError):g.begin_settling(20.)
+
     def test_tcp_pending_cannot_start(self):
         with self.assertRaisesRegex(ValueError,'TCP'):self.make(False)
 
