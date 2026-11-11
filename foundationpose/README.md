@@ -25,3 +25,37 @@
 官方 check_env 对缺少权重或示例只发警告；实际可运行性以 demo 成功输出为准。源码和权重不常驻运行，启动 demo 时才加载模型。
 
 本目录的 upstream、weights、.venv、demo_data、runtime 均忽略，不提交二进制、下载内容或日志。
+
+## 怎么运行
+
+    cd /home/arx/arx-foundationpose/foundationpose
+    bash run-demo.sh --frames 5
+
+默认使用已下载的官方 mustard0 前五帧。每次新建 runtime/demo-时间戳/，保存 overlay-0000.png 等效果图、pose-0000.txt 等 4×4 位姿矩阵及 result.json；不弹窗口、不操作相机、不发机器人命令。不能把返回矩阵直接发给机械臂。
+
+重新下载相同官方数据子集：
+
+    source env.sh
+    python download-demo.py
+
+下载器从官方 Google Drive ZIP 通过 HTTP Range 取出同一模型和五帧，逐文件校验 ZIP CRC，SHA256 记录在 demo-sources.json；子集约 10.2 MiB，无须完整下载 345 MiB 视频包。
+
+实测验证：check_env 全部核心检查通过；首次定位约 3.420 s，后四帧分别 56.9 / 15.1 / 14.9 / 15.5 ms（准确值见 validation-results.json）；PyTorch 峰值已分配显存约 2942.9 MiB。时间包含 CUDA 同步，排除加载模型、磁盘读取和效果图保存，首帧包含冷内核开销。五帧样例不能作为电池精度或实时帧率结论。
+
+## 换成我们的电池
+
+FoundationPose 需要相匹配的 CAD、彩色图、对齐彩色的深度图、该分辨率的彩色内参，以及首帧电池二值遮罩。遮罩指定完整电池区域，而非仅提手；后续同一连续序列使用跟踪。
+
+已把当前电池打印 STL 按 0.001 转为米，放在 runtime/battery/battery-m.obj，来源和尺寸见同目录 mesh.json。这个步骤没有改变原始 STL。
+
+准备文件格式与官方示例相同的电池序列：
+- rgb/0000.png 等彩色图（原尺寸）；
+- depth/0000.png 等 uint16 深度图，数值单位毫米，须与彩色对齐；
+- masks/0000.png 首帧二值电池遮罩，非零表示电池；
+- cam_K.txt 为对应彩色相机的 3×3 内参矩阵。
+
+    bash run-demo.sh --scene /绝对路径/电池序列 --mesh runtime/battery/battery-m.obj --frames 1
+
+结果 T_camera_from_object 把 CAD 中的米制点转换到相机光学坐标（X 右、Y 下、Z 前）。接入机器人时，还要使用拍照时的手眼外参与真实腕位，转换到 base_link。当前安装尚未提供 9983 窗口或电池实拍测试，也未生成或执行机械臂动作。
+
+当前可先继续用既有 D405 提手预览。下一阶段把冻结 RGB-D 与分割遮罩送入此独立环境，检查 CAD 叠加和提手坐标，再讨论运动。
