@@ -61,6 +61,7 @@ class Controller:
         self.command_epoch = 0
         self.motion_owner = None
         self.motion_interrupted = False
+        self.motion_trajectory = None
         self.models = {}
         for side in self.arms:
             try:
@@ -102,6 +103,8 @@ class Controller:
         with self.lock:
             if not isinstance(token, _MotionToken) or token is not self.motion_owner:
                 raise Rejected("任务控制权已失效")
+            if self.motion_trajectory is not None:
+                raise Rejected("轨迹任务仍未清理，不能释放控制权")
             self.motion_owner = None
             self.motion_interrupted = False
             self.command_epoch += 1
@@ -119,6 +122,105 @@ class Controller:
             return
         if client is not self.motion_owner or self.motion_interrupted:
             raise Rejected("自动任务占用控制权或已被人工停止；禁止继续运动")
+        if self.motion_trajectory is not None:
+            raise Rejected("轨迹尚未完成或停止核验，禁止发送其他运动")
+
+    def _trajectory_abort(self, side, token):
+        # Cancel ownership before requesting stop; never release after an uncertain dispatch.
+        with self.lock:
+            if token is not self.motion_owner:
+                return
+            self.motion_interrupted = True
+            self.command_epoch += 1
+            if self.motion_trajectory is not None:
+                if self.motion_trajectory.get('stop_requested'):
+                    return
+                self.motion_trajectory['stop_requested'] = True
+            try:
+                if not self.adapter.arm_stop_ready(side):
+                    raise Rejected("轨迹停止服务不可用")
+                self.adapter.arm_stop(side)
+            except Exception as error:
+                self.log("轨迹停止请求失败：" + str(error), "warning")
+
+    def start_trajectory(self, side, plan, token, *, preflight):
+        """Process-only entry: planner checks scene, calibrated TCP and rest in preflight."""
+        with self.lock:
+            if side not in self.arms or not self.motion_valid(token) or not callable(preflight):
+                raise Rejected("轨迹需要有效任务控制权和执行前复查")
+            if self.motion_trajectory is not None:
+                raise Rejected("已有轨迹待完成或清理")
+            reason = self.wrist_reason(side)
+            if reason:
+                raise Rejected(reason)
+            if preflight(self.snapshot(), self.clock()) is not True or not self.motion_valid(token):
+                raise Rejected("轨迹执行前复查未许可")
+            # Reserve before publish: failure can mean accepted but acknowledgement lost.
+            self.motion_trajectory = {"side": side, "handle": None, "started_at": self.clock()}
+            try:
+                expected = self.adapter.trajectory_status(side)
+                handle, confirmation = self.adapter.trajectory_start(side, plan, expected)
+                self.motion_trajectory["handle"] = copy.deepcopy(handle)
+                self.command_epoch += 1
+            except Exception:
+                self._trajectory_abort(side, token)
+                raise
+        try:
+            confirmation()
+            with self.lock:
+                if not self.motion_valid(token):
+                    raise Rejected("确认期间任务已被停止")
+                return copy.deepcopy(handle)
+        except Exception:
+            self._trajectory_abort(side, token)
+            raise
+
+    def poll_trajectory(self, token, *, preflight):
+        """Caller polls explicitly; no independent heartbeat can outlive its task checks."""
+        with self.lock:
+            if not isinstance(token, _MotionToken) or token is not self.motion_owner or self.motion_trajectory is None:
+                raise Rejected("没有匹配的轨迹任务")
+            side,handle = self.motion_trajectory['side'],self.motion_trajectory['handle']
+            try:
+                if not self.motion_valid(token) or not callable(preflight) or self.wrist_reason(side):
+                    raise Rejected("轨迹任务中断或反馈失效")
+                if preflight(self.snapshot(), self.clock()) is not True or not self.motion_valid(token):
+                    raise Rejected("轨迹持续复查未许可")
+                state = self.adapter.trajectory_status(side)
+                if (handle and state and state['ready'] and state['enabled']
+                        and state['status'] in ('idle','failed','reference_complete')
+                        and state['driver_instance']==handle['driver_instance']
+                        and state['command_epoch']==handle['command_epoch']
+                        and state['request_id']!=handle['request_id']
+                        and 0<=self.clock()-self.motion_trajectory['started_at']<.3):
+                    return {"status":"awaiting_driver_status", "arrived":False}
+                if (not handle or not state or not state['ready'] or not state['enabled']
+                        or any(state[k] != handle[k] for k in ('driver_instance','request_id'))
+                        or state['command_epoch'] != handle['command_epoch']+1):
+                    raise Rejected("轨迹回执缺失、过期或驱动已变化")
+                if state['status'] == 'reference_complete':
+                    self.motion_trajectory = None
+                    return {"status":"reference_complete", "arrived":False}
+                if state['status'] != 'running':
+                    raise Rejected("轨迹终止：" + state.get('reason','unknown'))
+                self.adapter.trajectory_keepalive(side, handle)
+                return {"status":"running", "arrived":False}
+            except Exception:
+                self._trajectory_abort(side, token)
+                raise
+
+    def clear_stopped_trajectory(self, token, *, verify_stopped):
+        """Failure cleanup requires a caller's measured-stop check, never just a sent stop."""
+        with self.lock:
+            if (not isinstance(token,_MotionToken) or token is not self.motion_owner
+                    or not self.motion_interrupted or self.motion_trajectory is None
+                    or not callable(verify_stopped)
+                    or verify_stopped(self.snapshot(),self.clock()) is not True):
+                raise Rejected("尚未核验轨迹停止，保留任务控制权")
+            state = self.adapter.trajectory_status(self.motion_trajectory['side'])
+            if not state or state['status'] not in ('idle','failed','reference_complete'):
+                raise Rejected("驱动仍在运行或状态未知，保留任务控制权")
+            self.motion_trajectory = None
 
     def log(self, text, level="info"):
         with self.lock:

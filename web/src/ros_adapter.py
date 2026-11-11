@@ -4,6 +4,8 @@ import threading
 import time
 import json
 import uuid
+import copy
+import math
 
 
 class RosAdapter:
@@ -24,6 +26,8 @@ class RosAdapter:
         self.arm_stop_clients = {}
         self.pending_arm_stops = {}
         self.pending_arm_commands = {}
+        self.trajectory_states = {}
+        self.trajectory_lock = threading.Lock()
 
     def start(self, controller):
         self.controller = controller
@@ -39,11 +43,19 @@ class RosAdapter:
             from std_msgs.msg import Bool, String
             from std_srvs.srv import Trigger
             self.Trigger = Trigger
+            self.String = String
             rclpy.init()
             self.rclpy, self.RobotCmd, self.PosCmd = rclpy, RobotCmd, PosCmd
             self.SetParameters = SetParameters
             self.node = rclpy.create_node("arx_web_observer")
             for side in ("left", "right"):
+                def trajectory_callback(msg, side=side):
+                    try:
+                        if len(msg.data)>4096:raise ValueError('Oversized trajectory status')
+                        self.update_trajectory(side,json.loads(msg.data))
+                    except (ValueError,TypeError):
+                        self.update_trajectory(side,None)
+                self.node.create_subscription(String,"/web/"+side+"/trajectory_status",trajectory_callback,1)
                 def callback(msg, side=side):
                     self.controller.update_arm(side, list(msg.joint_pos[:6]), float(msg.joint_pos[6]), list(msg.end_pos))
                 self.node.create_subscription(RobotStatus, self.config["arms"][side]["state_topic"], callback, qos_profile_sensor_data)
@@ -203,22 +215,92 @@ class RosAdapter:
         from control import Rejected
         request_id = str(uuid.uuid4())
         msg.header.frame_id = kind + "|" + request_id
-        pending = (threading.Event(), {})
-        self.pending_arm_commands[request_id] = pending
-        try:
-            self._publisher(self.config["arms"][side]["command_topic"], self.RobotCmd).publish(msg)
+        confirmed=self._arm_confirmation(request_id,
+            lambda:self._publisher(self.config["arms"][side]["command_topic"],self.RobotCmd).publish(msg))
+        return confirmed() if wait else confirmed
+
+    def _arm_confirmation(self,request_id,publish):
+        from control import Rejected
+        pending=(threading.Event(),{})
+        self.pending_arm_commands[request_id]=pending
+        try:publish()
         except Exception:
-            self.pending_arm_commands.pop(request_id, None)
+            self.pending_arm_commands.pop(request_id,None)
             raise
         def confirmed():
             try:
                 if not pending[0].wait(1.0):
                     raise Rejected("机械臂驱动未返回确认；执行结果不确定，请查看反馈")
                 if pending[1].get("ok") is not True:
-                    raise Rejected(pending[1].get("message", "机械臂驱动拒绝指令"))
+                    raise Rejected(pending[1].get("message","机械臂驱动拒绝指令"))
             finally:
-                self.pending_arm_commands.pop(request_id, None)
-        return confirmed() if wait else confirmed
+                self.pending_arm_commands.pop(request_id,None)
+        return confirmed
+
+    def update_trajectory(self,side,state):
+        fields={'driver_instance','command_epoch','enabled','request_id','status','reason','ready','manual_joint_active'}
+        valid=(side in ('left','right') and isinstance(state,dict) and fields<=state.keys()
+            and all(type(state[k]) is bool for k in ('enabled','ready','manual_joint_active'))
+            and type(state['command_epoch']) is int and 0<=state['command_epoch']<2**64
+            and all(isinstance(state[k],str) and len(state[k])<=256 for k in ('driver_instance','request_id','status','reason'))
+            and bool(state['driver_instance'])
+            and state['status'] in ('idle','running','failed','reference_complete','disabled'))
+        with self.trajectory_lock:
+            if valid:self.trajectory_states[side]=({k:state[k] for k in fields},time.monotonic())
+            else:self.trajectory_states.pop(side,None)
+
+    def trajectory_status(self,side):
+        with self.trajectory_lock:
+            cached=self.trajectory_states.get(side)
+            if not self.node or self.error or cached is None or not 0<=time.monotonic()-cached[1]<=.3:
+                return None
+            return copy.deepcopy(cached[0])
+
+    def trajectory_start(self,side,plan,expected):
+        """Internal transport only; caller must own motion and approve the checked scene/TCP."""
+        from control import Rejected, vector, number
+        state=self.trajectory_status(side)
+        if (not state or not state['enabled'] or not state['ready'] or state['manual_joint_active']
+                or state['status'] not in ('idle','failed','reference_complete')
+                or not isinstance(expected,dict)
+                or any(state[k]!=expected.get(k) for k in ('driver_instance','command_epoch'))):
+            raise Rejected('轨迹驱动未就绪、状态过期或已变化')
+        plan=copy.deepcopy(plan)
+        if (not isinstance(plan,dict) or set(plan)!={'interpolation','time_from_start_s','joint_waypoints_rad'}
+                or plan['interpolation']!='segment_quintic_scalar'):
+            raise Rejected('轨迹格式无效')
+        times,points=plan['time_from_start_s'],plan['joint_waypoints_rad']
+        if (not isinstance(times,list) or not 2<=len(times)<=1024
+                or not isinstance(points,list) or len(points)!=len(times)
+                or not all(number(t) for t in times) or times[0]!=0
+                or any(b<=a for a,b in zip(times,times[1:]))
+                or not all(vector(q,6) for q in points)):
+            raise Rejected('轨迹时间或节点无效')
+        limits=self.config['arms'][side]['joint_limits_deg']
+        if (not isinstance(limits,list) or len(limits)!=6
+                or not all(vector(pair,2) and pair[0]<=pair[1] for pair in limits)):
+            raise Rejected('轨迹关节限位配置无效')
+        if any(not lo<=math.degrees(v)<=hi for q in points for v,(lo,hi) in zip(q,limits)):
+            raise Rejected('轨迹关节超出配置范围')
+        handle=dict(request_id=str(uuid.uuid4()),driver_instance=state['driver_instance'],command_epoch=state['command_epoch'])
+        msg=self.String();msg.data=json.dumps({**plan,**handle,'kind':'start','version':1},allow_nan=False)
+        if len(msg.data.encode())>262144:raise Rejected('轨迹消息过大')
+        confirm=self._arm_confirmation(handle['request_id'],
+            lambda:self._publisher('/web/'+side+'/trajectory',self.String).publish(msg))
+        return handle,confirm
+
+    def trajectory_keepalive(self,side,handle):
+        from control import Rejected
+        state=self.trajectory_status(side)
+        if (not state or not state['enabled'] or not state['ready'] or state['status']!='running'
+                or not isinstance(handle,dict)
+                or any(state[k]!=handle.get(k) for k in ('driver_instance','request_id'))
+                or type(handle.get('command_epoch')) is not int
+                or state['command_epoch']!=handle['command_epoch']+1):
+            raise Rejected('轨迹已停止、状态过期或任务不匹配；不续发心跳')
+        msg=self.String();msg.data=json.dumps({'kind':'keepalive',
+            'driver_instance':state['driver_instance'],'request_id':state['request_id']})
+        self._publisher('/web/'+side+'/trajectory',self.String).publish(msg)
 
     def nav_chassis_sdk(self, x, y, yaw):
         msg = self.PosCmd()
