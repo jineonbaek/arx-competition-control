@@ -89,6 +89,14 @@ class Controller:
         with self.lock:
             return isinstance(token, _MotionToken) and token is self.motion_owner and not self.motion_interrupted
 
+    def interrupt_motion(self, token):
+        """Latch an executor fault without surrendering ownership before cleanup."""
+        with self.lock:
+            if not isinstance(token, _MotionToken) or token is not self.motion_owner:
+                raise Rejected("任务控制权已失效")
+            self.motion_interrupted = True
+            self.command_epoch += 1
+
     def release_motion(self, token):
         """Executor cleanup, after finishing or verifying its stop requests."""
         with self.lock:
@@ -301,11 +309,19 @@ class Controller:
                     "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
                     "logs": list(self.logs)}
 
-    def submit(self, data, client):
+    def submit(self, data, client, *, preflight=None):
         try:
+            if preflight is not None and (not callable(preflight) or not isinstance(data, dict)
+                    or data.get("type") != "gripper"):
+                raise Rejected("闭合复查仅用于任务夹爪指令")
             if isinstance(data, dict) and data.get("type") == "arm.wrist":
                 return self.wrist_command(data, client)
             with self.lock:
+                if preflight is not None:
+                    if not self.motion_valid(client):
+                        raise Rejected("闭合复查需要有效任务控制权")
+                    if preflight(self.snapshot(), self.clock()) is not True:
+                        return {"ok": False, "deferred": True, "message": "闭合复查未许可，未下发"}
                 was_moving = self.chassis_owner is not None
                 result = self._submit(data, client)
                 self.command_epoch += 1
