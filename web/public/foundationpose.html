@@ -6,8 +6,12 @@
 <div class="grasp-actions"><button id="capture" class="button secondary">采集 RGB-D</button><button id="estimate" class="button primary" disabled>估计位姿</button><button id="cancel" class="button danger" disabled>取消计算</button><span id="gpu" class="subtle-tag">模型未加载</span></div>
 <p id="status" role="status">正在读取状态…</p><p class="hint">点击估计时自动加载模型，完成后自动释放显存。采集只临时开启 D405 深度，结束后恢复原开关状态。</p>
 <div class="grasp-grid"><section class="panel"><div class="panel-heading"><h2>框选完整电池</h2><span id="stamp" class="subtle-tag"></span></div><canvas id="photo" width="640" height="480" aria-label="拖动框选完整电池"></canvas><p class="hint">框内保留少量背景，覆盖电池主体与提手。底盘、升降和右臂保持静止。</p></section>
-<section class="panel"><div class="panel-heading"><h2>CAD 叠加结果</h2><span id="result-stamp" class="subtle-tag">等待估计</span></div><div class="pose-image"><img id="overlay" alt="电池 CAD 轮廓与三轴叠加" hidden><span id="empty">估计后显示电池 CAD 轮廓、三维框和坐标轴</span></div><p class="hint">青色为 CAD 轮廓，绿色为包围框。轴颜色 X 红、Y 绿、Z 蓝，表示电池模型自身坐标。</p></section></div>
-<section class="panel candidates"><h2>位姿结果 · 整车 base_link</h2><dl id="metrics"></dl><p class="hint">位置显示 CAD 包围盒中心，单位 mm；角度是模型在 base_link 下的 Roll / Pitch / Yaw。模型自身原点见 4×4 矩阵。当前没有运动执行入口。</p><details><summary>查看坐标变换矩阵</summary><pre id="matrix">等待估计</pre></details></section>
+<section class="panel"><div class="panel-heading"><h2>CAD 叠加结果</h2><span id="result-stamp" class="subtle-tag">等待估计</span></div><div class="pose-image"><img id="overlay" alt="电池 CAD 轮廓与三轴叠加" hidden><span id="empty">估计后显示电池 CAD 轮廓、三维框和坐标轴</span></div><p class="hint">青色为 CAD 轮廓，绿色为包围框。G 是夹持中心，F → T 是候选伸入方向。轴颜色 X 红、Y 绿、Z 蓝，表示电池模型自身坐标。</p></section></div>
+<section class="panel candidates"><div class="panel-heading"><h2>提手夹持参考 · CAD 候选</h2><span class="subtle-tag">凸起朝下 · J6 −90°</span></div>
+<img id="grip-diagram" class="pose-thumb" src="cad/battery-grip.svg" alt="提手夹持中心、指尖伸入深度以及下侧夹指让位槽的 CAD 剖面示意">
+<dl id="grip-geometry" class="pose-metrics"></dl><p id="grip-status" class="hint">正在读取 CAD 测量结果…</p>
+<p class="hint">F 为提手最前沿，橙色 G 为夹持中心，青色 T 为指尖到达平面。上下两指尖齐平，侧图青色虚线表示槽两侧前伸齿，实线为槽中央剖面，金色为你指出的内侧槽底。伸入量从 F 量至 T，不是从机械臂当前位置前进的距离。这里不计算或发送腕部运动目标。</p></section>
+<section class="panel candidates"><h2>位姿结果 · 整车 base_link</h2><dl id="metrics"></dl><p class="hint">位置显示 CAD 包围盒中心，单位 mm；角度是模型在 base_link 下的 Roll / Pitch / Yaw。模型自身原点见 4×4 矩阵。当前没有运动执行入口。</p><p id="grip-pose-status" class="hint">估计位姿后，将夹持参考点投影到画面并转换到 base_link。</p><details><summary>查看坐标变换矩阵</summary><pre id="matrix">等待估计</pre></details></section>
 <div class="grasp-grid candidates"><section class="panel"><h2>实际采集的深度</h2><img id="depth" class="pose-thumb" alt="D405 对齐深度图" hidden><p id="depth-info" class="hint">等待采集</p></section>
 <section class="panel"><h2>本次使用的电池轮廓</h2><img id="mask" class="pose-thumb" alt="自动提取的电池轮廓" hidden><p class="hint">浅青色区域是框选后提取的前景。请核对是否覆盖电池；识别错误时调整选框重新估计。</p></section></div>
 </main></body></html>

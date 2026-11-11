@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "units": "mm",
+  "mesh_sha256": {
+    "battery-print.stl": "2891406c4185318ccefde7276e288fb3dc70de96585650be036db6df83b53720",
+    "viewer-right-v2.stl": "6500a1d45027c301ec3c0f9feed11e3aab5b4473df925a9c53b080bde31795bb",
+    "viewer-left-v2.stl": "c2bf7b6bab3bcdccc08bcaaf894993ea5cbecd8a0b10fe986c4f187a0d4ed520"
+  },
+  "assumptions": [
+    "凸起朝下，右腕约定夹姿 J6 -90°；带槽夹指位于下侧",
+    "沿电池 -Z 伸入，整车对齐后对应 base_link +X",
+    "夹指安装沿用现有 URDF 和四孔拟合；毫米开口尚未实机标定"
+  ],
+  "points_object_mm": {
+    "front": [
+      0.15602874755859375,
+      0,
+      195.27999877929688
+    ],
+    "grip": [
+      0.15602874755859375,
+      0,
+      186.01271057128906
+    ],
+    "tip": [
+      0.15602874755859375,
+      0,
+      169.27999877929688
+    ]
+  },
+  "approach_object": [
+    0,
+    0,
+    -1
+  ],
+  "bump_direction_object": [
+    0,
+    1,
+    0
+  ],
+  "required_j6_deg": -90,
+  "hole_bounds_mm": [
+    [
+      -19.843971252441406,
+      -1.7763568394002505e-15,
+      162.74542236328125
+    ],
+    [
+      20.156028747558594,
+      1.7763568394002505e-15,
+      176.74542236328125
+    ]
+  ],
+  "hole_size_mm": [
+    40.0,
+    14.0
+  ],
+  "handle_thickness_mm": 24.4,
+  "bridge_depth_mm": 18.534576416015625,
+  "bump_height_mm": 3.199999618530274,
+  "bump_bounds_mm": [
+    [
+      -15.843971252441406,
+      12.224358558654785,
+      179.88644409179688
+    ],
+    [
+      16.156028747558594,
+      15.399999618530273,
+      191.88644409179688
+    ]
+  ],
+  "notch_width_mm": 38.0,
+  "notch_depth_mm": 5.000000953674316,
+  "bump_width_mm": 32.0,
+  "lateral_clearance_each_mm": 3.0,
+  "bump_relief_clearance_mm": 1.8000013351440423,
+  "insertion_exact_mm": 25.534576416015625,
+  "insertion_mm": 26.0,
+  "tip_beyond_bridge_mm": 7.465423583984375,
+  "limitations": "名义 CAD 候选；采样检查不含无人机、机架、线缆、制造误差或全路径碰撞",
+  "tip_alignment_error_mm": 0.0,
+  "nominal_mount": {
+    "urdf_sha256": "7edd4ce7daa1d8132eb18fb16fb5b77fe8fa9dada6e40622d26103023d3c00fa",
+    "raw_translations_mm": [
+      [
+        -5.0,
+        -25.424,
+        -34.72975
+      ],
+      [
+        -5.0,
+        -12.712,
+        -34.72975
+      ]
+    ],
+    "joint_origins_mm": {
+      "right_link27": [
+        83.97,
+        27.21,
+        -6.2702
+      ],
+      "right_link28": [
+        83.97,
+        -23.637999999999998,
+        -6.270300000000001
+      ]
+    },
+    "note": "四孔拟合沿用预览；不是实机 TCP 标定"
+  },
+  "recess_coverage": {
+    "protrusion_vertex_samples": 573,
+    "inside_recess_samples": 573,
+    "minimum_clearance_mm": 1.7999401092529297,
+    "scope": "凸起表面 CAD 顶点沿闭合方向投影到夹指槽底"
+  },
+  "notch_floor_midline_object_mm": [
+    [
+      0.15607874755859186,
+      17.199941032409665,
+      208.83999633789065
+    ],
+    [
+      0.15607874755859186,
+      17.199941032409665,
+      177.57570648193362
+    ]
+  ],
+  "ray_check": {
+    "grid_mm": 0.5,
+    "penetration_tolerance_mm": 0.1,
+    "cases": {
+      "candidate": [
+        {
+          "min_gap_mm": -7.62939453125e-05,
+          "penetrating_samples": 0
+        },
+        {
+          "min_gap_mm": -7.62939453125e-05,
+          "penetrating_samples": 0
+        }
+      ],
+      "wrong_j6_sign": [
+        {
+          "min_gap_mm": -7.62939453125e-05,
+          "penetrating_samples": 0
+        },
+        {
+          "min_gap_mm": -3.2000808715820312,
+          "penetrating_samples": 1481
+        }
+      ],
+      "too_deep_42mm": [
+        {
+          "min_gap_mm": -15.857467651367188,
+          "penetrating_samples": 184
+        },
+        {
+          "min_gap_mm": -15.857475280761719,
+          "penetrating_samples": 488
+        }
+      ]
+    },
+    "scope": "closing-direction surface samples, not a certified collision check"
+  }
+}

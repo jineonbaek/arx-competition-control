@@ -13,7 +13,7 @@ with sync_playwright() as pw:
     browser=pw.chromium.launch(headless=True,executable_path=exe)
     context=browser.new_context(viewport={'width':1440,'height':1100})
     state=dict(status='idle',running=False,message='idle')
-    view=dict(id='official',width=640,height=480,time=1794400000,image=result['mask_image'],paired_ms=10)
+    view=dict(id=result['id'],width=640,height=480,time=1794400000,image=result['mask_image'],paired_ms=10)
     actions=[];errors=[];real_posts=[]
     def guard(route):
         req=route.request
@@ -24,7 +24,7 @@ with sync_playwright() as pw:
                     state.update(status='captured',running=False,message='captured',view=view,
                                  depth_image=result['mask_image'],valid_depth_fraction=.8)
                 elif data['op']=='infer':
-                    assert data['id']=='official' and min(data['roi'][2]-data['roi'][0],data['roi'][3]-data['roi'][1])>=12
+                    assert data['id']==result['id'] and min(data['roi'][2]-data['roi'][0],data['roi'][3]-data['roi'][1])>=12
                     state.update(status='running',running=True,run_id='demo',message='GPU computing',result=None)
                 elif data['op']=='stop':
                     state.update(status='stopped',running=False,message='released')
@@ -53,6 +53,11 @@ with sync_playwright() as pw:
     page.click('#estimate')
     page.locator('#overlay').wait_for(state='visible')
     assert 'GiB' in page.inner_text('#metrics')
+    assert '26 mm' in page.inner_text('#grip-geometry')
+    assert page.locator('#grip-diagram').evaluate('(e)=>e.naturalWidth')>0
+    if result.get('grasp_reference'):
+        assert 'G 夹持中心 XYZ' in page.inner_text('#metrics')
+        assert '−90' in page.inner_text('#grip-pose-status')
     assert page.locator('#cancel').is_disabled()
     page.click('#estimate')
     page.locator('#cancel').wait_for(state='visible')
