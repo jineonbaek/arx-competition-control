@@ -13,6 +13,7 @@ from .tools import ToolRegistry
 
 
 class AgentRuntime:
+    prompt_path = Path(__file__).parent / 'prompts/system.md'
     def __init__(self, config, store, tools=None, model=None, profile='cloud', progress=None, system_context=None):
         self.config, self.store = config, store
         self.progress = progress
@@ -101,7 +102,7 @@ class AgentRuntime:
         if instruction is not None:
             if state['messages'] or not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 10000:
                 raise AgentError('invalid_instruction', 'Use a new run for a new instruction')
-            prompt = (Path(__file__).parent / 'prompts/system.md').read_text(encoding='utf-8')
+            prompt = self.prompt_path.read_text(encoding='utf-8')
             if self.system_context:
                 prompt += '\n' + self.system_context
             prompt += '\nConfigured capabilities (configuration is not health verification):\n' + json.dumps(self.tools.capabilities())

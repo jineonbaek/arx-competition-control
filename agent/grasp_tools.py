@@ -41,3 +41,39 @@ class GraspTools(ToolRegistry):
         except AgentError:raise
         except (OSError,ValueError,KeyError) as e:
             raise AgentError("preview_failed","预览证据或环境无效："+str(e)[:180]) from e
+
+
+WORKFLOW_TOOLS={'get_system_status','read_observation','observe_battery','plan_coarse_alignment','preview_battery_grasp'}
+
+class WorkflowTools(GraspTools):
+    """Enforce prerequisite evidence even if the model asks for stages out of order."""
+    def _localized(self,camera):
+        import json
+        ident=self.store.state.get('latest_battery_observations',{}).get(camera)
+        relative=self.store.state.get('battery_observations',{}).get(ident)
+        if not relative:raise AgentError('stage_not_ready',camera+' 尚无本轮定位证据')
+        path=(self.store.path/relative).resolve()
+        if not path.is_relative_to(self.store.path.resolve()):raise AgentError('invalid_run','证据路径无效')
+        try:evidence=json.loads(path.read_text())
+        except (OSError,ValueError) as error:raise AgentError('invalid_run','定位证据不可读取') from error
+        if evidence.get('status')!='localized' or evidence.get('camera')!=camera or evidence.get('observation_id')!=ident:
+            raise AgentError('stage_not_ready',camera+' 未定位成功，不能继续下一阶段')
+        return ident
+
+    def _dispatch(self,name,a,call_id):
+        if name=='observe_battery' and a['camera']=='d405':
+            self._localized('d435')
+            if not self.store.state.get('coarse_alignment'):
+                raise AgentError('stage_not_ready','先规划 D435 粗对位；本模式仍不会执行动作')
+        if name=='plan_coarse_alignment' and self._localized('d435')!=a['observation_id']:
+            raise AgentError('stale_observation','必须使用本轮最新 D435 定位')
+        if name=='preview_battery_grasp' and self._localized('d405')!=a['observation_id']:
+            raise AgentError('stale_observation','必须使用本轮最新 D405 定位')
+        if name=='observe_battery':
+            counts=self.store.state.setdefault('battery_observation_attempts',{})
+            camera=a['camera']
+            if counts.get(camera,0)>=2:
+                raise AgentError('observation_budget','本轮该相机已观察两次，请查看原因后开始新任务')
+            counts[camera]=counts.get(camera,0)+1
+            self.store.save()
+        return super()._dispatch(name,a,call_id)

@@ -2,7 +2,7 @@ import * as THREE from '../vendor/lift2-preview/three.module.js';
 import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 const el=id=>document.getElementById(id);
 let state=null,shown=null,geometry=null,submitting=false;
-const stageNames={thinking:'准备采集',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过'};
+const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过'};
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.005,5);camera.up.set(0,0,1);
 let renderer,orbit;const objects=new THREE.Group();scene.add(objects);
 function render(){renderer?.render(scene,camera);}
@@ -25,10 +25,16 @@ function cloud(g){
  reset();
 }
 function image(id,src){el(id).hidden=!src;if(src)el(id).src=src;else el(id).removeAttribute('src');}
-function clear(){geometry=null;clearCloud();image('pose',null);image('recognition',null);el('metrics').replaceChildren();el('quality').textContent='';el('stamp').textContent='';el('blockers').textContent='TCP 未接入：腕部起终点暂不计算，不发送运动指令。';}
+function clear(){image('head',null);el('head-status').textContent='等待头部观察';el('coarse-status').textContent='等待 D435 定位；建议尚不执行';el('wrist-status').textContent='';geometry=null;clearCloud();image('pose',null);image('recognition',null);el('metrics').replaceChildren();el('quality').textContent='';el('stamp').textContent='';el('blockers').textContent='TCP 未接入：腕部起终点暂不计算，不发送运动指令。';}
 const xyz=p=>p.map(v=>v.toFixed(1)).join(' / ')+' mm';
 function show(data){
- clear();image('recognition',data.recognition?.overlay);image('pose',data.pose?.overlay);
+ clear();
+ const head=data.observations?.d435,wrist=data.observations?.d405,coarse=data.coarse_alignment;
+ const observationStatus=o=>!o?'尚未进行':o.status==='localized'?'已定位：可见表面 '+xyz(o.location.surface_base_mm):o.status==='target_not_found'?'本帧未找到电池':o.status==='depth_rejected'?'识别到电池，但深度不足：'+o.message:'识别或分割复核未通过';
+ image('head',head?.recognition?.overlay);el('head-status').textContent=observationStatus(head);
+ el('wrist-status').textContent=observationStatus(wrist);
+ if(coarse)el('coarse-status').textContent='升降建议 '+coarse.lift.target_rad.toFixed(2)+' SDK rad；CAD 零关节腕部参考 '+xyz(coarse.reference_wrist_base_mm)+'。向上够约 100 mm；'+(coarse.lift.clamped?'已限幅，距偏好高度还差 '+coarse.lift.preference_residual_mm.toFixed(1)+' mm。':'')+coarse.blockers.join('；')+'。未执行运动。';
+ image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
  if(!data.geometry)return;
  geometry=data.geometry;cloud(geometry);
@@ -43,14 +49,14 @@ async function request(path,body){
  const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)}:{cache:'no-store',signal:AbortSignal.timeout(10000)});
  const data=await r.json();if(!r.ok)throw Error(data.message||'请求失败');return data;
 }
-function buttons(){el('start').disabled=submitting||!state||state.busy||!el('distance').validity.valid||!el('distance').value;el('cancel').disabled=!state?.busy;el('distance').disabled=!!state?.busy;}
+function buttons(){el('start').disabled=submitting||!state||!state.available||state.busy||!el('distance').validity.valid||!el('distance').value;el('cancel').disabled=!state?.busy;el('distance').disabled=!!state?.busy;}
 el('distance').oninput=buttons;
 el('start').onclick=async()=>{
  try{
   submitting=true;clear();shown=null;buttons();
   // Each preview owns a fresh Agent run; old receipts remain on disk.
   state=await request('/api/grasp-integration',{action:'new',conversation_id:state.conversation_id});
-  state=await request('/api/grasp-integration',{action:'send',conversation_id:state.conversation_id,request_id:([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)),message:'/preview '+el('distance').value});
+  state=await request('/api/grasp-integration',{action:'send',conversation_id:state.conversation_id,request_id:([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)),message:'按抓取计划从 D435 观察定位开始，规划升降粗对位，再检查当前 D405 视野并生成 FoundationPose、点云和水平路径预览。预抓距离 '+el('distance').value+' mm。TCP 留空；本次只预览，不移动任何硬件。'});
  }catch(e){el('status').textContent=e.message;}finally{submitting=false;buttons();}
 };
 el('cancel').onclick=async()=>{try{state=await request('/api/grasp-integration',{action:'cancel',conversation_id:state.conversation_id,request_id:state.job.id});}catch(e){el('status').textContent=e.message;}buttons();};
@@ -65,7 +71,7 @@ async function poll(){
    if(state.job.status==='done'){
     try{show(await request('/api/grasp-integration/result'));}catch(e){if(!state.messages.length)el('status').textContent=e.message;}
    }
-  }else if(!state.job)el('status').textContent='准备就绪。点击按钮后按需采集并运行模型。';
+  }else if(!state.job)el('status').textContent=state.available?'准备就绪。Agent 将从 D435 开始，按需采集并运行模型。':state.unavailable_reason;
  }catch(e){el('status').textContent=e.message;}
  setTimeout(poll,1000);
 }

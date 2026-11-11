@@ -1,108 +1,49 @@
-# 识别、位姿与抓取路径预览
+# Agent 自动抓取链路：当前实现与验证边界
 
-本阶段在 `codex/grasp-integration` 的独立工作树实现 D405 软件预览。没有部署到运行中的 9983，没有发送机器人运动指令，也没有启动或重启机器人驱动。
+当前开发工作树 `/home/arx/arx-grasp-integration`，分支 `codex/grasp-integration`。本轮新增代码仅做软件测试，尚未加载到运行中的 9983，没有发运动指令、运行真实模型或重启驱动。完整目标仍是 D435 发现电池 → 升降和右臂对位 → D405 精定位 → 水平前伸 → 闭合并验证持物；当前实现尚未完成执行部分。
 
-## 入口与操作
+## 页面与阶段工具
 
-集成版本加载后，9983 的 D405 卡片新增「自动抓取链路预览」，对应 `/grasp-integration.html`。点击「识别并生成预览」才开始采集和计算；打开页面本身不会运行模型。
+加载集成版本后，9983 的「自动抓取链路预览」入口对应 `/grasp-integration.html`。点击「从 D435 开始预览」后使用真实 `AgentRuntime` 模型—工具循环，已移除旧 `/preview` 固定两步调用。打开页面本身不会启动模型。
 
-1. 现有 9983 采集程序临时申请 D405 深度，取得同一时刻的彩色、深度、右臂反馈和升降反馈，采集结束释放深度请求。
-2. 已有电池识别程序运行 DINO、Qwen 复核和 SAM2 分割。识别不确定时返回原因并停止，不把失败结果继续用于正式位姿预览。
-3. FoundationPose 使用同一张 RGB-D、分割掩码和电池 CAD 估计位姿。
-4. 将 CAD 上的 F（提手前沿）、G（夹持参考点）、T（夹指伸入末端）转换到整车 base_link。
-5. 在同一份实测点云上显示 G 和预抓点，生成 Y、Z 固定、沿 +X 的参考线段。预抓距离是从 G 向后退的距离，默认 50 mm；不是距机器人当前位置的固定前伸长度。
+1. `get_system_status`：查询已有控制台的反馈和能力。
+2. `observe_battery(camera=d435)`：经现有采集进程临时申请深度，保存配对 RGB-D 和反馈；已有 DINO、Qwen 复核和 SAM2 分割识别电池，估计可见表面在 base_link 的粗位置。使用 D435 自己的 CAD 外参，软件深度窗口最大 3 m 不代表此范围内的精度保证。
+3. `plan_coarse_alignment(observation_id)`：依据上述定位、CAD 零关节腕位和现有 41.54 rad/m 名义比例提出升降建议。目标是让参考腕位低于目标表面约 100 mm，随后由机械臂向上够。目标 Z 先扣除 CAD 腕部零位高度再换算升降行程；遵守 control.json 升降范围，显示限幅后的高度残差。零关节姿态只是计算参考，不会回零。
+4. `observe_battery(camera=d405)`：检查当前右腕视野并保存新的配对 RGB-D，使用既有小板手眼外参。当前没有执行粗调，所以这仍是现姿态观察，不能称为完成了相机交接。
+5. `preview_battery_grasp(observation_id, clearance_mm)`：复用同一 D405 快照的识别掩膜，运行 FoundationPose，把 CAD 的 F（提手前沿）、G（夹持参考点）、T（夹指伸入末端）转换到 base_link，再显示实测点云与 Y/Z 固定、沿 +X 的接触点线段。预抓距离默认 50 mm，是 G 向后退的距离，不是从当前腕位固定前伸 50 mm。
 
-页面显示识别图、CAD 位姿图、可旋转点云、参考点坐标、有效深度比例和朝向偏差。点云坐标以米供 Three.js 绘制；页面坐标和线段用毫米。点云是实测表面，FoundationPose 提供对象位姿，CAD 定义夹持位置，几何计算负责生成线段。
+按业务阶段封装工具，点云变换、CAD 点换算和 GPU 生命周期仍是内部函数。复用已有 `ToolRegistry`、`RunStore`、云端配置、调用预算、工具回执、请求去重、取消和网页会话隔离。专用抓取提示词不再包含早期“只有 RGB、相机对应未知”的描述。
 
-「取消本次计算」复用 Agent 取消标志；模型子进程会终止并释放显存。采集阶段由既有采集接口的有限超时收尾。识别与位姿估计串行运行。整合入口内部有互斥锁；原有独立视觉、FoundationPose 页面不共享该锁，验证期间不要同时运行这些模型页面。
+工具代码强制证据顺序：头部定位未成功不能跳到精抓；每台相机每轮最多观察两次。重新采集开始即清除旧预览；新头部观测还使旧粗规划和腕部观测失效。模型文字不能把任务标成抓取成功。
 
-## Agent / tools 如何复用
+页面分别显示 D435 结果、升降建议、D405 结果和位姿/点云。未发现电池、识别拒绝和深度不足分别报告；D405 不可见时保留 D435 结果。单相机内的后续计算使用归档快照；两台相机不是同一曝光时刻，也尚未验证跨相机是否为同一目标。
 
-复用现有 `AgentRuntime`、`ToolRegistry`、`RunStore`、网页会话、请求去重和工具回执；使用 competition-tools 分支已有的注册表扩展方式，没有另写一套 Agent 框架。
+## TCP 与运动边界
 
-- `capture_grasp_scene`：经 `/api/handle-preview` 冻结 RGB-D，校验源快照 ID、外参哈希及图像/反馈时间。
-- `preview_battery_grasp`：对指定 observation_id 串联识别、位姿、点云和路径。
-- 保留状态与观测读取工具；这个注册表没有执行抓取、关节、底盘或升降运动工具。
+`tcp_status=pending`，TCP、腕部预抓点和夹持终点为空，`executable=false`。按用户要求等待新的 TCP，旧示教偏移不替用。CAD 固定尺寸照 CAD 使用，实时反馈保留实测值，不四舍五入伪装标定常量。
 
-网页按钮通过同一 Agent 任务机制执行固定两步工具流程，不需要语言模型决定是否执行运动。已有语言模型运行器也可使用这个受限注册表。本次未验证新的自然语言对话行为。
+TCP 需说明标定点相对于右腕 `right_link26` 的位置、工具轴方向及其与 CAD 夹持参考点的关系。只有位置的枢轴标定不能独自给出工具轴方向。目标换算关系是 `T_base_wrist = T_base_tool × inverse(T_wrist_tool)`。J6 约 -90 度是约定夹法，不等于所有姿态的整车 Roll 都为 -90 度。
 
-每次运行的源图、scene.npz、state.json、工具回执和预览结果保存在当前工作树 `agent/runs/`，不加入 Git。多个页面的结果按会话隔离。源文件哈希或快照 ID 不匹配时拒绝计算；所有后续模型使用归档的同一份 RGB-D，不再读取正在变化的实时图像。
+尚待完成：升降时双臂/夹爪/环境扫掠检查；可达且可见目标的腕部观察姿态；执行粗调及确认同一电池；模型与点云质量验证；TCP 轨迹换算；接近后 D405 重测纠偏；连续 IK 和全路径碰撞检查；命令所有权、反馈控制和取消；到位后闭合及动作后真实持物验证。当前没有硬件执行工具，填入 TCP 也不会自动放开这些阶段。没有导航和锁止电池强行抽取功能。
 
-## TCP 等待标定
+## 数据、依赖与资源
 
-当前 `tcp_status=pending`，腕部预抓点、腕部夹持终点都为 null，`executable=false`。旧的人工示教偏移不会代替新的 TCP。
+每轮图像、scene.npz、工具回执、模型产物和计划保存在该工作树 `agent/runs/`，不入 Git。检查源快照 ID、外参哈希和图像/反馈时序；D435 外参固定于车体，D405 使用拍照时的右腕 FK 和升降反馈。深度采集沿用现有唯一相机进程，结束归还租约并恢复此前设置。
 
-TCP 完成后，需要确认标定点就是此次夹持使用的工具参考点，并提供它相对于右腕 `right_link26` 的位置，以及工具轴方向的定义。只有位置的枢轴标定不能单独确定工具坐标轴朝向。随后把目标工具位姿换算为腕部位姿：
-`T_base_wrist = T_base_tool × inverse(T_wrist_tool)`。
+识别依赖 `/home/arx/arx-vision-demo/vision/demo`；FoundationPose 环境依赖 `/home/arx/arx-foundationpose/foundationpose`。本仓库保留小板手眼外参、D435 CAD 外参、电池 STL 和 `web/public/cad/battery-grip.json`。不下载新权重、不运行厂家运动示例。
 
-J6 −90° 是约定夹法，不等于所有姿态下的整车 Roll 固定为 −90°。接入 TCP 后还需要对目标朝向、IK、整段夹爪扫掠碰撞和执行结果分别验证。这里输出的是接触参考点线段，尚不是可执行腕部轨迹。
+「取消」停止 Agent 后续调用并终止模型子进程；采集由已有有限超时收尾，不能把 Agent 取消当硬件急停。识别和位姿串行，整合入口共享 GPU 锁；独立视觉/位姿诊断页面不共享该锁，避免同时运行。每个模型子进程退出后释放其显存。
 
-本阶段未加入 D435 粗定位、底盘对齐、升降调整和闭爪执行；这些运动阶段不因 TCP 文件填好而自动启用。既有手眼数据、示教数据和 TCP 标定工作区均未改动。
+## 软件验证
 
-## ROG 依赖
+2026-11-12：Agent 51 项、网页 216 项通过；JS 语法检查和 git diff --check 通过。脚本化模型测试覆盖 D435 → 粗规划 → D405 → 位姿/路径调度、回执去重、识别结果复用、拒绝后不得越阶段、有限重试、失败后废弃旧路径、空 TCP 和 HTTP 会话/来源限制。假硬件调用为零。
 
-代码使用现有安装：
-- 识别：`/home/arx/arx-vision-demo/vision/demo`
-- FoundationPose 环境和模型：`/home/arx/arx-foundationpose/foundationpose`
-- 手眼外参：本仓库 `vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json`
-- CAD：本仓库 `web/cad/gripper-v2/battery-print.stl` 和 `web/public/cad/battery-grip.json`
+本轮未做云模型现场调用、浏览器视觉验收和真实运动，不能据此称完整自动抓取已跑通。早期 D405 历史帧诊断曾通过后半段点云与位姿显示，但识别复核拒绝，不能算识别成功的端到端证据。
 
-采集 API 和 RGB-D 缓存必须属于运行该代码的同一工作树。新工作树需使用已有模型、Three.js 与 RealSense Python 依赖；这些依赖和权重不随本次代码提交。不运行厂家示例来做软件测试。
-
-## 软件验证记录
-
-- Agent 测试：39 项通过，包含帧身份、防篡改、失配坐标、识别拒绝后不运行位姿、工具权限、取消/超时。
-- FoundationPose 输入与 CAD 测试：8 项通过。
-- 网页回归：209 项通过（新工作树补齐本机已有依赖后）；新接口验证会话与来源限制，假硬件调用为零。
-- 浏览器离线回放：位姿叠加、点云、TCP 待标定、取消、失败后清除旧结果和输入范围校验通过，无页面脚本异常。浏览器回放使用诊断数据，不是实机自动抓取成功记录。
-
-真实历史 RGB-D 的识别验证：约 202.26 秒、峰值约 1927 MiB，复核认为提手证据不足而拒绝。本次正式链路正确停止，没有得到可接受的端到端实景抓取结果。
-
-同一历史帧另做诊断性后半段测试（不作为识别通过的结果）：FoundationPose 配准约 2.84 秒、峰值约 2751 MiB；位姿、点云和水平线段接口正常。结束后 GPU 使用回到 15 MiB。配准时间不包含识别、加载和采集；不能视为整条链路总耗时。
-
-复现软件测试：
 ```sh
 cd /home/arx/arx-grasp-integration
 /home/arx/arx-competition-control/.venv/bin/python -m unittest discover -s agent/tests
 /home/arx/arx-competition-control/.venv/bin/python -m unittest discover -s web/tests
-/home/arx/arx-foundationpose/foundationpose/.venv/bin/python -m unittest discover -s foundationpose -p 'test_*.py'
-node --input-type=module --check < web/public/js/grasp-integration.js
+node --check web/public/js/grasp-integration.js
 git diff --check
 ```
-
-
-## 2026-11-12: full workflow continuation (not deployed)
-
-The two-tool D405 preview is not the requested complete grasp workflow. The next
-implementation follows the original staged plan: D435 observe/localize, coarse
-lift and observation-pose planning, execute approved plan, D405 reobserve,
-FoundationPose and cloud checks, TCP-based continuous horizontal insertion,
-closure and evidence-based grasp verification. The Agent chooses business-stage
-tools; deterministic code owns geometry, prerequisites and execution receipts.
-
-Implemented in this continuation: camera-specific frozen RGB-D capture, temporary
-D435 depth lease with restoration, immutable D435/D405 archives, and
-`observe_battery(camera)` (recognition plus robust coarse surface localization).
-D435 uses its own CAD extrinsic and a software depth window up to 3 m, not a claim
-of precision at that range. Surface coordinates are not a handle grip pose.
-Ambiguous depth layers and insufficient mask depth are rejected. Archived source
-images/candidate overlays remain available on failed recognition.
-
-User preference: the coarse lift should place the nominal wrist reference about
-100 mm below the battery grip height; the arm then reaches up and forward and
-uses D405 to correct Y/Z before +X insertion. This is a planning preference, not
-a fixed camera offset or direct subtraction from lift actuator radians.
-TCP stays empty until supplied by the user. Old taught offsets are not substituted.
-
-Still required: checked coarse/observation plans, actual Agent orchestration in
-the UI, same-target handoff, model/cloud validation, continuous IK and tool swept
-collision checks, command ownership, feedback execution/cancellation, and grasp
-verification. No new implementation in this continuation has moved hardware,
-restarted drivers or been deployed to 9983. Full acceptance still requires an
-observed successful end-to-end grasp; unit tests alone do not establish that.
-
-### D435 升降粗规划阶段
-
-`plan_coarse_alignment(observation_id)` 读取本任务已成功定位的 D435 不可变快照，按交付 CAD 零关节腕位和现有 41.54 rad/m 名义比例，提出“腕部参考高度低于目标可见表面约 100 mm”的升降目标，并遵守 control.json 的升降范围。显示被限幅后的高度残差。它不会把 base_link 的目标 Z 直接当成升降行程，也不会把当前实测轴值四舍五入当作 CAD 常量。
-
-这是粗规划建议：可见表面中心还不是提手点；双臂随升降的扫掠、观察姿态 IK 和视野仍待后续阶段检查，所以返回 executable=false。零关节姿态仅作计算参考，不会调用复位。TCP 字段为空，旧示教偏移不参与。

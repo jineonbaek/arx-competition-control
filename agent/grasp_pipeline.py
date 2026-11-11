@@ -96,7 +96,17 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None):
     frame=frame_path(store,ident)
     with gpu_slot():
         progress("recognition")
-        recognition=segment(store,ident,output,cancelled)
+        relative=store.state.get('battery_observations',{}).get(ident)
+        if relative:
+            observed=(store.path/relative).resolve()
+            if not observed.is_relative_to(store.path.resolve()):raise ValueError("Invalid observation receipt path")
+            receipt=json.loads(observed.read_text())
+            if receipt.get('observation_id')!=ident or receipt.get('camera')!='d405':
+                raise ValueError("Recognition receipt identity mismatch")
+            recognition=receipt['recognition']
+            if recognition.get('status')=='perception_accepted':
+                (output/'mask.png').write_bytes((observed.parent/'mask.png').read_bytes())
+        else:recognition=segment(store,ident,output,cancelled)
         result=dict(observation_id=ident,recognition=recognition,executable=False,tcp_status="pending")
         if recognition["status"]!="perception_accepted":
             result.update(status="recognition_rejected",message="识别未通过复核，本次没有估计位姿或生成路径。")

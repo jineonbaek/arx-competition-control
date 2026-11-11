@@ -101,4 +101,57 @@ class ObservationTests(unittest.TestCase):
         np.testing.assert_allclose(out['location']['surface_base_mm'],[300,-250,2500],atol=.01)
         self.assertEqual(self.store.state['battery_observations'][obs['observation_id']],out['result_file'])
 
+class WorkflowGateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.store=RunStore.create(self.tmp.name);self.addCleanup(self.store.close)
+        from agent.grasp_tools import WorkflowTools,WORKFLOW_TOOLS
+        self.tools=WorkflowTools(Config(),self.store,allowed_tools=WORKFLOW_TOOLS)
+
+    def save_head(self):
+        f=frame();f['camera_id']=np.array('d435')
+        blob=io.BytesIO();np.savez(blob,**f)
+        return save_frame(self.store,blob.getvalue(),source='test',camera='d435')
+
+    def test_rejected_head_cannot_skip_to_wrist_or_pose_and_retry_is_bounded(self):
+        obs=self.save_head()
+        with patch('agent.battery_observation.capture',return_value=obs),patch(
+                'agent.battery_observation.segment',return_value={'status':'needs_new_observation','selection':{'status':'not_found'}}),patch(
+                'agent.grasp_pipeline.estimate') as pose:
+            first=self.tools.execute('observe_battery',{'camera':'d435'},'head1')
+            self.assertEqual(first['data']['status'],'target_not_found')
+            for name,args in [('observe_battery',{'camera':'d405'}),
+                ('plan_coarse_alignment',{'observation_id':obs['observation_id']}),
+                ('preview_battery_grasp',{'observation_id':obs['observation_id'],'clearance_mm':50})]:
+                result=self.tools.execute(name,args,name)
+                self.assertFalse(result['ok']);self.assertEqual(result['error']['code'],'stage_not_ready')
+            self.assertTrue(self.tools.execute('observe_battery',{'camera':'d435'},'head2')['ok'])
+            third=self.tools.execute('observe_battery',{'camera':'d435'},'head3')
+            self.assertEqual(third['error']['code'],'observation_budget')
+            pose.assert_not_called()
+        self.assertFalse(self.store.state['pending'])
+
+    def test_failed_recapture_invalidates_old_plan_before_camera_read(self):
+        self.store.state.update(grasp_preview='old',coarse_alignment='old',
+            latest_battery_observations={'d435':'old','d405':'old'})
+        with patch('agent.battery_observation.capture',side_effect=ValueError('camera offline')):
+            result=self.tools.execute('observe_battery',{'camera':'d435'},'new')
+        self.assertFalse(result['ok'])
+        self.assertNotIn('coarse_alignment',self.store.state)
+        self.assertNotIn('grasp_preview',self.store.state)
+        self.assertFalse(self.store.state['latest_battery_observations'])
+
+    def test_depth_failure_preserves_recognition_reason_and_never_localizes(self):
+        obs=self.save_head()
+        def accepted(store,ident,output,cancelled):
+            from PIL import Image
+            Image.fromarray(np.zeros((20,30),np.uint8)).save(output/'mask.png')
+            return {'status':'perception_accepted'}
+        with patch('agent.battery_observation.capture',return_value=obs),patch('agent.battery_observation.segment',accepted):
+            result=self.tools.execute('observe_battery',{'camera':'d435'},'depth')
+        self.assertEqual(result['data']['status'],'depth_rejected')
+        self.assertIsNone(result['data']['location'])
+        self.assertIn('深度不足',result['data']['message'])
+        self.assertTrue((self.store.path/result['data']['result_file']).is_file())
+
 if __name__=='__main__':unittest.main()

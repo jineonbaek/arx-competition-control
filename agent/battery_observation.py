@@ -38,8 +38,17 @@ def surface_location(frame, mask):
 
 def observe(registry,camera,call_id):
     registry.progress('observe_'+camera)
+    registry.store.state.pop('grasp_preview',None)
+    latest=registry.store.state.setdefault('latest_battery_observations',{})
+    latest.pop(camera,None)
+    if camera=='d435':
+        registry.store.state.pop('coarse_alignment',None)
+        latest.pop('d405',None)
+    registry.store.save()
     observation=capture(registry,camera)
     ident=observation['observation_id']
+    latest[camera]=ident
+    registry.store.save()
     output=registry.store.path/'battery-observations'/call_id
     output.mkdir(parents=True,exist_ok=True)
     with gpu_slot():
@@ -48,17 +57,21 @@ def observe(registry,camera,call_id):
     status='recognition_rejected'
     if recognition.get('status')=='perception_accepted':
         mask=np.asarray(Image.open(output/'mask.png').convert('L'))
-        with np.load(frame_path(registry.store,ident),allow_pickle=False) as frame:
-            location=surface_location(frame,mask)
-        status='localized'
+        try:
+            with np.load(frame_path(registry.store,ident),allow_pickle=False) as frame:
+                location=surface_location(frame,mask)
+            status='localized'
+        except ValueError as error:
+            status='depth_rejected'
+            depth_error=str(error)
     elif any((recognition.get(key) or {}).get('status')=='not_found' for key in ('selection','coarse_selection')):
         status='target_not_found'
     if registry.store.cancelled:raise AgentError('cancelled','观察定位已取消')
     result=dict(observation_id=ident,camera=camera,status=status,location=location,
-        recognition=recognition,calibration_sha256=observation.get('calibration_sha256'),
+        recognition=recognition,message=depth_error if status=='depth_rejected' else '',calibration_sha256=observation.get('calibration_sha256'),
         image_time=observation['cameras'][camera]['captured_at'],executable=False)
     path=output/'result.json';atomic_json(path,result)
     relative=str(path.relative_to(registry.store.path))
     registry.store.state.setdefault('battery_observations',{})[ident]=relative
     registry.store.save()
-    return {key:result[key] for key in ('observation_id','camera','status','location','image_time')} | {'result_file':relative}
+    return {key:result[key] for key in ('observation_id','camera','status','location','image_time','message')} | {'result_file':relative}
