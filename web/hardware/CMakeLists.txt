@@ -27,3 +27,6 @@ target_link_libraries(x5_controller_web ${ARM_ROOT}/lib/arx_x5_src/libarx_x5_src
 ament_target_dependencies(x5_controller_web rclcpp arx5_arm_msg std_msgs std_srvs)
 add_executable(test_arm_limits test_arm_limits.cpp)
 target_compile_options(test_arm_limits PRIVATE -UNDEBUG)
+
+add_executable(test_arm_trajectory test_arm_trajectory.cpp)
+target_compile_options(test_arm_trajectory PRIVATE -UNDEBUG)
