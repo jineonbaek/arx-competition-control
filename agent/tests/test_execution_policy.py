@@ -21,7 +21,7 @@ def policy():
         j6_tolerance_deg=5.,
         timing_limits=timing,
         timeout_s={'execute_coarse_alignment':60.,'execute_battery_approach':30.,'execute_pick':30.},
-        coarse=dict(reach_bound_m=1.,fixed_lift_target_rad=5.02,fixed_joint_tolerance_rad=.02,
+        coarse=dict(reach_bound_m=1.,fixed_lift_target_rad=5.52,lift_acceptance_rad=5.,fixed_joint_tolerance_rad=.02,
             max_pair_skew_s=.05,observer_search=dict(start_z_mm=700.5,rpy_deg=[-.3,-2.6,.1],
                 offsets_mm=[10.,20.,30.,40.,0.,-10.,-20.,-30.],z_tolerance_mm=2.,
                 orientation_tolerance_deg=5.),

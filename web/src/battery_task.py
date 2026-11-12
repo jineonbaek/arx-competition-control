@@ -49,18 +49,21 @@ class BatteryTask:
         values.append(height)
         return values
 
-    def _wait_for_stopped(self,hold_s=.4,tolerance=.005):
+    def _wait_for_stopped(self,hold_s=.4,max_wait_s=3.,tolerance=.005):
         with self.controller.lock:
             if self.controller.motion_trajectory is not None:return False
-        initial=self._rest_values(self.controller.snapshot())
-        if initial is None:return False
-        end=time.monotonic()+hold_s
-        while time.monotonic()<end:
+        previous=self._rest_values(self.controller.snapshot())
+        if previous is None:return False
+        deadline=time.monotonic()+max_wait_s;stable_since=None
+        while time.monotonic()<deadline:
             time.sleep(.05)
             current=self._rest_values(self.controller.snapshot())
-            if current is None or any(abs(a-b)>tolerance for a,b in zip(initial,current)):
-                return False
-        return True
+            if current is None:return False
+            if any(abs(a-b)>tolerance for a,b in zip(previous,current)):stable_since=None
+            elif stable_since is None:stable_since=time.monotonic()
+            elif time.monotonic()-stable_since>=hold_s:return True
+            previous=current
+        return False
 
     @staticmethod
     def _request(value):

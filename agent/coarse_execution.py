@@ -10,7 +10,7 @@ from .motion_feedback import ArrivalMonitor
 
 
 class CoarseAlignmentStep:
-    def __init__(self, controller, token, *, lift_target_rad, observer_plan,
+    def __init__(self, controller, token, *, lift_target_rad, lift_acceptance_rad=None, observer_plan,
                  initial_joints, initial_lift_rad, fixed_joint_tolerance_rad,
                  lift_policy, arm_policy, max_pair_skew_s, lift_preflight, arm_preflight):
         if not controller.motion_valid(token) or not all(map(callable, (lift_preflight, arm_preflight))):
@@ -19,9 +19,11 @@ class CoarseAlignmentStep:
         self.plan=copy.deepcopy(observer_plan)
         self.initial={s:np.asarray(initial_joints[s],float).copy() for s in ('left','right')}
         self.initial_lift=float(initial_lift_rad);self.target=float(lift_target_rad)
+        self.acceptance=self.target if lift_acceptance_rad is None else float(lift_acceptance_rad)
         self.fixed_tolerance=float(fixed_joint_tolerance_rad);self.skew=float(max_pair_skew_s)
-        if (not np.isfinite([self.initial_lift,self.target,self.fixed_tolerance,self.skew]).all()
+        if (not np.isfinite([self.initial_lift,self.target,self.acceptance,self.fixed_tolerance,self.skew]).all()
                 or not 0<=self.initial_lift<=18 or not 0<=self.target<=18
+                or not self.initial_lift<=self.acceptance<=self.target
                 or min(self.fixed_tolerance,self.skew)<=0
                 or any(q.shape!=(6,) or not np.isfinite(q).all() for q in self.initial.values())):
             raise ValueError('Invalid coarse alignment feedback policy')
@@ -45,12 +47,14 @@ class CoarseAlignmentStep:
             self.endpoint=points[-1].copy()
         self.lift_policy=copy.deepcopy(lift_policy);self.arm_policy=copy.deepcopy(arm_policy)
         now=controller.clock()
-        self.lift=ArrivalMonitor([self.target],started_at=now,**self.lift_policy)
+        tolerance=float(self.lift_policy['tolerance'][0])
+        monitor_target=min(self.target,self.acceptance+tolerance) if lift_acceptance_rad is not None else self.target
+        self.lift=ArrivalMonitor([monitor_target],started_at=now,**self.lift_policy)
         self.arm=ArrivalMonitor(self.endpoint,started_at=now,**self.arm_policy)
         if self.lift.tolerance.shape!=(1,) or self.arm.tolerance.shape!=(6,):
             raise ValueError('Lift and arm policies require one and six axes')
         self.lift_preflight=lift_preflight;self.arm_preflight=arm_preflight
-        self.stage='prepared';self.failure=None;self.stop_requests={}
+        self.stage='prepared';self.failure=None;self.stop_requests={};self.lift_stop_sent=False
         self.achieved_lift=None;self.last_now=now;self.last_stamps=None
 
     def _receipt(self):
@@ -124,7 +128,8 @@ class CoarseAlignmentStep:
         with self.lock:
             if self.stage!='prepared' or self.failure:raise ValueError('Coarse step cannot be replayed or resumed')
             try:
-                self.lift=ArrivalMonitor([self.target],started_at=self.controller.clock(),**self.lift_policy)
+                monitor_target=min(self.target,self.acceptance+self.lift_policy['tolerance'][0])
+                self.lift=ArrivalMonitor([monitor_target],started_at=self.controller.clock(),**self.lift_policy)
                 r=self.controller.submit({'type':'lift','target':self.target},self.token,preflight=self._guard)
                 if r.get('ok') is not True:raise ValueError('Lift submission not confirmed')
                 self.stage='lifting'
@@ -155,6 +160,10 @@ class CoarseAlignmentStep:
                     if r['stop_required']:return self._abort(r['status'])
                     if r['arrived']:
                         if self.achieved_lift is None:self.achieved_lift=height
+                        if not self.lift_stop_sent:
+                            stopped=self.controller.submit({'type':'lift.stop'},self.token)
+                            if stopped.get('ok') is not True:return self._abort('coarse_start_failed')
+                            self.lift_stop_sent=True
                         # Controller's lift-rest history can exceed the local arrival window.
                         if self.controller.snapshot()['capabilities'].get('right:arm.wrist')!='':
                             return self._receipt()

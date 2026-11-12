@@ -48,6 +48,7 @@ def coarse_geometry(target_mm,current_lift,model,limits=(0.,18.),*,fixed_lift_ra
         target_surface_base_mm=target.tolist(),reference_joints_deg=[0]*6,
         reference_wrist_base_mm=reference.tolist(),x_y_alignment='deferred_to_d405',
         lift=dict(current_rad=float(current_lift),requested_rad=height,target_rad=height,
+            acceptance_rad=float(fixed_lift_rad),
             delta_rad=height-float(current_lift),limits_rad=list(limits),
             nominal_rad_per_m=NOMINAL_RAD_PER_M,fixed=True,clamped=False,
             both_arms_sweep_checked=False),
@@ -105,6 +106,7 @@ def plan(registry,observation_id,call_id):
         current_joints=feedback['joints'],
         limits_deg=config['arms']['right']['joint_limits_deg'])
     sweep=assess_lift(feedback,result['lift']['target_rad'])
+    result['lift']['acceptance_rad']=policy['coarse']['lift_acceptance_rad']
     result['lift']['column_sweep']=sweep
     if sweep['status']!='column_clear':result['blockers'].append(sweep['message'])
     result.update(initial_joints_rad={side:(feedback[key].tolist() if key in feedback else None)

@@ -1,6 +1,7 @@
 """Lift then observer trajectory on an in-memory controller only."""
 import copy
 import unittest
+import numpy as np
 from test_control import Controller,FakeAdapter,configured,Rejected
 from agent.coarse_execution import CoarseAlignmentStep
 
@@ -25,8 +26,8 @@ class CoarseStepTests(unittest.TestCase):
         self.lift_policy=dict(tolerance=[.02],max_speed=[.1],settle_s=.2,timeout_s=5.,stall_s=1.,max_age_s=.2)
         self.arm_policy=dict(tolerance=[.002]*6,max_speed=[.01]*6,settle_s=.2,timeout_s=2.,stall_s=.6,max_age_s=.2)
         self.step=self.make()
-    def make(self):
-        return CoarseAlignmentStep(self.c,self.token,lift_target_rad=6.,observer_plan=self.plan,
+    def make(self,target=6.,acceptance=None):
+        return CoarseAlignmentStep(self.c,self.token,lift_target_rad=target,lift_acceptance_rad=acceptance,observer_plan=self.plan,
             initial_joints={'left':[0.]*6,'right':[0.]*6},initial_lift_rad=5.,
             fixed_joint_tolerance_rad=.002,lift_policy=self.lift_policy,arm_policy=self.arm_policy,
             max_pair_skew_s=.05,lift_preflight=lambda *_:True,arm_preflight=lambda *_:True)
@@ -42,7 +43,7 @@ class CoarseStepTests(unittest.TestCase):
         return r
     def test_lift_then_observer_then_measured_rest(self):
         self.assertEqual(self.settle_lift()['status'],'observing_motion')
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift','trajectory'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
         self.state.update(command_epoch=4,request_id='observe',status='running')
         self.feedback(10.4);self.assertEqual(self.step.poll()['status'],'observing_motion')
         self.state['status']='reference_complete';self.q=[.01]*6
@@ -54,6 +55,16 @@ class CoarseStepTests(unittest.TestCase):
         self.assertTrue(self.c.motion_valid(self.token))
         self.assertFalse(any(c[0]=='arm' for c in self.adapter.calls))
         with self.assertRaises(ValueError):self.step.start()
+
+    def test_lift_accepts_five_radians_then_stops_before_arm(self):
+        self.step=self.make(target=5.52,acceptance=5.0)
+        self.step.start();self.height=5.0
+        for t in (10.1,10.2,10.31):
+            self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'observing_motion')
+        self.assertTrue(self.step.lift_stop_sent)
+        np.testing.assert_allclose(self.step.lift.target,[5.02])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
     def test_lift_failure_cannot_start_arm_and_stop_is_not_claimed_as_rest(self):
         for fault in ('left','right','stale','cancel','preflight'):
             with self.subTest(fault=fault):
@@ -186,14 +197,14 @@ class CoarseStepTests(unittest.TestCase):
     def test_stationary_observer_waits_for_new_settled_feedback_without_arm_command(self):
         self.stationary()
         self.assertEqual(self.settle_lift()['status'],'settling_observer')
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift'])
         # Lift completion's last sample must not also establish arm settling.
         self.assertEqual(self.step.poll()['status'],'settling_observer')
         for t in (10.32,10.42,10.53):
             self.feedback(t);r=self.step.poll()
         self.assertEqual(r['status'],'ready_to_observe')
         self.assertTrue(r['new_observation_required'])
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift'])
         self.q[0]=.02;self.feedback(10.6)
         self.assertTrue(self.step.poll()['stop_required'])
 

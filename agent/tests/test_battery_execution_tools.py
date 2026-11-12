@@ -21,7 +21,7 @@ class BatteryExecutionToolsTests(unittest.TestCase):
             executable=True,ik_checked=True,collision_checked=True,collision_free=True,
             environment_collision_checked=True,
             observer={'status':'fixed_observer_candidate','joints_rad':[0.]*6,'column_path':{'clear':True}},
-            lift={'fixed':True,'target_rad':5.02,'current_rad':5.0})
+            lift={'fixed':True,'target_rad':5.52,'acceptance_rad':5.0,'current_rad':5.0})
         self.store.state.update(coarse_alignment='coarse.json')
         self.store.state['mission'].update(stage='COARSE_PLANNED',plan=copy.deepcopy(self.plan))
         self.payload=dict(plan_id='coarse',task=None,target=None,slot=None,plan=copy.deepcopy(self.plan))

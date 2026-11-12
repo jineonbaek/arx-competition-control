@@ -78,6 +78,7 @@ class BatteryControllerBackend:
         step=None
         try:
             step=CoarseAlignmentStep(self.controller,self.token,lift_target_rad=lift,
+                lift_acceptance_rad=lift,
                 observer_plan=timed,initial_joints=initial,initial_lift_rad=lift,
                 fixed_joint_tolerance_rad=p['fixed_joint_tolerance_rad'],
                 lift_policy=p['lift_policy'],arm_policy=p['arm_policy'],

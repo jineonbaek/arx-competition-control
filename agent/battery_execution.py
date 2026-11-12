@@ -48,6 +48,7 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
         else:
             trajectory=dict(version=1,**_trajectory([q0,q1],p['reach_bound_m'],p['timing_limits']))
         return CoarseAlignmentStep(controller,token,lift_target_rad=plan['lift']['target_rad'],
+            lift_acceptance_rad=plan['lift'].get('acceptance_rad'),
             observer_plan=trajectory,initial_joints=initial,initial_lift_rad=plan['lift']['current_rad'],
             **{k:p[k] for k in ('fixed_joint_tolerance_rad','lift_policy','arm_policy','max_pair_skew_s')},
             lift_preflight=guard,arm_preflight=guard)
