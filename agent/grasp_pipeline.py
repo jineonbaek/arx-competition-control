@@ -59,12 +59,21 @@ def segment(store,ident,output,cancelled):
     source=Path(report["output"]).resolve()
     if not source.is_relative_to((VISION/"runtime").resolve()):raise ValueError("Unknown recognition artifact")
     result={key:report.get(key) for key in ("status","selection","coarse_selection","review","path","elapsed_s","peak_gpu_mib")}
-    if report["status"]=="perception_accepted":
+    selected=(report.get("selection") or {}).get("status")=="selected"
+    mask_ok=(report.get("geometry") or {}).get("mask_valid") is True
+    if report["status"]=="perception_accepted" or (selected and mask_ok):
         mask=np.asarray(Image.open(source/"mask.png").convert("L"))
         with Image.open(image) as original:
             if mask.shape!=(original.height,original.width):raise ValueError("Mask size mismatch")
         y,x=np.nonzero(mask)
         if len(x)<100:raise ValueError("Empty battery mask")
+        with np.load(frame_path(store,ident),allow_pickle=False) as frame:
+            raw=np.asarray(frame["raw_depth"])
+        valid=(mask>0)&(raw>0)
+        result.update(status="perception_accepted",
+            acceptance="model_review" if report["status"]=="perception_accepted" else "selected_valid_mask",
+            paired_depth=dict(available=bool(valid.any()),valid_pixels=int(valid.sum()),
+                mask_pixels=int((mask>0).sum()),valid_fraction=float(valid.sum()/max(1,(mask>0).sum()))))
         result["bbox_xyxy"]=[int(x.min()),int(y.min()),int(x.max()+1),int(y.max()+1)]
         (output/"mask.png").write_bytes((source/"mask.png").read_bytes())
     for name in ("overlay.png","candidates.png","rgb.png"):

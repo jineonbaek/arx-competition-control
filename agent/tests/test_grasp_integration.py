@@ -1,7 +1,7 @@
 import json, tempfile, unittest, sys
 from unittest.mock import patch
 from agent.grasp_scene import save_frame, frame_path
-from agent.grasp_pipeline import pipeline, run_worker
+from agent.grasp_pipeline import pipeline, run_worker, segment
 from agent.contracts import AgentError
 import io
 from pathlib import Path
@@ -92,6 +92,26 @@ class PipelineTests(unittest.TestCase):
         path=frame_path(self.store,self.obs["observation_id"])
         path.write_bytes(b"tampered")
         with self.assertRaises(AgentError):frame_path(self.store,self.obs["observation_id"])
+
+    def test_selected_valid_mask_continues_despite_review_rejection(self):
+        from PIL import Image
+        root=self.store.path/'vision';source=root/'runtime/run/observation'
+        source.mkdir(parents=True)
+        Image.fromarray(np.full((20,30),255,np.uint8)).save(source/'mask.png')
+        report=dict(output=str(source),status='needs_new_observation',
+            selection={'status':'selected','candidate_id':1},geometry={'mask_valid':True},
+            review={'status':'rejected','reason':'background leak'})
+        def worker(command,cwd,log,cancelled,timeout):
+            log.write_text(json.dumps(report));return 2
+        output=self.store.path/'selected-mask'
+        output.mkdir()
+        with patch('agent.grasp_pipeline.VISION',root),patch('agent.grasp_pipeline.run_worker',worker):
+            result=segment(self.store,self.obs['observation_id'],output,lambda:False)
+        self.assertEqual(result['status'],'perception_accepted')
+        self.assertEqual(result['acceptance'],'selected_valid_mask')
+        self.assertTrue(result['paired_depth']['available'])
+        self.assertEqual(result['paired_depth']['valid_fraction'],1.)
+        self.assertTrue((output/'mask.png').is_file())
     def test_rejected_recognition_does_not_run_pose(self):
         with patch("agent.grasp_pipeline.segment",return_value={"status":"needs_new_observation"}),patch("agent.grasp_pipeline.estimate") as estimate:
             result=pipeline(self.store,self.obs["observation_id"],50,self.store.path/"preview")
