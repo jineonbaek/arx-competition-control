@@ -168,10 +168,8 @@ class PickMonitor:
             if self.last_sample is not None and stamp<self.last_sample:raise ValueError('Out-of-order feedback')
             if self.stage!='inserting':
                 if np.any(np.abs(value)>self.arm.tolerance):raise ValueError('Tool drifted after arrival')
-                if self.last_sample is not None and stamp>self.last_sample:
-                    if (stamp-self.last_sample>self.arm.max_age or
-                            np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
-                        raise ValueError('Tool is no longer settled')
+                if self.last_sample is not None and stamp-self.last_sample>self.arm.max_age:
+                    raise ValueError('Feedback gap after arrival')
             return value,stamp
         except (ValueError,TypeError,KeyError):
             self.abort('feedback_invalid');return None

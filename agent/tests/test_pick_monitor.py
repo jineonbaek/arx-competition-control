@@ -30,7 +30,7 @@ class PickMonitorTests(unittest.TestCase):
         self.assertEqual(r['status'],'ready_to_close')
         self.assertFalse(r['grasp_confirmed'])
 
-    def test_rotating_at_constant_angular_error_is_not_stationary(self):
+    def test_post_arrival_velocity_does_not_revoke_close_within_pose_tolerance(self):
         from scipy.spatial.transform import Rotation
         g=self.make()
         g.stage='ready_to_close';g.arrival_sample=10.1;g.last_sample=10.1
@@ -40,7 +40,20 @@ class PickMonitorTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(self.model,'wrist_transform',return_value=actual@np.linalg.inv(self.tcp)):
             r=g.start_closing(self.state(10.2),10.2,ready=True)
-        self.assertFalse(r['close_permitted']);self.assertTrue(r['stop_required'])
+        self.assertTrue(r['close_permitted']);self.assertFalse(r['stop_required'])
+
+    def test_fast_small_tcp_jitter_during_closing_does_not_interrupt_gripper(self):
+        from scipy.spatial.transform import Rotation
+        from unittest.mock import patch
+        g=self.make();self.arrive(g)
+        self.assertTrue(g.start_closing(self.state(10.32),10.32,ready=True)['close_permitted'])
+        for index,t in enumerate((10.34,10.44,10.55,10.65)):
+            actual=self.target.copy();actual[0,3]+=(1 if index%2 else -1)*.0003
+            actual[:3,:3]=self.target[:3,:3]@Rotation.from_euler('x',(-1 if index%2 else 1)*.2,degrees=True).as_matrix()
+            with patch.object(self.model,'wrist_transform',return_value=actual@np.linalg.inv(self.tcp)):
+                r=g.update(self.state(t,-1.2),t,ready=True)
+            self.assertFalse(r['stop_required'],r)
+        self.assertEqual(r['status'],'awaiting_hold_verification')
 
     def test_console_snapshot_and_gripper_protocol_with_fake_adapter(self):
         from web.tests.test_control import Controller,FakeAdapter,configured
