@@ -222,3 +222,25 @@ orientation. load_pick_setup binds file content into calibration identity and ta
 explicit caller timing/tolerance policies. No fallback to the nominal CAD 154.970 mm.
 Nine TCP/real-IK planning tests pass. Earlier TCP-pending notes above are historical.
 Scope: config/right-grip-tcp.json, agent/battery_tcp.py, agent/tests/test_battery_tcp.py, this ledger.
+
+
+### 2026-11-12: deterministic fixed sequence and explicit assembly
+
+BatteryFlow calls the existing BatteryExecutionTools in fixed order: head observation,
+coarse plan/execution, wrist observation/pose/cloud, TCP approach, new observation and
+bounded correction, insertion/closure, post-close capture and retention verification.
+No per-step LLM scheduling, keyboard simulation, new SDK/CAN owner or live registration.
+The exact command is persisted across stage recovery; pending receipts resolve before
+dependent work. A shared run lock rejects concurrent dispatch, and terminal runs never
+replay. Retention requires new evidence for the same target; missing verification is
+not success. build_workflow explicitly supplies measured TCP, Controller/token and
+caller policies. Complete scene review, initial open-gripper preflight and actual hold
+verifier remain injected capabilities, not fabricated defaults. See battery-fixed-flow.md.
+
+Validation: all 175 Agent tests and 281 web tests passed, including 13 fixed-flow/assembly
+regressions, real dispatcher with inert prepared Controller step, disabled motion,
+post-close frame/target mismatch, uncertain receipts, persisted command recovery and
+repeat/concurrent run protection. No camera/model invocation or robot commands occurred.
+Scope: agent/battery_flow.py, agent/battery_workflow.py, agent/battery_backend.py,
+agent/battery_tools.py, agent/tests/test_battery_flow.py, agent/tests/test_battery_workflow.py,
+docs/battery-fixed-flow.md, this ledger.
