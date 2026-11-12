@@ -18,7 +18,8 @@ class PickMonitorTests(unittest.TestCase):
     def make(self,tcp=True):
         return PickMonitor(self.model,self.tcp if tcp else None,self.target,
             expected_lift_rad=12.,lift_tolerance_rad=.02,max_pair_skew_s=.05,
-            started_at=10.,arm_policy=self.policy,gripper_target=-1.2,gripper_policy=self.grip_policy)
+            started_at=10.,arm_policy=self.policy,gripper_target=-1.2,
+            gripper_policy=self.grip_policy,hold_gripper_range=[-2.6,-1.6])
 
     def state(self,t,grip=-3.):
         return dict(chassis_active=False,arms={'right':dict(joints=self.q.tolist(),
@@ -124,5 +125,19 @@ class PickMonitorTests(unittest.TestCase):
         self.assertEqual(g.update(self.state(10.42,-1.2),10.42,ready=True)['status'],'closing')
         self.assertEqual(g.update(self.state(10.42,-1.2),10.5,ready=True)['status'],'closing')
         self.assertEqual(g.update(self.state(10.42,-1.2),10.6,ready=True)['status'],'feedback_invalid')
+
+    def test_object_stall_inside_taught_range_continues_to_hold_verification(self):
+        g=self.make();self.arrive(g);g.start_closing(self.state(10.32),10.32,ready=True)
+        for t in (10.42,10.52,10.62,10.72,10.82,10.92,11.02,11.12,11.22,11.32):
+            result=g.update(self.state(t,-2.),t,ready=True)
+        self.assertEqual(result['status'],'awaiting_hold_verification')
+        self.assertFalse(result['stop_required'])
+
+    def test_object_stall_outside_taught_range_stops(self):
+        g=self.make();self.arrive(g);g.start_closing(self.state(10.32),10.32,ready=True)
+        for t in (10.42,10.52,10.62,10.72,10.82,10.92,11.02,11.12,11.22,11.32):
+            result=g.update(self.state(t,-3.),t,ready=True)
+        self.assertEqual(result['status'],'stalled')
+        self.assertTrue(result['stop_required'])
 
 if __name__=='__main__':unittest.main()

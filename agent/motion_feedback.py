@@ -107,7 +107,7 @@ class PickMonitor:
     """
     def __init__(self,model,wrist_from_tool,target_base_tool,*,expected_lift_rad,
                  lift_tolerance_rad,max_pair_skew_s,started_at,arm_policy,
-                 gripper_target,gripper_policy):
+                 gripper_target,gripper_policy,hold_gripper_range):
         if wrist_from_tool is None:raise ValueError('TCP pending')
         if (not np.isfinite([expected_lift_rad,lift_tolerance_rad,max_pair_skew_s]).all()
                 or not 0<=expected_lift_rad<=18 or min(lift_tolerance_rad,max_pair_skew_s)<=0):
@@ -122,6 +122,10 @@ class PickMonitor:
         self.settling_started=False
         if self.arm.tolerance.shape!=(6,):raise ValueError('Arm policy needs XYZ and rotation-vector tolerances')
         self.gripper_target=float(gripper_target);self.gripper_policy=dict(gripper_policy)
+        self.hold_range=np.asarray(hold_gripper_range,float)
+        if (self.hold_range.shape!=(2,) or not np.isfinite(self.hold_range).all()
+                or self.hold_range[0]>self.hold_range[1]):
+            raise ValueError('Hold range must be [minimum, maximum]')
         # Validate both policies before any caller can start a physical operation.
         self.gripper=ArrivalMonitor([self.gripper_target],started_at=started_at,**self.gripper_policy)
         self.stage='inserting';self.last_poll=started_at
@@ -179,9 +183,13 @@ class PickMonitor:
         elif self.stage=='closing':
             try:
                 arm=snapshot['arms']['right']
-                r=self.gripper.update([arm['gripper']],arm['received'],now,ready=ready,cancelled=cancelled)
+                value=float(arm['gripper'])
+                r=self.gripper.update([value],arm['received'],now,ready=ready,cancelled=cancelled)
             except (KeyError,TypeError,ValueError):return self.abort('gripper_feedback_invalid')
-            if r['stop_required']:return self.abort(r['status'])
+            # A held object prevents full closure; a stable stop in the taught range is expected.
+            if r['status']=='stalled' and self.hold_range[0]<=value<=self.hold_range[1]:
+                self.stage='awaiting_hold_verification'
+            elif r['stop_required']:return self.abort(r['status'])
             if r['arrived']:self.stage='awaiting_hold_verification'
         return self._receipt()
 
