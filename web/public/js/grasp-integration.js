@@ -46,7 +46,7 @@ function show(data){
  if(key!==geometryKey){geometryKey=key;geometry=g||null;if(g)cloud(g);else clearCloud();}
  el('stamp').textContent=g?'冻结观测 '+g.snapshot_id+' · '+new Date(g.image_time*1000).toLocaleString('zh-CN'):'';
  const rows=[];
- if(g)rows.push(['预抓参考点',xyz(g.path.pre_mm)],['夹持参考点',xyz(g.path.end_mm)]);
+ if(g)rows.push(['TCP 预抓点',xyz(g.path.pre_mm)],['TCP 终点',xyz(g.path.end_mm)]);
  if(plan?.wrist_pre_mm)rows.push(['预抓腕位',xyz(plan.wrist_pre_mm)],['夹持腕位',xyz(plan.wrist_end_mm)],['TCP 标定',plan.calibration_id||'未就绪']);
  el('metrics').replaceChildren(...rows.map(([name,value])=>{const box=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value;box.append(dt,dd);return box;}));
  el('blockers').textContent=plan?.calibration_id?'本轮已加载 TCP；抓取路径随新的视觉观测与纠偏更新。':g?'点云已生成，等待抓取计划和 TCP 检查。':'等待任务生成抓取预览';

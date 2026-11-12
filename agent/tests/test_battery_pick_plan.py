@@ -46,8 +46,8 @@ class BatteryPickPlanTests(unittest.TestCase):
         self.T=np.eye(4)
         self.T[:3,:3]=[[0,0,-1],[1,0,0],[0,-1,0]]
         target=(wrist@tcp)[:3,3]+[.01,0,0]
-        grip=np.array(json.loads(PROFILE.read_text())['points_object_mm']['grip'])/1000
-        self.T[:3,3]=target-self.T[:3,:3]@grip
+        tip=np.array(json.loads(PROFILE.read_text())['points_object_mm']['tip'])/1000
+        self.T[:3,3]=target-self.T[:3,:3]@tip
         self.pose=dict(id=str(f['id']),frame='base_link',T_camera_from_object=self.T.tolist(),
             T_base_from_object=self.T.tolist())
         self.report=dict(observation_id=self.ident,status='preview_complete',message='fixture',
@@ -99,6 +99,11 @@ class BatteryPickPlanTests(unittest.TestCase):
         self.assertEqual(data['observation_id'],self.ident)
         self.assertEqual(data['calibration_id'],'synthetic-test-only')
         tcp=np.array(self.setup['T_wrist_from_tool'])
+        tip=np.array(self.report['geometry']['grip']['points_base_mm']['tip'])
+        np.testing.assert_allclose(data['contact_path']['end_mm'],tip,atol=1e-6)
+        np.testing.assert_allclose(data['contact_path']['pre_mm'],tip-[10,0,0],atol=1e-6)
+        final_tcp=self.model.wrist_transform(data['joint_waypoints_rad'][-1],self.lift)@tcp
+        self.assertLess(np.linalg.norm(final_tcp[:3,3]*1000-tip),.5)
         for q,point in zip(data['joint_waypoints_rad'],data['tool_points_mm']):
             actual=self.model.wrist_transform(q,self.lift)@tcp
             self.assertLess(np.linalg.norm(actual[:3,3]*1000-point),.5)

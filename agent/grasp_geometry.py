@@ -56,7 +56,7 @@ def preview_geometry(f,mask,pose,clearance_mm):
     if selected.sum()<100:raise ValueError("Insufficient battery surface depth")
     profile=json.loads(PROFILE.read_text())
     grip=transform_reference(profile,object_base,object_camera)
-    target=np.asarray(grip["points_base_mm"]["grip"])
+    target=np.asarray(grip["points_base_mm"]["tip"])
     direction=np.asarray(grip["approach_base"],float)
     pre=target-clearance_mm*direction
     # shortcut: task-space line only; wrist IK and swept gripper collisions wait for calibrated TCP.
@@ -68,15 +68,15 @@ def preview_geometry(f,mask,pose,clearance_mm):
     return dict(frame="base_link",unit="mm",snapshot_id=str(f["id"]),
         image_time=float(f["image_time"]),base_from_color=base.tolist(),
         points=np.column_stack([cloud,colors]).tolist(),grip=grip,
-        path=dict(control_point="CAD grip reference G, not wrist",points_mm=points.tolist(),
+        path=dict(control_point="CAD fingertip reference T (TCP target), not wrist",points_mm=points.tolist(),
                   pre_mm=pre.tolist(),end_mm=target.tolist(),kind="battery_approach_axis",
                   direction_base=direction.tolist(),alignment="follows FoundationPose battery axis",
                   required_j6_deg=-90),
         depth=dict(mask_pixels=int(mask.sum()),valid_pixels=int(selected.sum()),
             valid_ratio=float(selected.sum()/max(1,mask.sum())),
-            nearest_surface_to_grip_mm=float(np.linalg.norm(surface*1000-target,axis=1).min())),
+            nearest_surface_to_grip_mm=float(np.linalg.norm(surface*1000-np.asarray(grip["points_base_mm"]["grip"]),axis=1).min())),
         profile_sha256=hashlib.sha256(PROFILE.read_bytes()).hexdigest(),
         tcp_status="pending",wrist_pregrasp_mm=None,wrist_grip_mm=None,
         executable=False,ik_checked=False,whole_path_collision_checked=False,
         blockers=["TCP 未接入","尚未验证目标朝向与水平夹姿匹配","尚未进行 IK 与夹爪全路径碰撞检查"],
-        note="点云用于实测表面与 CAD 对照；孔中心可能是背景。当前线段为接触点 G 的几何模板，不是腕部轨迹。")
+        note="点云用于实测表面与 CAD 对照；孔中心可能是背景。当前线段为指尖 TCP 到 T 的几何模板，不是腕部轨迹。")

@@ -46,6 +46,9 @@ class RefinementToolsTests(unittest.TestCase):
         self.arrived();self.preview(call='fresh_preview');r=self.plan('fresh_plan')
         self.assertTrue(r['ok'],r)
         self.assertEqual(r['data']['refinement']['status'],'aligned')
+        tip=np.array(self.report['geometry']['grip']['points_base_mm']['tip'])
+        np.testing.assert_allclose(r['data']['contact_path']['end_mm'],tip,atol=1e-6)
+        np.testing.assert_allclose(r['data']['contact_path']['pre_mm'],tip-[10,0,0],atol=1e-6)
         self.assertEqual(self.store.state['mission']['stage'],'PICK_PLANNED')
         self.assertFalse(r['data']['executable'])
     def test_changed_target_is_bounded_and_budget_counts_only_completed_correction(self):
