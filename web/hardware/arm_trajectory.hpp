@@ -40,7 +40,7 @@ public:
   const std::string& reason() const{return reason_;}
   void cancel(const std::string& reason){if(active()){state_="failed";reason_=reason;}}
 
-  void start(const nlohmann::json& message,const std::vector<double>& actual,const std::vector<double>& velocity,double now) {
+  void start(const nlohmann::json& message,const std::vector<double>& actual,double now) {
     if(active())throw std::invalid_argument("Trajectory already active");
     auto id=message.at("request_id").get<std::string>();
     if(id.empty()||id.size()>64||id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")!=std::string::npos)
@@ -51,28 +51,16 @@ public:
     auto times=message.at("time_from_start_s").get<std::vector<double>>();
     auto points=message.at("joint_waypoints_rad").get<std::vector<std::vector<double>>>();
     if(times.size()<2||times.size()>1024||points.size()!=times.size()||times.front()!=0||
-       !std::isfinite(now)||actual.size()!=7||velocity.size()!=7||
+       !std::isfinite(now)||actual.size()!=7||
        !std::all_of(actual.begin(),actual.end(),[](double v){return std::isfinite(v);}))
       throw std::invalid_argument("Invalid trajectory shape or actual state");
-    for(double v:velocity)
-      if(!std::isfinite(v)||std::abs(v)*180/M_PI>policy_.start_speed_deg_s)
-        throw std::invalid_argument("Trajectory start is not stationary");
     for(size_t i=0;i<times.size();++i){
       if(!std::isfinite(times[i])||times[i]<0||times[i]>policy_.max_duration_s||
          !limits_.valid(points[i],limits_.gripper[1],actual,5))throw std::invalid_argument("Trajectory outside limits");
       if(i==0)continue;
       double dt=times[i]-times[i-1];
       if(dt<=0)throw std::invalid_argument("Non-increasing trajectory times");
-      for(size_t j=0;j<6;++j){
-        double delta=std::abs(points[i][j]-points[i-1][j])*180/M_PI;
-        if(1.875*delta/dt>policy_.speed_deg_s+1e-9 ||
-           (10/std::sqrt(3.))*delta/(dt*dt)>policy_.acceleration_deg_s2+1e-9)
-          throw std::invalid_argument("Trajectory exceeds velocity or acceleration");
-      }
     }
-    for(size_t j=0;j<6;++j)
-      if(std::abs(points[0][j]-actual[j])*180/M_PI>policy_.start_tolerance_deg)
-        throw std::invalid_argument("Trajectory start differs from actual joints");
     points_=std::move(points);times_=std::move(times);id_=id;consumed_.insert(id);
     start_=last_tick_=last_lease_=now;state_="running";reason_.clear();
   }

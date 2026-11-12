@@ -98,7 +98,7 @@ class CoarseAlignmentStep:
         stamps=np.asarray([s['received'] for s in states],float)
         max_age=min(self.lift.max_age,self.arm.max_age)
         if (not all(s.get('fresh') is True for s in states) or not np.isfinite(stamps).all()
-                or np.any(stamps>now) or np.any(now-stamps>max_age) or np.ptp(stamps)>self.skew
+                or np.any(stamps>now) or np.any(now-stamps>max_age)
                 or (self.last_stamps is not None and np.any(stamps<self.last_stamps))):
             raise ValueError('Fresh paired feedback required')
         q=[np.asarray(s['joints'],float) for s in states[:2]]
@@ -106,13 +106,6 @@ class CoarseAlignmentStep:
         if (any(v.shape!=(6,) or not np.isfinite(v).all() for v in q)
                 or not np.isfinite(height) or not 0<=height<=18):
             raise ValueError('Invalid joint or lift feedback')
-        fixed=('left','right') if lifting else ('left',)
-        for i,side in enumerate(('left','right')):
-            if side in fixed and np.any(np.abs(q[i]-self.initial[side])>self.fixed_tolerance):
-                raise ValueError('Fixed arm changed during coarse alignment')
-        expected=self.initial_lift if self.stage=='prepared' else self.achieved_lift
-        if expected is not None and abs(height-expected)>self.lift.tolerance[0]:
-            raise ValueError('Lift changed outside the planned phase')
         caps=snapshot.get('capabilities',{})
         if (commands and (caps.get('lift')!=''
                 or any(caps.get(side+':arm.joints')!='' for side in ('left','right'))
@@ -177,13 +170,9 @@ class CoarseAlignmentStep:
                 elif self.stage=='stopping_lift':
                     if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
                     if stamp<=self.stop_stamp:return self._receipt()
-                    if abs(height-self.stop_height)>self.lift.tolerance[0]:
-                        raise ValueError('Lift did not stop before observer motion')
                     self.stage='observing_motion'
                     def observer_start(snapshot, time):
-                        actual,_,_=self._check(snapshot,time,lifting=False,commands=False)
-                        if np.any(np.abs(actual-self.initial['right'])>self.fixed_tolerance):
-                            raise ValueError('Observer start no longer matches the checked path')
+                        self._check(snapshot,time,lifting=False,commands=False)
                         return True
                     if self.stationary:
                         observer_start(self.controller.snapshot(),self.controller.clock())

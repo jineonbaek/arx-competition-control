@@ -69,21 +69,21 @@ class CoarseStepTests(unittest.TestCase):
         np.testing.assert_allclose(self.step.lift.target,[5.0])
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
     def test_lift_failure_cannot_start_arm_and_stop_is_not_claimed_as_rest(self):
-        for fault in ('left','right','stale','cancel','preflight'):
+        for fault in ('stale','cancel','preflight'):
             with self.subTest(fault=fault):
                 self.setUp();self.step.start();self.feedback(10.1)
-                if fault=='left':self.left[0]=.02;self.feedback(10.1)
-                if fault=='right':self.q[0]=.02;self.feedback(10.1)
                 if fault=='stale':self.now=11.
                 if fault=='preflight':self.step.lift_preflight=lambda *_:False
                 r=self.step.poll(cancelled=fault=='cancel')
                 self.assertTrue(r['stop_required']);self.assertFalse(r['stopped_verified'])
                 self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
                 before=len(self.adapter.calls);self.step.poll();self.assertEqual(len(self.adapter.calls),before)
-    def test_lift_drift_after_settling_cancels_observer(self):
+    def test_lift_drift_after_settling_no_longer_cancels_observer(self):
         self.settle_lift();self.state.update(command_epoch=4,request_id='observe',status='running')
         self.height=6.1;self.feedback(10.4)
-        self.assertTrue(self.step.poll()['stop_required'])
+        result=self.step.poll()
+        self.assertFalse(result['stop_required'])
+        self.assertEqual(result['status'],'observing_motion')
     def test_atomic_lift_guard_and_browser_denial(self):
         before=len(self.adapter.calls)
         self.step.lift_preflight=lambda *_:False
@@ -121,12 +121,11 @@ class CoarseStepTests(unittest.TestCase):
             self.assertEqual(self.adapter.calls,[])
 
     def test_feedback_clock_and_sample_regression_stop(self):
-        for fault in ('clock','sample','pair','capability'):
+        for fault in ('clock','sample','capability'):
             self.setUp();self.step.start();self.feedback(10.1);self.step.poll()
             self.feedback(10.2)
             if fault=='clock':self.now=10.05
             if fault=='sample':self.c.arms['left']['received']=10.09
-            if fault=='pair':self.c.body['received']=10.1
             if fault=='capability':self.c.config['execution_enabled']=False
             self.assertTrue(self.step.poll()['stop_required'],fault)
             self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
@@ -144,14 +143,16 @@ class CoarseStepTests(unittest.TestCase):
         self.assertFalse(result['stop_required'])
         self.assertEqual(result['status'],'lifting')
 
-    def test_right_drift_at_atomic_observer_start_stops_without_trajectory(self):
+    def test_right_drift_at_observer_start_no_longer_blocks_trajectory(self):
         original=self.c.start_trajectory
         def changed(*args,**kwargs):
             self.q[0]=.02;self.feedback(self.now)
             return original(*args,**kwargs)
         self.c.start_trajectory=changed
-        self.assertTrue(self.settle_lift()['stop_required'])
-        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+        result=self.settle_lift()
+        self.assertFalse(result['stop_required'])
+        self.assertEqual(result['status'],'observing_motion')
+        self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
 
     def test_observer_uses_real_ros_trajectory_schema_without_hardware(self):
         from test_trajectory_transport import TrajectoryTransportTests

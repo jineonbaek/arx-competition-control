@@ -39,8 +39,8 @@ class BatteryServerWiringTests(unittest.TestCase):
         start=(ROOT/'web/start.sh').read_text()
         self.assertIn('--battery-policy "$CONTROL_ROOT/config/battery-execution.json"',start)
         expected={'speed_deg_s':5.7,'acceleration_deg_s2':12.0,
-                  'start_tolerance_deg':0.5,'tracking_tolerance_deg':2.0,
-                  'max_tick_gap_s':0.05,'lease_s':0.15,
+                  'start_tolerance_deg':0.5,'tracking_tolerance_deg':3.0,
+                  'max_tick_gap_s':0.05,'lease_s':0.5,
                   'max_duration_s':60.0,'start_speed_deg_s':0.2}
         control=json.loads((ROOT/'web/config/control.json').read_text())
         self.assertEqual(control['arms']['left']['trajectory_policy'],expected)

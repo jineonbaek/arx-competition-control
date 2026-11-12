@@ -127,7 +127,7 @@ int main(int argc,char** argv) {
           if(request.at("command_epoch")!=command_epoch)throw std::invalid_argument("Stale command epoch");
           if(!healthy||!monitor.fresh()||joint_active)throw std::invalid_argument("Arm not ready or manual motion active");
           auto actual=arm->getJointPositons();
-          trajectory->start(request,actual,arm->getJointVelocities(),seconds());started=true;
+          trajectory->start(request,actual,seconds());started=true;
           ++command_epoch;
           joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
           arm->setJointPositions(reference);arm->setCatch(actual[6]);arm->setArmStatus(5);current_mode=5;
