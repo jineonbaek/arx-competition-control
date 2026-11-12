@@ -103,6 +103,8 @@ class PipelineTests(unittest.TestCase):
             selection={'status':'selected','candidate_id':1},geometry={'mask_valid':True},
             review={'status':'rejected','reason':'background leak'})
         def worker(command,cwd,log,cancelled,timeout):
+            self.assertIn('--camera-id',command)
+            self.assertEqual(command[command.index('--camera-id')+1],'d405')
             log.write_text(json.dumps(report));return 2
         output=self.store.path/'selected-mask'
         output.mkdir()

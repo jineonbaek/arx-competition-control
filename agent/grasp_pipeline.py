@@ -52,7 +52,7 @@ def segment(store,ident,output,cancelled):
     image=store.image_path(ident,camera)
     log=output/"recognition.log"
     code=run_worker([str(VISION/".venv/bin/python"),str(VISION/"pipeline.py"),
-        "--image",str(image),"--attempts","1"],VISION,log,cancelled,420)
+        "--image",str(image),"--camera-id",camera,"--attempts","1"],VISION,log,cancelled,420)
     if code not in (0,2):raise AgentError("vision_failed","电池识别失败；请检查本次 recognition.log")
     # Existing recognition CLI emits the JSON receipt as its final line.
     report=json.loads(log.read_text().strip().splitlines()[-1])
