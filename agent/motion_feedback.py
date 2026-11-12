@@ -11,12 +11,15 @@ class ArrivalMonitor:
     inferred from a model response. A terminal receipt cannot restart this monitor.
     stop_required requests a future executor stop; it does not mean hardware stopped.
     """
-    def __init__(self,target,tolerance,*,started_at,settle_s,timeout_s,stall_s,max_age_s,max_speed):
+    def __init__(self,target,tolerance,*,started_at,settle_s,timeout_s,stall_s,max_age_s,max_speed,minimum=None):
         self.target=np.asarray(target,float).copy()
         self.tolerance=np.asarray(tolerance,float).copy()
         self.max_speed=np.asarray(max_speed,float).copy()
+        self.minimum=None if minimum is None else np.asarray(minimum,float).copy()
         if (self.target.ndim!=1 or not self.target.size
                 or self.tolerance.shape!=self.target.shape or self.max_speed.shape!=self.target.shape
+                or (self.minimum is not None and (self.minimum.shape!=self.target.shape
+                                                  or not np.isfinite(self.minimum).all()))
                 or not np.isfinite(np.r_[self.target,self.tolerance,self.max_speed]).all()
                 or np.any(self.tolerance<=0) or np.any(self.max_speed<=0)
                 or not np.isfinite([started_at,settle_s,timeout_s,stall_s,max_age_s]).all()
@@ -56,10 +59,12 @@ class ArrivalMonitor:
         normalized=float(np.max(np.abs(error)/self.tolerance))
         if normalized<self.best_error-.1:
             self.best_error=normalized;self.progress_at=float(sample_time)
-        inside=normalized<=1
+        def accepted(value):
+            return np.all(value>=self.minimum) if self.minimum is not None else np.all(np.abs(value-self.target)<=self.tolerance)
+        inside=bool(accepted(value))
         continuous=self.previous_time is not None and sample_time-self.previous_time<=self.max_age
         stationary=continuous and np.all(np.abs(value-self.previous)/(sample_time-self.previous_time)<=self.max_speed)
-        if inside and stationary and np.all(np.abs(self.previous-self.target)<=self.tolerance):
+        if inside and stationary and accepted(self.previous):
             if self.stable_since is None:self.stable_since=self.previous_time
         else:self.stable_since=None
         self.previous=value.copy();self.previous_time=float(sample_time)

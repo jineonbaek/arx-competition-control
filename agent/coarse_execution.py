@@ -20,6 +20,7 @@ class CoarseAlignmentStep:
         self.initial={s:np.asarray(initial_joints[s],float).copy() for s in ('left','right')}
         self.initial_lift=float(initial_lift_rad);self.target=float(lift_target_rad)
         self.acceptance=self.target if lift_acceptance_rad is None else float(lift_acceptance_rad)
+        self.has_acceptance=lift_acceptance_rad is not None
         self.fixed_tolerance=float(fixed_joint_tolerance_rad);self.skew=float(max_pair_skew_s)
         if (not np.isfinite([self.initial_lift,self.target,self.acceptance,self.fixed_tolerance,self.skew]).all()
                 or not 0<=self.initial_lift<=18 or not 0<=self.target<=18
@@ -47,9 +48,9 @@ class CoarseAlignmentStep:
             self.endpoint=points[-1].copy()
         self.lift_policy=copy.deepcopy(lift_policy);self.arm_policy=copy.deepcopy(arm_policy)
         now=controller.clock()
-        tolerance=float(self.lift_policy['tolerance'][0])
-        monitor_target=min(self.target,self.acceptance+tolerance) if lift_acceptance_rad is not None else self.target
-        self.lift=ArrivalMonitor([monitor_target],started_at=now,**self.lift_policy)
+        self.lift=(ArrivalMonitor([self.acceptance],started_at=now,minimum=[self.acceptance],**self.lift_policy)
+                   if self.has_acceptance
+                   else ArrivalMonitor([self.target],started_at=now,**self.lift_policy))
         self.arm=ArrivalMonitor(self.endpoint,started_at=now,**self.arm_policy)
         if self.lift.tolerance.shape!=(1,) or self.arm.tolerance.shape!=(6,):
             raise ValueError('Lift and arm policies require one and six axes')
@@ -128,8 +129,10 @@ class CoarseAlignmentStep:
         with self.lock:
             if self.stage!='prepared' or self.failure:raise ValueError('Coarse step cannot be replayed or resumed')
             try:
-                monitor_target=min(self.target,self.acceptance+self.lift_policy['tolerance'][0])
-                self.lift=ArrivalMonitor([monitor_target],started_at=self.controller.clock(),**self.lift_policy)
+                self.lift=(ArrivalMonitor([self.acceptance],started_at=self.controller.clock(),
+                    minimum=[self.acceptance],**self.lift_policy)
+                    if self.has_acceptance
+                    else ArrivalMonitor([self.target],started_at=self.controller.clock(),**self.lift_policy))
                 r=self.controller.submit({'type':'lift','target':self.target},self.token,preflight=self._guard)
                 if r.get('ok') is not True:raise ValueError('Lift submission not confirmed')
                 self.stage='lifting'

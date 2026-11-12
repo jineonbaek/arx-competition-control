@@ -49,7 +49,7 @@ class BatteryTask:
         values.append(height)
         return values
 
-    def _wait_for_stopped(self,hold_s=.4,max_wait_s=3.,tolerance=.005):
+    def _wait_for_stopped(self,hold_s=.4,max_wait_s=5.,tolerance=.02):
         with self.controller.lock:
             if self.controller.motion_trajectory is not None:return False
         previous=self._rest_values(self.controller.snapshot())

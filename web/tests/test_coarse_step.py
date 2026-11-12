@@ -58,12 +58,12 @@ class CoarseStepTests(unittest.TestCase):
 
     def test_lift_accepts_five_radians_then_stops_before_arm(self):
         self.step=self.make(target=5.52,acceptance=5.0)
-        self.step.start();self.height=5.0
+        self.step.start();self.height=5.12
         for t in (10.1,10.2,10.31):
             self.feedback(t);result=self.step.poll()
         self.assertEqual(result['status'],'observing_motion')
         self.assertTrue(self.step.lift_stop_sent)
-        np.testing.assert_allclose(self.step.lift.target,[5.02])
+        np.testing.assert_allclose(self.step.lift.target,[5.0])
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
     def test_lift_failure_cannot_start_arm_and_stop_is_not_claimed_as_rest(self):
         for fault in ('left','right','stale','cancel','preflight'):
