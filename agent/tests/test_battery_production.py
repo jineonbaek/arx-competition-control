@@ -16,7 +16,7 @@ class Controller:
 
 class ProductionTests(unittest.TestCase):
     def test_review_uses_existing_geometry_and_one_clear_area_confirmation(self):
-        coarse=dict(lift={'fixed':True,'target_rad':5.52,
+        coarse=dict(lift={'fixed':True,'target_rad':5.02,
                        'column_sweep':{'both_arms_column_checked':True,'status':'column_clear'}},
             observer={'status':'fixed_observer_candidate','joints_rad':[0.]*6,
                       'column_path':{'clear':True}})

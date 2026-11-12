@@ -102,7 +102,7 @@ class BackendTests(unittest.TestCase):
             config={'arms':{'right':{'joint_limits_deg':[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]}}}
             def snapshot(self):
                 return dict(arms={'left':{'joints':[0.]*6},'right':{'joints':[0.]*6}},
-                            body={'height':5.52})
+                            body={'height':5.02})
         class SearchStep:
             calls=[]
             def __init__(self,*args,**kwargs):self.calls.append('init')
