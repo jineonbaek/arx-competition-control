@@ -134,3 +134,15 @@ Validation: 143 Agent and 272 web tests passed before adding two further routing
 BatteryRuntime uses the existing serial AgentRuntime model/tool/recovery loop with an explicit BatteryExecutionTools registry and battery-stage prompt. It refuses a missing or mismatched registry/store/config rather than silently falling back to generic tools. The existing 9983 preview runtime remains unchanged. Three new runtime tests plus six original runtime tests passed; no live model API or hardware was called.
 
 Ruling: production execution remains disabled until full collision checking, prepared controller/backend assembly and the user-supplied TCP are available. This is a software integration stage, not completion of the automatic physical grasp. Synthetic success receipts in tests cannot promote production planner outputs.
+
+
+### Independent review and coarse-stage regression fixes
+
+The fresh whole-branch review found no Critical defect and two Important interface defects, both fixed in this pass:
+
+- Lift motion checks lift/arm hardware readiness and holds both measured joint poses; it does not require an already stationary lift while lifting. Observer arm motion still requires measured lift arrival AND the existing Controller lift-rest history. Waiting is bounded by the original lift timeout; drift, stale feedback and driver faults still abort. User explicitly reconfirmed: lift must stop and settle before arm motion.
+- The coarse observer plan keeps its internal version metadata but submits only the existing three trajectory transport fields; RosAdapter adds the wire version. The regression uses the real RosAdapter validation with an inert publisher, not hardware.
+
+Three added regressions reproduced the failures before the fixes. Final software suites: 148 Agent tests and 275 web tests passed; diff whitespace check passed. No live commands, driver restarts, service reloads or deployments.
+
+Review disposition: both Important findings fixed. Minor deferred: a trajectory failure can cause stop requests at both the Controller and step layers; deduplication is per layer, not globally one attempt. Do not interpret stop requests as verified rest. Production backend assembly, complete environment/self-collision checks and physical hold verification remain incomplete; TCP remains unset. The software tests do not establish physical grasp success.

@@ -117,6 +117,46 @@ class CoarseStepTests(unittest.TestCase):
         self.assertTrue(self.settle_lift()['stop_required'])
         self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
 
+    def test_observer_uses_real_ros_trajectory_schema_without_hardware(self):
+        from test_trajectory_transport import TrajectoryTransportTests
+        transport=TrajectoryTransportTests()
+        transport.setUp()
+        self.adapter.trajectory_status=transport.adapter.trajectory_status
+        self.adapter.trajectory_start=transport.adapter.trajectory_start
+        self.assertEqual(self.settle_lift()['status'],'observing_motion')
+        self.assertEqual(len(transport.sent),1)
+        self.assertEqual(transport.sent[0]['version'],1)
+        self.assertEqual(transport.sent[0]['joint_waypoints_rad'],self.plan['joint_waypoints_rad'])
+
+    def test_real_wrist_readiness_waits_for_lift_history_without_aborting(self):
+        del self.c.wrist_reason
+        self.c.lift_history.clear()
+        for t in (9.7,9.85,10.):self.feedback(t)
+        self.assertEqual(self.c.wrist_reason('right'),'')
+        self.assertEqual(self.step.start()['status'],'lifting')
+        self.height=6.
+        for t in (10.1,10.2,10.31):
+            self.feedback(t)
+            self.assertEqual(self.step.poll()['status'],'lifting')
+        self.assertNotEqual(self.c.wrist_reason('right'),'')
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+        for t in (10.41,10.51):
+            self.feedback(t);r=self.step.poll()
+        self.assertEqual(r['status'],'observing_motion')
+        self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
+
+    def test_waiting_for_observer_readiness_is_bounded_and_retains_driver_checks(self):
+        self.c.wrist_reason=lambda side:'not ready'
+        self.assertEqual(self.settle_lift()['status'],'lifting')
+        self.feedback(15.01)
+        self.assertTrue(self.step.poll()['stop_required'])
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+        self.setUp();self.step.start()
+        self.c.config['arms']['right']['ready_topic']='/fake/right/ready'
+        self.adapter.arm_ready=lambda side:False
+        self.feedback(10.1)
+        self.assertTrue(self.step.poll()['stop_required'])
+
     def stationary(self):
         self.plan=dict(version=1,kind='stationary',joint_position_rad=[0.]*6)
         self.step=self.make()

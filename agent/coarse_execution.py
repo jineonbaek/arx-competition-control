@@ -97,7 +97,9 @@ class CoarseAlignmentStep:
         if expected is not None and abs(height-expected)>self.lift.tolerance[0]:
             raise ValueError('Lift changed outside the planned phase')
         caps=snapshot.get('capabilities',{})
-        if caps.get('lift')!='' or caps.get('right:arm.wrist')!='':
+        if (caps.get('lift')!=''
+                or any(caps.get(side+':arm.joints')!='' for side in ('left','right'))
+                or (not lifting and caps.get('right:arm.wrist')!='')):
             raise ValueError('Controller not ready')
         check=self.lift_preflight if lifting else self.arm_preflight
         if check(snapshot,now) is not True:raise ValueError('Scene or path preflight failed')
@@ -134,10 +136,15 @@ class CoarseAlignmentStep:
                 now=self.controller.clock()
                 q,height,stamp=self._check(self.controller.snapshot(),now,lifting=self.stage=='lifting')
                 if self.stage=='lifting':
+                    if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
                     r=self.lift.update([height],stamp,now)
                     if r['stop_required']:return self._abort(r['status'])
                     if r['arrived']:
-                        self.achieved_lift=height;self.stage='observing_motion'
+                        if self.achieved_lift is None:self.achieved_lift=height
+                        # Controller's lift-rest history can exceed the local arrival window.
+                        if self.controller.snapshot()['capabilities'].get('right:arm.wrist')!='':
+                            return self._receipt()
+                        self.stage='observing_motion'
                         def observer_start(snapshot, time):
                             actual,_,_=self._check(snapshot,time,lifting=False)
                             if np.any(np.abs(actual-self.initial['right'])>self.fixed_tolerance):
@@ -148,7 +155,8 @@ class CoarseAlignmentStep:
                             self.arm=ArrivalMonitor(self.endpoint,started_at=self.controller.clock(),**self.arm_policy)
                             self.stage='settling_observer'
                         else:
-                            self.controller.start_trajectory('right',self.plan,self.token,preflight=observer_start)
+                            trajectory={k:self.plan[k] for k in ('interpolation','time_from_start_s','joint_waypoints_rad')}
+                            self.controller.start_trajectory('right',trajectory,self.token,preflight=observer_start)
                 elif self.stage=='observing_motion':
                     r=self.controller.poll_trajectory(self.token,preflight=self._guard)
                     if r['status']=='reference_complete':
