@@ -1,6 +1,7 @@
 """Single fixed-flow task owner for the web process; construction is inert."""
 import copy
 import json
+import math
 import threading
 from pathlib import Path
 
@@ -17,6 +18,7 @@ class BatteryTask:
         self.workflow_factory=workflow_factory
         self.depth_control=depth_control
         self.close_timeout_s=float(close_timeout_s)
+        self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
         self.lock=threading.RLock()
         self.active=None
         self.requests={}
@@ -47,12 +49,23 @@ class BatteryTask:
             except (ValueError,TypeError):pass
         return output
 
+    @staticmethod
+    def _task_settings(data):
+        target=data.get('lift_target_rad');observer_z=data.get('observer_z_mm')
+        if (type(target) not in (int,float) or not math.isfinite(target) or not 1<=target<=18
+                or type(observer_z) not in (int,float) or not math.isfinite(observer_z)
+                or not 0<=observer_z<=1500):
+            raise ValueError('升降目标须为 1–18 rad，预观察 Z 须为 0–1500 mm')
+        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target)),
+                'observer_z_mm':float(observer_z)}
+
     def _view(self, client):
         state=self.active
         epoch=self.controller.snapshot()['command_epoch']
         if state is None:
             return {'status':'idle','available':True,'command_epoch':epoch,
-                    'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[]}
+                    'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[],
+                    'settings':copy.deepcopy(self.task_settings)}
         return {'status':state['status'],'available':state['status']!='running'
                     and not state['recovery_required'],
                 'command_epoch':epoch,'run_id':state['run_id'],
@@ -60,6 +73,7 @@ class BatteryTask:
                 'recovery_required':state['recovery_required'],
                 'phase':state['store'].state.get('battery_flow',{}).get('phase','starting'),
                 'mission_stage':state['store'].state.get('mission',{}).get('stage','IDLE'),
+                'settings':copy.deepcopy(state['store'].state.get('battery_task_settings',{})),
                 'logs':self._logs(state['store'])}
 
     def snapshot(self, client):
@@ -119,10 +133,15 @@ class BatteryTask:
             if cached is not None:return copy.deepcopy(cached)
             if action=='start':
                 required={'action','request_id','expected_epoch','environment_clear'}
-                if (set(data)!=required or type(data['expected_epoch']) is not int
+                settings={'lift_target_rad','observer_z_mm'}
+                if (not required<=set(data) or not set(data)<=required|settings
+                        or (bool(set(data)&settings) and not settings<=set(data))
+                        or type(data['expected_epoch']) is not int
                         or data['environment_clear'] is not True):
-                    raise ValueError('start requires expected_epoch and confirmed environment_clear')
-                result=self._start(client,data['expected_epoch'],data['environment_clear'])
+                    raise ValueError('start requires expected_epoch, confirmed environment_clear and both fixed-point values')
+                values=(self._task_settings(data) if settings<=set(data)
+                        else copy.deepcopy(self.task_settings))
+                result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
             elif action=='cancel':
                 if set(data)!= {'action','request_id'}:
                     raise ValueError('cancel accepts request_id only')
@@ -131,7 +150,7 @@ class BatteryTask:
             self.requests[(client,request)]=copy.deepcopy(result)
             return result
 
-    def _start(self, client, expected_epoch, environment_clear):
+    def _start(self, client, expected_epoch, environment_clear, settings):
         if self.active is not None:
             if self.active['status']=='running' or self.active['recovery_required']:
                 raise Rejected('已有自动任务或待恢复任务')
@@ -145,6 +164,9 @@ class BatteryTask:
                 depth_previous={camera:cameras[camera]['requested'] for camera in ('d435','d405')}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             store=RunStore.create(self.root)
+            if settings:
+                store.state['battery_task_settings']=copy.deepcopy(settings)
+                store.save()
             flow=self.workflow_factory(store,self.controller,token,environment_clear)
         except Exception:
             if depth_previous is not None:self._restore_depth({'depth_previous':depth_previous})

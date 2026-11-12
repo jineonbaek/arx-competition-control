@@ -16,6 +16,10 @@
 <section class="panel"><div class="panel-heading"><h2>本轮点云与抓取参考路径</h2><button id="reset" class="button secondary">重置视角</button></div><div id="viewport"></div><p class="hint">显示本轮冻结观测的电池点云与夹持参考点路径。相机画面实时更新，点云在工具完成新观测后更新。</p></section>
 <section class="panel candidates"><h2>抓取计划与工具结果</h2><p id="stamp"></p><dl id="metrics"></dl><p id="blockers">等待任务生成抓取计划</p><ol id="tool-results"></ol></section>
 <section class="panel"><h2>实机自动流程</h2><p>D435 粗定位 → 升降与预观察 → D405 精定位 → FoundationPose → 接近、视觉纠偏与夹取。</p>
+<div class="task-settings">
+<label>升降目标（rad）<input id="lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>达到向下取整值即成功，例如 6.6 → 6.0</small></label>
+<label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>X/Y 保持本轮初始腕位</small></label>
+</div>
 <label><input id="environment-clear" type="checkbox"> 本轮已确认右臂、升降和夹取通道无人且无临时障碍</label>
 <div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机流程</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">正在读取执行后端…</span></div>
 <h3>实时执行日志</h3><ol id="execution-log" aria-live="polite"><li>等待任务启动。</li></ol></section>

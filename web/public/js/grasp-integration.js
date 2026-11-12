@@ -2,7 +2,7 @@ import * as THREE from '../vendor/lift2-preview/three.module.js';
 import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 import {frameFresh,cameraImagePath} from './camera-freshness.js';
 const el=id=>document.getElementById(id);
-let execution=null,revision='',geometry=null,geometryKey='';
+let execution=null,revision='',geometry=null,geometryKey='',settingsLoaded=false;
 const requestId=()=>crypto.randomUUID?.()||([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
 async function request(path,body){
  const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)}:{cache:'no-store',signal:AbortSignal.timeout(10000)});
@@ -60,6 +60,7 @@ function executionButtons(){
  const running=execution?.status==='running';
  el('execute').disabled=running||!execution?.available||!el('environment-clear').checked;
  el('stop-task').disabled=!running;
+ el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running;
 }
 const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
 function executionLog(){
@@ -73,7 +74,9 @@ function executionLog(){
 el('environment-clear').onchange=executionButtons;
 el('execute').onclick=async()=>{
  try{
-  execution=await request('/api/battery-task',{action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true});
+  const lift=el('lift-target-rad'),observer=el('observer-z-mm');
+  if(!lift.reportValidity()||!observer.reportValidity())return;
+  execution=await request('/api/battery-task',{action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber});
   revision='';show({run_id:execution.run_id});
   el('execution-status').textContent='自动任务已启动。';
  }catch(e){el('execution-status').textContent=e.message;}executionButtons();
@@ -84,7 +87,11 @@ el('stop-task').onclick=async()=>{
 };
 async function pollExecution(){
  try{
-  execution=await request('/api/battery-task');executionButtons();
+  execution=await request('/api/battery-task');
+  if(!settingsLoaded&&execution.settings?.lift_target_rad!=null&&execution.settings?.observer_z_mm!=null){
+   el('lift-target-rad').value=execution.settings.lift_target_rad;el('observer-z-mm').value=execution.settings.observer_z_mm;settingsLoaded=true;
+  }
+  executionButtons();
   const labels={idle:'等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',cancelled:'本轮已停止。'};
   el('execution-status').textContent=(labels[execution.status]||execution.status)+(execution.reason?' '+execution.reason:'');
   executionLog();

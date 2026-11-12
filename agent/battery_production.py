@@ -1,4 +1,5 @@
 """Opt-in assembly for the deterministic battery workflow; importing is inert."""
+import copy
 import math
 from pathlib import Path
 
@@ -82,16 +83,24 @@ def workflow_factory(policy_path,*,console_url,gripper_limits):
     """Load all site-owned limits before a browser can reserve motion."""
     policy=load(Path(policy_path),gripper_limits=gripper_limits)
     config=Config(console_url=console_url,motion_enabled=True)
-    policies={'coarse':dict(policy['coarse'],timing_limits=policy['timing_limits']),
-              'pick':policy['pick']}
-
     def factory(store,controller,token,environment_clear):
+        run_policy=copy.deepcopy(policy)
+        settings=store.state.get('battery_task_settings',{})
+        if settings:
+            run_policy['coarse']['fixed_lift_target_rad']=settings['lift_target_rad']
+            run_policy['coarse']['lift_acceptance_rad']=settings['lift_acceptance_rad']
+            run_policy['coarse']['observer_search']['start_z_mm']=settings['observer_z_mm']
+        policies={'coarse':dict(run_policy['coarse'],timing_limits=run_policy['timing_limits']),
+                  'pick':run_policy['pick']}
         reviewer=lambda operation,plan:review_plan(
             operation,plan,environment_clear=environment_clear)
         return build_workflow(config,store,controller,token,policies=policies,
-            refinement_policy=policy['refinement'],timing_limits=policy['timing_limits'],
-            alignment_tolerance_deg=policy['alignment_tolerance_deg'],
-            j6_tolerance_deg=policy['j6_tolerance_deg'],preflight=preflight,
-            review_plan=reviewer,timeout_s=policy['timeout_s'],
-            clearance_mm=policy['clearance_mm'])
+            refinement_policy=run_policy['refinement'],timing_limits=run_policy['timing_limits'],
+            alignment_tolerance_deg=run_policy['alignment_tolerance_deg'],
+            j6_tolerance_deg=run_policy['j6_tolerance_deg'],preflight=preflight,
+            review_plan=reviewer,timeout_s=run_policy['timeout_s'],
+            clearance_mm=run_policy['clearance_mm'])
+    factory.task_settings={'lift_target_rad':policy['coarse']['fixed_lift_target_rad'],
+        'lift_acceptance_rad':policy['coarse']['lift_acceptance_rad'],
+        'observer_z_mm':policy['coarse']['observer_search']['start_z_mm']}
     return factory

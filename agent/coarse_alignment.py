@@ -96,17 +96,20 @@ def plan(registry,observation_id,call_id):
     config_blob=config_path.read_bytes()
     config=json.loads(config_blob)
     limits=config['body']['lift_limits_raw']
-    policy=load(ROOT/'config/battery-execution.json',
-        gripper_limits=config['arms']['right']['gripper_limits_raw'])
-    observer_search=policy['coarse']['observer_search']
+    policies=getattr(getattr(registry,'backends',None),'policies',{})
+    coarse_policy=policies.get('coarse') if isinstance(policies,dict) else None
+    if not isinstance(coarse_policy,dict):
+        coarse_policy=load(ROOT/'config/battery-execution.json',
+            gripper_limits=config['arms']['right']['gripper_limits_raw'])['coarse']
+    observer_search=coarse_policy['observer_search']
     result=coarse_geometry(location['surface_base_mm'],height,ColumnModel(),limits,
-        fixed_lift_rad=policy['coarse']['fixed_lift_target_rad'],
+        fixed_lift_rad=coarse_policy['fixed_lift_target_rad'],
         observer_start_z_mm=observer_search['start_z_mm'],
         observer_rpy_deg=observer_search['rpy_deg'],
         current_joints=feedback['joints'],
         limits_deg=config['arms']['right']['joint_limits_deg'])
     sweep=assess_lift(feedback,result['lift']['target_rad'])
-    result['lift']['acceptance_rad']=policy['coarse']['lift_acceptance_rad']
+    result['lift']['acceptance_rad']=coarse_policy['lift_acceptance_rad']
     result['lift']['column_sweep']=sweep
     if sweep['status']!='column_clear':result['blockers'].append(sweep['message'])
     result.update(initial_joints_rad={side:(feedback[key].tolist() if key in feedback else None)

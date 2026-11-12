@@ -74,6 +74,24 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(done['reason'],'fixture')
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
 
+    def test_start_fixed_points_are_bounded_and_saved_for_this_run(self):
+        invalid=[{'lift_target_rad':6.6},
+                 {'lift_target_rad':0.9,'observer_z_mm':700.5},
+                 {'lift_target_rad':6.6,'observer_z_mm':1500.1},
+                 {'lift_target_rad':True,'observer_z_mm':700.5}]
+        for index,values in enumerate(invalid):
+            with self.subTest(values=values),self.assertRaises(ValueError):
+                self.task.action('owner',{'action':'start','request_id':'bad-'+str(index),
+                    'expected_epoch':0,'environment_clear':True,**values})
+        result=self.task.action('owner',{'action':'start','request_id':'fixed-points',
+            'expected_epoch':0,'environment_clear':True,
+            'lift_target_rad':6.6,'observer_z_mm':735.5})
+        settings=self.created[0][0].state['battery_task_settings']
+        self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.,
+                                   'observer_z_mm':735.5})
+        self.assertEqual(result['settings'],settings)
+        self.gate.set();self.wait('needs_attention')
+
     def test_cancel_is_idempotent_and_marks_run_without_motion(self):
         self.task.action('owner',{'action':'start','request_id':'req-1','expected_epoch':0,
                                   'environment_clear':True})

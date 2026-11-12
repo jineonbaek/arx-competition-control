@@ -63,15 +63,19 @@ class CoarseTests(unittest.TestCase):
                 location=dict(surface_base_mm=[500,-250,750],kind='visible_surface_not_grip'))
             atomic_json(path,evidence)
             store.state['battery_observations']={ident:'result.json'}
+            tools.backends.policies={'coarse':{
+                'fixed_lift_target_rad':6.6,'lift_acceptance_rad':6.,
+                'observer_search':{'start_z_mm':735.5,'rpy_deg':[-.3,-2.6,.1]}}}
             result=plan(tools,ident,'coarse')
             self.assertEqual(result['observation_id'],ident)
             self.assertFalse(result['executable'])
             self.assertEqual(result['lift']['column_sweep']['status'],'unavailable')
             self.assertFalse(result['lift']['column_sweep']['both_arms_column_checked'])
-            self.assertEqual(result['lift']['target_rad'],5.52)
-            self.assertEqual(result['lift']['acceptance_rad'],5.)
+            self.assertEqual(result['lift']['target_rad'],6.6)
+            self.assertEqual(result['lift']['acceptance_rad'],6.)
             self.assertTrue(result['lift']['fixed'])
             self.assertEqual(result['observer']['status'],'fixed_observer_candidate')
+            self.assertEqual(result['observer']['target_wrist_base_mm'][2],735.5)
             self.assertEqual(len(result['observer']['joints_rad']),6)
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)

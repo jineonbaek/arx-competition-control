@@ -57,9 +57,16 @@ class ProductionTests(unittest.TestCase):
             try:
                 factory=workflow_factory(path,console_url='http://127.0.0.1:9983',
                     gripper_limits=(-3.14,0.))
+                self.assertEqual(factory.task_settings,{'lift_target_rad':5.52,
+                    'lift_acceptance_rad':5.,'observer_z_mm':700.5})
+                store.state['battery_task_settings']={'lift_target_rad':6.6,
+                    'lift_acceptance_rad':6.,'observer_z_mm':735.5};store.save()
                 flow=factory(store,Controller(),'owned',True)
                 self.assertEqual(flow.flow['phase'],'head')
                 self.assertEqual(flow.receipt_timeout_s,65.)
+                coarse=flow.tools.backends.policies['coarse']
+                self.assertEqual((coarse['fixed_lift_target_rad'],coarse['lift_acceptance_rad'],
+                    coarse['observer_search']['start_z_mm']),(6.6,6.,735.5))
                 self.assertEqual(list((store.path/'executions').iterdir()),[])
             finally:store.close()
 
