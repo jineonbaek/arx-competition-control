@@ -14,9 +14,7 @@ _TOP={'clearance_mm','alignment_tolerance_deg','j6_tolerance_deg','timing_limits
       'timeout_s','coarse','pick','refinement'}
 _TIMEOUTS={'execute_coarse_alignment','execute_battery_approach','execute_pick'}
 _ARRIVAL={'tolerance','max_speed','settle_s','timeout_s','stall_s','max_age_s'}
-_REFINEMENT={'max_corrections','max_target_shift_mm','max_step_mm',
-             'max_total_correction_mm','position_tolerance_mm',
-             'orientation_tolerance_deg','lift_tolerance_rad'}
+_REFINEMENT={'max_step_mm','max_rotation_step_deg','position_tolerance_mm','orientation_tolerance_deg'}
 
 
 def _exact(value,keys,name):
@@ -99,14 +97,10 @@ def load(path,*,gripper_limits=None):
         raise ValueError('pick.hold_gripper_range outside controller limits')
 
     refinement=_exact(data['refinement'],_REFINEMENT,'refinement')
-    budget=refinement['max_corrections']
-    if type(budget) is not int or not 0<=budget<=3:
-        raise ValueError('refinement.max_corrections must be an integer from 0 to 3')
-    for name in ('max_target_shift_mm','max_step_mm','position_tolerance_mm'):
-        values=np.asarray(refinement[name],float)
-        if values.shape!=(3,) or not np.isfinite(values).all() or np.any(values<=0):
-            raise ValueError('refinement.'+name+' must contain three positive finite values')
-    for name in ('max_total_correction_mm','orientation_tolerance_deg','lift_tolerance_rad'):
+    values=np.asarray(refinement['position_tolerance_mm'],float)
+    if values.shape!=(3,) or not np.isfinite(values).all() or np.any(values<=0):
+        raise ValueError('refinement.position_tolerance_mm must contain three positive finite values')
+    for name in ('max_step_mm','max_rotation_step_deg','orientation_tolerance_deg'):
         _number(refinement[name],'refinement.'+name,
-                upper=89.999 if name=='orientation_tolerance_deg' else None)
+                upper=10 if name=='max_step_mm' else 89.999)
     return copy.deepcopy(data)

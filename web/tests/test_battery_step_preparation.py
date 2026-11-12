@@ -8,6 +8,7 @@ import test_pick_close_step as fixtures
 from agent.battery_execution import prepare_step
 from agent.pick_execution import ApproachTrajectoryStep, StationaryApproachStep, PickTrajectoryStep
 from agent.grasp_path import TimedJointPath
+from agent.grasp_path import plan_correction
 
 class PreparationTests(unittest.TestCase):
     def setUp(self):
@@ -76,6 +77,41 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse(f.step.stationary)
         self.assertEqual(f.settle_lift()['status'],'observing_motion')
         self.assertEqual([c[0] for c in f.adapter.calls],['lift','lift','trajectory'])
+
+    def test_joint_xyz_and_rotation_correction_executes_checked_step_then_reobserves(self):
+        from scipy.spatial.transform import Rotation
+        target=self.f.target.copy();target[:3,3]+=[.006,.008,0]
+        target[:3,:3]=target[:3,:3]@Rotation.from_euler('x',5.,degrees=True).as_matrix()
+        correction=plan_correction(self.c.models['right'],self.f.q,12.,self.f.tcp,target,
+            self.c.config['arms']['right']['joint_limits_deg'],timing_limits=self.timing)
+        self.plan['correction']=correction
+        self.plan['refinement']=dict(status='correction_required',correction_target_base_from_tool=target.tolist())
+        step=self.prepare();self.assertIsInstance(step,ApproachTrajectoryStep)
+        np.testing.assert_allclose(step.monitor.target,target)
+        np.testing.assert_allclose(step.plan['joint_waypoints_rad'][0],self.f.q)
+        final=self.c.models['right'].wrist_transform(np.asarray(step.plan['joint_waypoints_rad'][-1]),12)@self.f.tcp
+        np.testing.assert_allclose(final,target,atol=1e-6)
+        state=dict(driver_instance='test',command_epoch=4,request_id='',status='idle',enabled=True,ready=True)
+        self.f.adapter.trajectory_status=lambda side:copy.deepcopy(state)
+        self.f.adapter.trajectory_keepalive=lambda *args:None
+        def launch(side,plan,expected):
+            self.f.adapter.calls.append(('trajectory',copy.deepcopy(plan)))
+            return dict(driver_instance='test',command_epoch=4,request_id='correction'),lambda:None
+        self.f.adapter.trajectory_start=launch
+        self.assertEqual(step.start()['status'],'awaiting_trajectory')
+        state.update(command_epoch=5,request_id='correction',status='reference_complete')
+        self.f.q=np.asarray(step.plan['joint_waypoints_rad'][-1])
+        for t in (10.1,10.21,10.32,10.43):
+            self.f.feedback(t);receipt=step.poll()
+        self.assertEqual(receipt['status'],'ready_to_reobserve')
+        self.assertEqual([call[0] for call in self.f.adapter.calls],['trajectory'])
+
+    def test_aligned_insert_starts_at_measured_joints_without_extra_observation(self):
+        self.plan['start_joints_rad'][0]-=.001
+        self.plan['approach']['start_rad']=self.plan['start_joints_rad'][:]
+        step=self.prepare('execute_pick')
+        np.testing.assert_allclose(step.plan['joint_waypoints_rad'][0],self.plan['start_joints_rad'])
+        self.assertEqual(len(step.plan['joint_waypoints_rad']),3)
 
     def test_unverified_or_changed_tcp_rejected_before_transport(self):
         original=copy.deepcopy(self.plan)

@@ -58,6 +58,24 @@ class FlowTests(unittest.TestCase):
         self.tools.available=lambda name:False
         out=self.flow().run()
         self.assertEqual(out['status'],'awaiting_hold_verification');self.assertFalse(out['grasp_confirmed'])
+
+    def test_correction_loop_is_not_stopped_by_the_initial_tool_call_budget(self):
+        self.tools.corrections=25
+        out=self.flow().run()
+        self.assertEqual(out['status'],'completed')
+        self.assertGreater(out['index'],self.tools.config.max_tool_calls)
+        self.assertEqual(self.tools.calls.count('execute_battery_approach'),26)
+
+    def test_correction_loop_still_honors_cancel(self):
+        self.tools.corrections=25;base=self.tools.execute
+        def execute(name,args,ident):
+            result=base(name,args,ident)
+            if name=='execute_battery_approach' and len(self.tools.calls)>15:
+                (self.store.path/'cancel.flag').touch()
+            return result
+        self.tools.execute=execute
+        self.assertEqual(self.flow().run()['status'],'cancelled')
+        self.assertNotIn('execute_pick',self.tools.calls)
     def test_cancel_and_perception_failure_never_run_motion(self):
         self.tools.fail='observe_battery'
         out=self.flow().run();self.assertEqual(out['status'],'needs_attention')

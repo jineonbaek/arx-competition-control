@@ -29,10 +29,8 @@ def policy():
         pick=dict(lift_tolerance_rad=.02,max_pair_skew_s=.05,
             arm_policy=arrival_arm,gripper_target=-.4,
             gripper_policy=arrival_scalar,hold_gripper_range=[-1.5,-.5]),
-        refinement=dict(max_corrections=2,max_target_shift_mm=[15.]*3,
-            max_step_mm=[15.]*3,max_total_correction_mm=30.,
-            position_tolerance_mm=[18.]*3,orientation_tolerance_deg=5.,
-            lift_tolerance_rad=.02))
+        refinement=dict(max_step_mm=10.,max_rotation_step_deg=5.,
+            position_tolerance_mm=[18.]*3,orientation_tolerance_deg=5.))
 
 
 class ExecutionPolicyTests(unittest.TestCase):
@@ -54,7 +52,7 @@ class ExecutionPolicyTests(unittest.TestCase):
         value=policy();del value['pick'];cases.append(value)
         value=policy();value['timing_limits']['tcp_speed_mm_s']=float('nan');cases.append(value)
         value=policy();value['timeout_s']['execute_pick']=0;cases.append(value)
-        value=policy();value['refinement']['max_corrections']=4;cases.append(value)
+        value=policy();value['refinement']['max_step_mm']=10.1;cases.append(value)
         for data in cases:
             with self.subTest(data=data),self.assertRaises(ValueError):
                 load(self.write(data))

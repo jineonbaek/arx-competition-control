@@ -9,25 +9,21 @@ from .grasp_geometry import rigid
 
 
 def assess(current, previous, policy, *, corrections, total_mm):
-    required={'max_corrections','max_target_shift_mm','max_step_mm','max_total_correction_mm',
-              'position_tolerance_mm','orientation_tolerance_deg','lift_tolerance_rad'}
+    required={'max_step_mm','max_rotation_step_deg','position_tolerance_mm','orientation_tolerance_deg'}
     if not isinstance(policy,dict) or set(policy)!=required:
         raise ValueError('Explicit local correction policy required')
-    budget=policy['max_corrections']
-    if (type(budget) is not int or not 0<=budget<=3 or type(corrections) is not int
-            or not 0<=corrections<=budget or type(total_mm) not in (int,float)
+    if (type(corrections) is not int or corrections<0 or type(total_mm) not in (int,float)
             or not np.isfinite(total_mm) or total_mm<0):
-        raise ValueError('Invalid correction budget or receipt')
-    for key in ('max_target_shift_mm','max_step_mm','position_tolerance_mm'):
-        a=np.asarray(policy[key],float)
-        if a.shape!=(3,) or not np.isfinite(a).all() or np.any(a<=0):
-            raise ValueError('Finite positive XYZ correction bounds required')
-    for key in ('max_total_correction_mm','orientation_tolerance_deg','lift_tolerance_rad'):
+        raise ValueError('Invalid correction receipt')
+    tolerance=np.asarray(policy['position_tolerance_mm'],float)
+    if tolerance.shape!=(3,) or not np.isfinite(tolerance).all() or np.any(tolerance<=0):
+        raise ValueError('Finite positive XYZ correction bounds required')
+    for key in ('max_step_mm','max_rotation_step_deg','orientation_tolerance_deg'):
         value=policy[key]
         if type(value) not in (int,float) or not np.isfinite(value) or value<=0:
             raise ValueError('Finite positive correction policy required')
-    if policy['orientation_tolerance_deg']>=90 or total_mm>policy['max_total_correction_mm']:
-        raise ValueError('Invalid correction rotation or spent budget')
+    if policy['max_step_mm']>10 or max(policy['orientation_tolerance_deg'],policy['max_rotation_step_deg'])>=90:
+        raise ValueError('Invalid correction rotation')
     for key,value in [('arm','right'),('frame','base_link'),('unit','mm')]:
         if current.get(key)!=value or previous.get(key)!=value:raise ValueError('Correction frame mismatch')
     for key in ('head_observation_id','calibration_id','pick_setup_sha256','handeye_sha256',
@@ -57,11 +53,6 @@ def assess(current, previous, policy, *, corrections, total_mm):
     old_axis=before[1]-before[0];new_axis=after[1]-after[0]
     if not np.isclose(np.linalg.norm(old_axis),np.linalg.norm(new_axis),atol=1e-6,rtol=0):
         raise ValueError('Insertion clearance changed during correction')
-    axis_angle=float(np.degrees(np.arccos(np.clip(np.dot(old_axis,new_axis)/
-        (np.linalg.norm(old_axis)*np.linalg.norm(new_axis)),-1.,1.))))
-    old_rotation=np.eye(4);old_rotation[:3,:3]=np.asarray(previous['R_base_from_tool'],float)
-    rigid(old_rotation)
-    target_angle=float(np.degrees(Rotation.from_matrix(old_rotation[:3,:3].T@target[:3,:3]).magnitude()))
     lift=np.asarray([current['lift_rad'],previous['lift_rad']],float)
     if lift.shape!=(2,) or not np.isfinite(lift).all() or np.any(lift<0) or np.any(lift>18):
         raise ValueError('Invalid paired lift feedback')
@@ -71,21 +62,18 @@ def assess(current, previous, policy, *, corrections, total_mm):
     result=dict(status='reacquire_required',observation_id=current['observation_id'],
         previous_observation_id=previous['observation_id'],correction_mm=None,
         measured_pregrasp_error_mm=delta.tolist(),target_shift_mm=shift.tolist(),
-        orientation_error_deg=angle,remaining_corrections=budget-corrections,
+        orientation_error_deg=angle,
         proposed_total_correction_mm=total_mm,executable=False)
-    if abs(lift[0]-lift[1])>policy['lift_tolerance_rad']:
-        return result|{'reason':'lift_changed'}
-    if np.any(np.abs(shift)>policy['max_target_shift_mm']):
-        return result|{'reason':'target_changed_too_far'}
-    if angle>policy['orientation_tolerance_deg']:
-        return result|{'reason':'tool_orientation_changed'}
-    if max(axis_angle,target_angle)>policy['orientation_tolerance_deg']:
-        return result|{'reason':'target_orientation_changed'}
-    if np.all(np.abs(delta)<=policy['position_tolerance_mm']):
+    if np.all(np.abs(delta)<=tolerance+1e-9) and angle<=policy['orientation_tolerance_deg']+1e-9:
         return result|dict(status='aligned',correction_mm=[0.,0.,0.],reason='measured_pregrasp_aligned')
     distance=float(np.linalg.norm(delta))
-    if np.any(np.abs(delta)>policy['max_step_mm']):return result|{'reason':'correction_too_large'}
-    if corrections>=budget or total_mm+distance>policy['max_total_correction_mm']:
-        return result|{'reason':'correction_budget_exhausted'}
-    return result|dict(status='correction_required',correction_mm=delta.tolist(),
-        proposed_total_correction_mm=total_mm+distance,reason='new_scene_requires_bounded_correction')
+    step=delta*min(1.,policy['max_step_mm']/distance) if distance else delta
+    rotation=Rotation.from_matrix(actual[:3,:3].T@target[:3,:3]).as_rotvec()
+    rotation*=min(1.,policy['max_rotation_step_deg']/angle) if angle else 1.
+    corrected=actual.copy();corrected[:3,3]+=step/1000
+    corrected[:3,:3]=actual[:3,:3]@Rotation.from_rotvec(rotation).as_matrix()
+    return result|dict(status='correction_required',correction_mm=step.tolist(),
+        correction_rotation_deg=np.degrees(rotation).tolist(),
+        correction_target_base_from_tool=corrected.tolist(),
+        proposed_total_correction_mm=total_mm+float(np.linalg.norm(step)),
+        reason='new_scene_requires_bounded_correction')

@@ -44,6 +44,13 @@ def review_plan(operation,plan,*,environment_clear):
                and plan['interpolation_position_bound_mm']<=2.
                and plan['sampled_orientation_error_deg']<=.7
                and timing.get('status')=='timed_preview')
+        if plan.get('refinement',{}).get('status')=='correction_required':
+            correction=plan.get('correction',{})
+            points=np.asarray(correction.get('joint_waypoints_rad'),float)
+            ik=ik and (points.ndim==2 and points.shape[1:]==(6,) and len(points)>=2
+                       and np.isfinite(points).all())
+            checked=checked and correction.get('column_checked') is True
+            clear=(clear and checked and ik and correction.get('timing',{}).get('status')=='timed_preview')
         method='CAD column sweep, bounded IK path and one operator clear-area confirmation'
     return dict(plan_sha256=plan_digest(plan),ik_checked=bool(ik),
         collision_checked=bool(checked),collision_free=bool(clear),

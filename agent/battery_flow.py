@@ -47,7 +47,7 @@ class BatteryFlow:
             self.flow.setdefault('pending_since',time.time());self.store.save()
             while self.store.state.get('pending'):
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled during execution')
-                if time.time()-self.flow['pending_since']>self.receipt_timeout_s or self.flow['polls']>=7200:
+                if time.time()-self.flow['pending_since']>self.receipt_timeout_s:
                     raise AgentError('execution_timeout','Execution receipt deadline exceeded')
                 self.flow['polls']+=1;self.store.save()
                 result=self.tools.execute('get_execution_status',{},'fixed_poll_'+str(self.flow['polls']))
@@ -91,7 +91,8 @@ class BatteryFlow:
     def _run(self):
         if self.flow['status']!='running':return copy.deepcopy(self.flow)
         try:
-            while self.flow['index']<self.tools.config.max_tool_calls:
+            while (self.flow['index']<self.tools.config.max_tool_calls
+                   or self.store.state['mission'].get('approach_plan')):
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled')
                 phase=self.flow['phase']
                 if phase=='head':

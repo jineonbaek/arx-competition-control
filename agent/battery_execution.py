@@ -68,14 +68,36 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if points.ndim!=2 or points.shape[1:]!=(6,) or len(points)<2 or not np.isfinite(points).all():
         raise ValueError('Finite six-axis path required')
     stationary=False
+    correction=None
     if approach:
-        a=plan['approach'];start=np.asarray(plan['start_joints_rad'],float)
-        if not np.array_equal(start,a['start_rad']) or not np.array_equal(points[0],a['end_rad']):
-            raise ValueError('Approach is not bound to the checked insertion path')
-        points=np.asarray([start,points[0]])
-        stationary=np.array_equal(*points)
+        start=np.asarray(plan['start_joints_rad'],float)
+        if plan.get('refinement',{}).get('status')=='correction_required':
+            correction=plan['correction']
+            points=np.asarray(correction['joint_waypoints_rad'],float)
+            if (points.ndim!=2 or points.shape[1:]!=(6,) or len(points)<2
+                    or not np.isfinite(points).all() or not np.array_equal(points[0],start)
+                    or correction.get('column_checked') is not True
+                    or correction.get('timing',{}).get('status')!='timed_preview'
+                    or not np.array_equal(correction['target_base_from_tool'],
+                        plan['refinement']['correction_target_base_from_tool'])):
+                raise ValueError('Correction is not bound to the checked TCP step')
+        else:
+            a=plan['approach']
+            if not np.array_equal(start,a['start_rad']) or not np.array_equal(points[0],a['end_rad']):
+                raise ValueError('Approach is not bound to the checked insertion path')
+            points=np.asarray([start,points[0]])
+            stationary=np.array_equal(*points)
+    else:
+        start=np.asarray(plan['start_joints_rad'],float)
+        if not np.array_equal(start,points[0]):
+            # Join the already checked pregrasp connector in the same pick, without another observation.
+            a=plan['approach']
+            if not np.array_equal(start,a['start_rad']) or not np.array_equal(points[0],a['end_rad']):
+                raise ValueError('Insertion start is not bound to the checked approach')
+            points=np.vstack([start,points])
     target=np.eye(4);target[:3,:3]=np.asarray(plan['R_base_from_tool'],float)
     target[:3,3]=np.asarray(plan['contact_path']['pre_mm' if approach else 'end_mm'],float)/1000
+    if correction is not None:target=rigid(correction['target_base_from_tool'])
     p=policies['pick']
     low,high=controller.config['arms']['right']['gripper_limits_raw']
     if not low<=p['gripper_target']<=high:raise ValueError('Gripper target outside configured limits')
@@ -88,4 +110,4 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
             tcp_position=lambda angles:(model.wrist_transform(angles,plan['lift_rad'])@tcp)[:3,3])
         cls=ApproachTrajectoryStep if approach else PickTrajectoryStep
         step=cls(controller,token,monitor,trajectory,preflight=guard)
-    return OpenThenApproachStep(step,start) if approach else step
+    return OpenThenApproachStep(step,start) if approach and correction is None else step

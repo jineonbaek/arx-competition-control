@@ -1,14 +1,15 @@
-"""Finite post-approach correction decisions from frozen, calibrated evidence."""
+"""Measured six-dimensional corrections with bounded steps and no observation budget."""
 import copy
 import unittest
 import numpy as np
+from scipy.spatial.transform import Rotation
 from agent.grasp_refinement import assess
+
 
 class RefinementTests(unittest.TestCase):
     def setUp(self):
-        self.policy=dict(max_corrections=2,max_target_shift_mm=[8.,8.,8.],
-            max_step_mm=[6.,6.,6.],max_total_correction_mm=10.,
-            position_tolerance_mm=[.5,.5,.5],orientation_tolerance_deg=.3,lift_tolerance_rad=.02)
+        self.policy=dict(max_step_mm=10.,max_rotation_step_deg=5.,
+                         position_tolerance_mm=[18.]*3,orientation_tolerance_deg=5.)
         self.old=dict(head_observation_id='head',observation_id='old',snapshot_id='old-frame',
             arm='right',frame='base_link',unit='mm',lift_rad=12.,
             contact_path=dict(kind='battery_approach_axis',direction_base=[1.,0.,0.],
@@ -20,64 +21,53 @@ class RefinementTests(unittest.TestCase):
         actual=np.eye(4);actual[:3,3]=[.4,-.25,.7]
         self.new['actual_base_from_tool']=actual.tolist()
 
-    def test_aligned_result_requires_no_motion_and_locks_new_observation(self):
-        r=assess(self.new,self.old,self.policy,corrections=0,total_mm=0.)
-        self.assertEqual(r['status'],'aligned');self.assertFalse(r['executable'])
-        self.assertEqual(r['observation_id'],'new');self.assertEqual(r['correction_mm'],[0.,0.,0.])
-        self.assertEqual(r['remaining_corrections'],2)
+    def decision(self):return assess(self.new,self.old,self.policy,corrections=50,total_mm=500.)
 
-    def test_new_visual_orientation_within_policy_preserves_calibrated_tcp(self):
-        from scipy.spatial.transform import Rotation
-        policy=copy.deepcopy(self.policy);policy['orientation_tolerance_deg']=5.
-        policy['position_tolerance_mm']=[18.]*3
-        self.new['R_base_from_tool']=Rotation.from_euler('z',2.,degrees=True).as_matrix().tolist()
-        direction=np.asarray(self.new['R_base_from_tool'])[:,0]
-        self.new['contact_path']['direction_base']=direction.tolist()
-        self.new['contact_path']['end_mm']=(np.asarray(self.new['contact_path']['pre_mm'])+50*direction).tolist()
-        self.assertEqual(assess(self.new,self.old,policy,corrections=0,total_mm=0.)['status'],'aligned')
-        self.new['T_wrist_from_tool'][0][3]=.001
-        with self.assertRaisesRegex(ValueError,'TCP calibration'):
-            assess(self.new,self.old,policy,corrections=0,total_mm=0.)
+    def test_xyz_and_orientation_tolerance_are_inclusive_and_both_required(self):
+        self.new['actual_base_from_tool'][0][3]-=.018
+        rotation=Rotation.from_euler('x',5.,degrees=True).as_matrix()
+        for i in range(3):self.new['actual_base_from_tool'][i][:3]=rotation[i].tolist()
+        self.assertEqual(self.decision()['status'],'aligned')
+        self.new['actual_base_from_tool'][0][3]-=.00001
+        self.assertEqual(self.decision()['status'],'correction_required')
 
-    def test_visual_axis_rotation_beyond_policy_requires_reacquisition(self):
-        from scipy.spatial.transform import Rotation
-        rotation=Rotation.from_euler('z',6.,degrees=True).as_matrix()
-        self.new['R_base_from_tool']=rotation.tolist()
-        self.new['contact_path']['direction_base']=rotation[:,0].tolist()
-        self.new['contact_path']['end_mm']=(np.asarray(self.new['contact_path']['pre_mm'])+50*rotation[:,0]).tolist()
-        policy=copy.deepcopy(self.policy);policy['orientation_tolerance_deg']=5.
-        result=assess(self.new,self.old,policy,corrections=0,total_mm=0.)
-        self.assertEqual(result['status'],'reacquire_required')
+    def test_translation_is_clipped_by_three_dimensional_norm_not_each_axis(self):
+        for i in range(3):self.new['actual_base_from_tool'][i][3]-=.03
+        result=self.decision();step=np.array(result['correction_mm'])
+        self.assertEqual(result['status'],'correction_required')
+        self.assertAlmostEqual(np.linalg.norm(step),10.,places=8)
+        np.testing.assert_allclose(step,np.ones(3)*10/np.sqrt(3))
 
-    def test_xyz_correction_uses_measured_tcp_and_keeps_endpoint_height(self):
-        self.new['contact_path']['pre_mm'][2]+=3
-        self.new['contact_path']['end_mm'][2]+=3
-        r=assess(self.new,self.old,self.policy,corrections=0,total_mm=0.)
-        self.assertEqual(r['status'],'correction_required')
-        np.testing.assert_allclose(r['correction_mm'],[0,0,3],atol=1e-9)
-        self.assertEqual(r['proposed_total_correction_mm'],3.)
-        self.assertFalse(r['executable'])
+    def test_pure_rotation_corrects_even_with_zero_translation(self):
+        rotation=Rotation.from_euler('x',12.,degrees=True).as_matrix()
+        for i in range(3):self.new['actual_base_from_tool'][i][:3]=rotation[i].tolist()
+        result=self.decision()
+        self.assertEqual(result['status'],'correction_required')
+        self.assertAlmostEqual(np.linalg.norm(result['correction_rotation_deg']),5.)
+        np.testing.assert_allclose(result['correction_mm'],[0,0,0])
 
-    def test_budget_is_bounded_but_aligned_last_observation_can_finish(self):
-        self.assertEqual(assess(self.new,self.old,self.policy,corrections=2,total_mm=10.)['status'],'aligned')
-        self.new['actual_base_from_tool'][2][3]-=.003
-        for count,total in [(2,3.),(1,9.)]:
-            r=assess(self.new,self.old,self.policy,corrections=count,total_mm=total)
-            self.assertEqual(r['status'],'reacquire_required');self.assertIsNone(r['correction_mm'])
+    def test_simulated_joint_xyz_and_rotation_loop_converges_and_stops_within_tolerance(self):
+        actual=np.eye(4);actual[:3,3]=[.35,-.28,.67]
+        actual[:3,:3]=Rotation.from_euler('x',21.,degrees=True).as_matrix()
+        steps=0
+        while True:
+            self.new['actual_base_from_tool']=actual.tolist()
+            result=self.decision()
+            if result['status']=='aligned':break
+            self.assertLessEqual(np.linalg.norm(result['correction_mm']),10.+1e-9)
+            self.assertLessEqual(np.linalg.norm(result['correction_rotation_deg']),5.+1e-9)
+            actual=np.asarray(result['correction_target_base_from_tool'])
+            steps+=1;self.assertLess(steps,10)
+        self.assertGreater(steps,3)
+        self.assertTrue(np.all(np.abs(result['measured_pregrasp_error_mm'])<=18))
+        self.assertLessEqual(result['orientation_error_deg'],5.)
 
-    def test_target_jump_wrong_orientation_and_lift_change_never_correct(self):
-        for key in ('jump','orientation','lift','step'):
-            with self.subTest(key=key):
-                new=copy.deepcopy(self.new)
-                if key=='jump':
-                    for field in ('pre_mm','end_mm'):new['contact_path'][field][0]+=9
-                elif key=='orientation':new['actual_base_from_tool'][0][0]=-1;new['actual_base_from_tool'][1][1]=-1
-                elif key=='lift':new['lift_rad']+=.1
-                else:new['actual_base_from_tool'][1][3]-=.007
-                r=assess(new,self.old,self.policy,corrections=0,total_mm=0.)
-                self.assertEqual(r['status'],'reacquire_required');self.assertIsNone(r['correction_mm'])
+    def test_new_pose_and_actual_lift_are_used_without_previous_small_shift_gates(self):
+        self.new['lift_rad']+=.025
+        for key in ('pre_mm','end_mm'):self.new['contact_path'][key][0]+=30
+        self.assertEqual(self.decision()['status'],'correction_required')
 
-    def test_identity_versions_and_path_cannot_change(self):
+    def test_identity_tcp_and_fresh_evidence_still_required(self):
         for key in ('head_observation_id','calibration_id','pick_setup_sha256','handeye_sha256',
                     'profile_sha256','urdf_sha256','control_config_sha256','frame','unit','arm'):
             new=copy.deepcopy(self.new);new[key]='changed'
@@ -85,17 +75,16 @@ class RefinementTests(unittest.TestCase):
         for key in ('observation_id','snapshot_id'):
             new=copy.deepcopy(self.new);new[key]=self.old[key]
             with self.assertRaises(ValueError):assess(new,self.old,self.policy,corrections=0,total_mm=0.)
-        new=copy.deepcopy(self.new);new['contact_path']['pre_mm'][0]+=1
-        with self.assertRaises(ValueError):assess(new,self.old,self.policy,corrections=0,total_mm=0.)
+        self.new['T_wrist_from_tool'][0][3]=.001
+        with self.assertRaises(ValueError):self.decision()
 
-    def test_explicit_finite_policy_no_defaults(self):
-        for key,val in [('max_corrections',True),('max_corrections',4),
-                        ('position_tolerance_mm',[0,1,1]),('max_target_shift_mm',[1,2,float('nan')]),
-                        ('max_total_correction_mm',float('inf')),('orientation_tolerance_deg',0)]:
-            p=copy.deepcopy(self.policy);p[key]=val
+    def test_invalid_policy_and_broken_insertion_line_are_rejected(self):
+        for key,value in [('max_step_mm',0),('max_step_mm',10.1),
+                          ('max_rotation_step_deg',float('nan')),('position_tolerance_mm',[0,1,1])]:
+            p=dict(self.policy,**{key:value})
             with self.assertRaises(ValueError):assess(self.new,self.old,p,corrections=0,total_mm=0.)
-        for count,total in [(True,0),(-1,0),(3,0),(1,float('nan'))]:
-            with self.assertRaises(ValueError):assess(self.new,self.old,self.policy,corrections=count,total_mm=total)
-        with self.assertRaises(ValueError):assess(self.new,self.old,None,corrections=0,total_mm=0.)
+        self.new['contact_path']['pre_mm'][0]+=1
+        with self.assertRaises(ValueError):self.decision()
+
 
 if __name__=='__main__':unittest.main()

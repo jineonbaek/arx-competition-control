@@ -12,9 +12,8 @@ from agent.contracts import AgentError
 from agent.storage import atomic_json
 from agent.tests import test_battery_pick_plan as fixtures
 
-POLICY=dict(max_corrections=2,max_target_shift_mm=[8.,8.,8.],max_step_mm=[6.,6.,6.],
-    max_total_correction_mm=10.,position_tolerance_mm=[.5,.5,.5],
-    orientation_tolerance_deg=.3,lift_tolerance_rad=.02)
+POLICY=dict(max_step_mm=10.,max_rotation_step_deg=5.,position_tolerance_mm=[.5,.5,.5],
+    orientation_tolerance_deg=.3)
 
 class RefinementToolsTests(unittest.TestCase):
     preview=fixtures.BatteryPickPlanTests.preview
@@ -74,20 +73,28 @@ class RefinementToolsTests(unittest.TestCase):
         r=self.plan('no_policy');self.assertTrue(r['ok'],r)
         self.assertEqual(r['data']['refinement']['status'],'policy_pending')
         self.assertEqual(self.store.state['mission']['stage'],'PICK_AT_PREGRASP')
-    def test_observation_budget_is_per_completed_motion_not_per_plan_retry(self):
+    def test_post_approach_observations_have_no_three_frame_limit(self):
         self.arrived();self.store.state['coarse_alignment']='fixture'
         obs=dict(status='localized',observation_id=self.ident)
         with patch('agent.grasp_tools.observe',return_value=obs):
-            for call in ('one','two','three'):
+            for call in ('one','two','three','four','five','six'):
                 self.assertTrue(self.tools.execute('observe_battery',{'camera':'d405'},call)['ok'])
-            self.assertEqual(self.tools.execute('observe_battery',{'camera':'d405'},'four')['error']['code'],'observation_budget')
             self.preview(call='again_preview');self.plan('again_plan')
-            self.assertEqual(self.tools.execute('observe_battery',{'camera':'d405'},'five')['error']['code'],'observation_budget')
+            self.assertTrue(self.tools.execute('observe_battery',{'camera':'d405'},'seven')['ok'])
     def test_incomplete_arrival_never_changes_stage(self):
         self.store.state['mission']['stage']='PICK_APPROACH_PLANNED'
         with self.assertRaises(AgentError):
             Mission(self.store.state['mission']).apply('execute_battery_approach',{'pose_reached':True},{})
         self.assertEqual(self.store.state['mission']['stage'],'PICK_APPROACH_PLANNED')
+
+    def test_zero_translation_rotation_correction_is_recorded_on_completion(self):
+        self.store.state['mission'].update(stage='PICK_CORRECTION_PLANNED',pick_correction_mm=0.)
+        proposal=dict(plan_id='rotation-only',arm='right',
+            refinement=dict(status='correction_required',proposed_total_correction_mm=0.))
+        Mission(self.store.state['mission']).apply('execute_battery_approach',
+            dict(pose_reached=True,new_observation_required=True),dict(plan=proposal))
+        self.assertEqual(self.store.state['mission']['pick_corrections'],1)
+        self.assertEqual(self.store.state['mission']['pick_correction_mm'],0.)
     def test_dispatch_approach_then_new_scene_then_pick_never_claims_hold(self):
         import io
         import hashlib

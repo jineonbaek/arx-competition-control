@@ -13,6 +13,9 @@ from .mission import Mission
 from .battery_pick_plan import plan as plan_battery_pick
 from .grasp_refinement import assess
 from .storage import atomic_json
+from .grasp_path import plan_correction
+from web.src.handeye_column import ColumnModel
+from .grasp_geometry import ROOT
 
 EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick','execute_battery_approach','execute_pick','capture_grasp_scene','verify_hold'}
 
@@ -52,6 +55,8 @@ class BatteryExecutionTools(WorkflowTools):
         return camera+':'+str(barrier.get('completed_at','missing'))
 
     def _observation_limit(self,camera):
+        if camera=='d405' and self.store.state.get('mission',{}).get('approach_plan'):
+            return None
         if camera=='d405' and self.store.state.get('mission',{}).get('stage')=='COARSE_ALIGNED':
             return 12
         return self.observation_limit
@@ -134,7 +139,8 @@ class BatteryExecutionTools(WorkflowTools):
                 continue
             used=self.store.state.get('battery_observation_attempts',{}).get(self._observation_budget_key(camera),0)
             limit=self._observation_limit(camera)
-            if used>=limit or len(attempts)>=limit:break
+            retry_limit=self.observation_limit if limit is None else limit
+            if (limit is not None and used>=limit) or len(attempts)>=retry_limit:break
             self.progress('reobserve_'+camera)
             # External call IDs cannot contain '/', so retries cannot overwrite their artifacts.
             attempt_id=call_id+'/retry_'+str(len(attempts))
@@ -177,6 +183,12 @@ class BatteryExecutionTools(WorkflowTools):
                             corrections=mission.data.get('pick_corrections',0),
                             total_mm=mission.data.get('pick_correction_mm',0)) if self.refinement_policy is not None
                             else dict(status='policy_pending',executable=False))
+                        if result['refinement']['status']=='correction_required':
+                            limits=json.loads((ROOT/'web/config/control.json').read_text())['arms']['right']['joint_limits_deg']
+                            result['correction']=plan_correction(ColumnModel(),result['start_joints_rad'],
+                                result['lift_rad'],result['T_wrist_from_tool'],
+                                result['refinement']['correction_target_base_from_tool'],limits,
+                                timing_limits=self.pick_setup['timing_limits'])
                         next_stage={'aligned':'PICK_PLANNED','correction_required':'PICK_CORRECTION_PLANNED'}.get(
                             result['refinement']['status'],'PICK_AT_PREGRASP')
                     else:next_stage='PICK_APPROACH_PLANNED'

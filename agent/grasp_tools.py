@@ -89,7 +89,7 @@ class WorkflowTools(GraspTools):
             counts=self.store.state.setdefault('battery_observation_attempts',{})
             camera=self._observation_budget_key(a['camera'])
             limit=self._observation_limit(a['camera'])
-            if counts.get(camera,0)>=limit:
+            if limit is not None and counts.get(camera,0)>=limit:
                 raise AgentError('observation_budget',f'本阶段该相机已观察 {limit} 次，请查看原因后开始新任务')
             counts[camera]=counts.get(camera,0)+1
             self.store.save()

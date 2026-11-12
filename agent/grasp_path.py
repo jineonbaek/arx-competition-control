@@ -72,6 +72,38 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
                   '连续位置界限仅适用于所检查的关节线性插值；控制服务必须采用匹配的插值'])
 
 
+def plan_correction(model,start_q,lift_rad,wrist_from_tool,target,limits_deg,*,timing_limits):
+    """Follow a short TCP translation and rotation together, reusing the checked IK path."""
+    from .grasp_geometry import rigid
+    tcp=rigid(wrist_from_tool);target=rigid(target)
+    q=np.asarray(start_q,float)
+    actual=rigid(model.wrist_transform(q,lift_rad)@tcp)
+    displacement=target[:3,3]-actual[:3,3]
+    rotation=Rotation.from_matrix(actual[:3,:3].T@target[:3,:3]).as_rotvec()
+    steps=max(1,int(np.ceil(np.linalg.norm(displacement)*1000/2)),
+              int(np.ceil(np.degrees(np.linalg.norm(rotation))/.5)))
+    waypoints=[q];checks=[]
+    for t in np.linspace(0,1,steps+1)[1:]:
+        tool=actual.copy();tool[:3,3]+=t*displacement
+        tool[:3,:3]=actual[:3,:3]@Rotation.from_rotvec(t*rotation).as_matrix()
+        wrist=tool@np.linalg.inv(tcp)
+        angles=np.asarray(model.inverse_wrist(waypoints[-1],lift_rad,wrist[:3,3]*1000,
+            Rotation.from_matrix(wrist[:3,:3]).as_euler('xyz',degrees=True),limits_deg),float)
+        if np.max(np.abs(angles-waypoints[-1]))>np.radians(5):
+            raise ValueError('Correction IK branch jump or singular configuration')
+        check=model.check(waypoints[-1],angles,lift_rad)
+        if not check['clear']:raise ValueError('Correction path approaches central column')
+        checks.append(check)
+        if not np.array_equal(angles,waypoints[-1]):waypoints.append(angles)
+    if len(waypoints)<2:raise ValueError('Correction IK produced no motion')
+    timing=TimedJointPath(waypoints,model.reach+np.linalg.norm(tcp[:3,3]),
+        tcp_position=lambda angles:(model.wrist_transform(angles,lift_rad)@tcp)[:3,3],
+        **timing_limits).receipt()
+    return dict(joint_waypoints_rad=[q.tolist() for q in waypoints],
+        target_base_from_tool=target.tolist(),timing=timing,
+        column_checked=True,column_lower_mm=min(c['lower_mm'] for c in checks))
+
+
 class TimedJointPath:
     """Synchronized rest-to-rest segments; no transport and no physical defaults.
 

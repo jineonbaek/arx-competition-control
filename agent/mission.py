@@ -47,7 +47,7 @@ class Mission:
                 refinement=plan.get('refinement') or {}
                 total=refinement.get('proposed_total_correction_mm')
                 if (refinement.get('status')!='correction_required' or type(total) not in (int,float)
-                        or not math.isfinite(total) or total<=self.data.get('pick_correction_mm',0)):
+                        or not math.isfinite(total) or total<self.data.get('pick_correction_mm',0)):
                     raise AgentError('invalid_backend_result','Bounded correction plan required')
                 self.data['pick_corrections']=self.data.get('pick_corrections',0)+1
                 self.data['pick_correction_mm']=total
