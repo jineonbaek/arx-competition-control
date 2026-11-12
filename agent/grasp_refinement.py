@@ -45,14 +45,17 @@ def assess(current, previous, policy, *, corrections, total_mm):
     endpoints=[]
     for item in (previous,current):
         line=item['contact_path'];points=np.asarray([line['pre_mm'],line['end_mm']],float)
-        if (line.get('axis')!='+X' or line.get('fixed_yz') is not True or points.shape!=(2,3)
-                or not np.isfinite(points).all() or not 0<points[1,0]-points[0,0]<=200
-                or not np.allclose(points[1,1:],points[0,1:],atol=1e-6,rtol=0)):
-            raise ValueError('Invalid fixed-YZ insertion line')
+        direction=np.asarray(line.get('direction_base'),float)
+        delta=points[1]-points[0];distance=float(np.linalg.norm(delta))
+        if (line.get('kind')!='battery_approach_axis' or points.shape!=(2,3)
+                or direction.shape!=(3,) or not np.isfinite(points).all()
+                or not np.isfinite(direction).all() or not 0<distance<=200
+                or not np.allclose(delta/distance,direction,atol=1e-6,rtol=0)):
+            raise ValueError('Invalid battery-axis insertion line')
         endpoints.append(points)
     before,after=endpoints
     if not np.allclose(before[1]-before[0],after[1]-after[0],atol=1e-6,rtol=0):
-        raise ValueError('Pregrasp clearance changed during correction')
+        raise ValueError('Insertion axis or clearance changed during correction')
     lift=np.asarray([current['lift_rad'],previous['lift_rad']],float)
     if lift.shape!=(2,) or not np.isfinite(lift).all() or np.any(lift<0) or np.any(lift>18):
         raise ValueError('Invalid paired lift feedback')

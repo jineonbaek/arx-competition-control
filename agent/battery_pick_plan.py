@@ -32,9 +32,11 @@ def plan(registry,observation_id,call_id,setup=None):
         raise ValueError('缺少本轮 D435 与 D405 同目标确认')
     geometry=evidence['geometry'];line=geometry['path']
     profile_digest=hashlib.sha256(PROFILE.read_bytes()).hexdigest()
+    direction=np.asarray(line.get('direction_base'),float)
     if (geometry.get('frame')!='base_link' or geometry.get('unit')!='mm'
             or geometry.get('profile_sha256')!=profile_digest
-            or line.get('axis')!='+X' or line.get('fixed_yz') is not True):
+            or line.get('kind')!='battery_approach_axis' or direction.shape!=(3,)
+            or not np.isfinite(direction).all() or not np.isclose(np.linalg.norm(direction),1)):
         raise ValueError('坐标、夹指参考模型或插入方向不匹配')
     observation=store.observation(observation_id)
     calibration_digest=hashlib.sha256(CALIBRATION.read_bytes()).hexdigest()
@@ -71,19 +73,20 @@ def plan(registry,observation_id,call_id,setup=None):
             value=setup[key]
             if type(value) not in (int,float) or not np.isfinite(value) or not 0<value<90:
                 raise ValueError('需要显式、有限的夹姿验收容差')
-        for key in ('approach_x_error_deg','bump_down_error_deg'):
-            value=geometry['grip'][key]
-            if not np.isfinite(value) or not 0<=value<=setup['alignment_tolerance_deg']:
-                raise ValueError('电池朝向与水平插入或凸起朝下不兼容')
+        value=geometry['grip']['bump_down_error_deg']
+        if not np.isfinite(value) or not 0<=value<=setup['alignment_tolerance_deg']:
+            raise ValueError('电池凸起朝向与约定夹姿不兼容')
         if not isinstance(setup['timing_limits'],dict):raise ValueError('需要显式轨迹速度和加速度参数')
-        result=plan_insert(ColumnModel(),q,lift,line['pre_mm'],line['end_mm'],np.eye(3),tcp,limits,
+        tool_rotation=np.asarray(geometry['grip']['R_base_from_tool'],float)
+        check=np.eye(4);check[:3,:3]=tool_rotation;rigid(check)
+        result=plan_insert(ColumnModel(),q,lift,line['pre_mm'],line['end_mm'],tool_rotation,tcp,limits,
                            timing_limits=setup['timing_limits'])
         if any(abs(np.degrees(joints[5])+90)>setup['j6_tolerance_deg']
                for joints in result['joint_waypoints_rad']):
             raise ValueError('IK 夹姿不是约定 J6 -90 度，不能套用带槽夹指方向')
         binding.update(calibration_id=setup['calibration_id'],
             pick_setup_sha256=hashlib.sha256(json.dumps(setup,sort_keys=True,allow_nan=False).encode()).hexdigest(),
-            T_wrist_from_tool=tcp.tolist(),R_base_from_tool=np.eye(3).tolist(),
+            T_wrist_from_tool=tcp.tolist(),R_base_from_tool=tool_rotation.tolist(),
             actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
     output=store.path/'pick-plans'/call_id/'result.json'

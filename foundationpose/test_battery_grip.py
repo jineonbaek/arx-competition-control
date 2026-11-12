@@ -38,6 +38,9 @@ class BatteryGripTests(unittest.TestCase):
         self.assertAlmostEqual(result["bump_down_error_deg"],0)
         self.assertAlmostEqual(result["approach_x_error_deg"],0)
         self.assertEqual(result["required_j6_deg"],-90)
+        R=np.asarray(result["R_base_from_tool"])
+        np.testing.assert_allclose(R[:,0],result["approach_base"],atol=1e-9)
+        np.testing.assert_allclose(R.T@R,np.eye(3),atol=1e-9)
 
     def test_invalid_transform_rejected(self):
         for bad in [np.zeros((4,4)),np.eye(3),np.diag([1,1,-1,1])]:

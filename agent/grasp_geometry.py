@@ -57,7 +57,8 @@ def preview_geometry(f,mask,pose,clearance_mm):
     profile=json.loads(PROFILE.read_text())
     grip=transform_reference(profile,object_base,object_camera)
     target=np.asarray(grip["points_base_mm"]["grip"])
-    pre=target-np.array([clearance_mm,0,0])
+    direction=np.asarray(grip["approach_base"],float)
+    pre=target-clearance_mm*direction
     # shortcut: task-space line only; wrist IK and swept gripper collisions wait for calibrated TCP.
     points=np.linspace(pre,target,max(2,int(np.ceil(clearance_mm/5))+1))
     yy,xx=np.nonzero(valid[::4,::4]);yy*=4;xx*=4
@@ -68,8 +69,9 @@ def preview_geometry(f,mask,pose,clearance_mm):
         image_time=float(f["image_time"]),base_from_color=base.tolist(),
         points=np.column_stack([cloud,colors]).tolist(),grip=grip,
         path=dict(control_point="CAD grip reference G, not wrist",points_mm=points.tolist(),
-                  pre_mm=pre.tolist(),end_mm=target.tolist(),axis="+X",fixed_yz=True,
-                  alignment="requires physical alignment validation",required_j6_deg=-90),
+                  pre_mm=pre.tolist(),end_mm=target.tolist(),kind="battery_approach_axis",
+                  direction_base=direction.tolist(),alignment="follows FoundationPose battery axis",
+                  required_j6_deg=-90),
         depth=dict(mask_pixels=int(mask.sum()),valid_pixels=int(selected.sum()),
             valid_ratio=float(selected.sum()/max(1,mask.sum())),
             nearest_surface_to_grip_mm=float(np.linalg.norm(surface*1000-target,axis=1).min())),

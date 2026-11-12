@@ -21,11 +21,18 @@ def pose():
     return dict(id="a"*32,frame="base_link",T_camera_from_object=np.eye(4).tolist(),
         T_base_from_object=np.eye(4).tolist())
 class GeometryTests(unittest.TestCase):
-    def test_fixed_x_line_and_no_tcp_targets(self):
-        out=preview_geometry(frame(),np.ones((20,30),bool),pose(),50)
+    def test_line_follows_foundationpose_battery_axis_and_has_no_tcp_targets(self):
+        p=pose()
+        angle=np.radians(30)
+        p["T_camera_from_object"]=[[np.cos(angle),-np.sin(angle),0,0],
+            [np.sin(angle),np.cos(angle),0,0],[0,0,1,0],[0,0,0,1]]
+        p["T_base_from_object"]=p["T_camera_from_object"]
+        out=preview_geometry(frame(),np.ones((20,30),bool),p,50)
         line=np.asarray(out["path"]["points_mm"])
-        self.assertTrue(np.allclose(line[:,1:],line[0,1:]))
-        self.assertAlmostEqual(line[-1,0]-line[0,0],50)
+        direction=np.asarray(out["grip"]["approach_base"])
+        np.testing.assert_allclose(line[-1]-line[0],direction*50,atol=1e-6)
+        np.testing.assert_allclose(out["path"]["direction_base"],direction,atol=1e-6)
+        self.assertEqual(out["path"]["kind"],"battery_approach_axis")
         self.assertIsNone(out["wrist_pregrasp_mm"]);self.assertIsNone(out["wrist_grip_mm"])
         self.assertFalse(out["executable"]);self.assertEqual(out["tcp_status"],"pending")
         self.assertFalse(out["whole_path_collision_checked"])

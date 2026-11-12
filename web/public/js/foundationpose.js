@@ -40,7 +40,7 @@ async function show(data){
       const g=r.grasp_reference;
       entries.push(['G 夹持中心 XYZ',xyz(g.points_base_mm.grip)+' mm'],
         ['T 指尖平面中心',xyz(g.points_base_mm.tip)+' mm'],['候选伸入量',g.insertion_mm.toFixed(0)+' mm']);
-      el('grip-pose-status').textContent='约定夹姿 J6 −90°。模型凸起朝下偏差 '+g.bump_down_error_deg.toFixed(1)+'°；伸入方向相对整车 +X 偏差 '+g.approach_x_error_deg.toFixed(1)+'°。这些是 CAD 候选，尚未核对实机对位与可达性。';
+      el('grip-pose-status').textContent='约定夹姿 J6 −90°。模型凸起朝下偏差 '+g.bump_down_error_deg.toFixed(1)+'°；路径跟随 FoundationPose 变换后的电池插入轴。相对整车 +X 偏差 '+g.approach_x_error_deg.toFixed(1)+'°仅作姿态显示，不再作为路径门控。';
     }else{
       el('grip-pose-status').textContent='当前结果不含电池夹持参考点；请重新估计电池位姿。';
     }

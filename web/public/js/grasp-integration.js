@@ -49,7 +49,7 @@ function show(data){
  const rows=[['预抓参考点 G',xyz(g.path.pre_mm)],['夹持参考点 G',xyz(g.path.end_mm)],['CAD 夹指伸入量',g.grip.insertion_mm+' mm'],['腕部起终点','等待 TCP 标定']];
  el('metrics').replaceChildren(...rows.map(([name,value])=>{const box=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value;box.append(dt,dd);return box;}));
  el('stamp').textContent='冻结快照 '+g.snapshot_id+' · '+new Date(g.image_time*1000).toLocaleString('zh-CN');
- el('quality').textContent=fitText+' 电池有效深度 '+g.depth.valid_pixels+' / '+g.depth.mask_pixels+'（'+(g.depth.valid_ratio*100).toFixed(1)+'%）；电池插入方向偏离 +X '+g.grip.approach_x_error_deg.toFixed(1)+'°；凸起朝下偏差 '+g.grip.bump_down_error_deg.toFixed(1)+'°。这些数值供核对，不代表碰撞检查通过。';
+ el('quality').textContent=fitText+' 电池有效深度 '+g.depth.valid_pixels+' / '+g.depth.mask_pixels+'（'+(g.depth.valid_ratio*100).toFixed(1)+'%）；路径已跟随电池插入轴，相对整车 +X '+g.grip.approach_x_error_deg.toFixed(1)+'°；凸起朝下偏差 '+g.grip.bump_down_error_deg.toFixed(1)+'°。这些数值供核对，不代表碰撞检查通过。';
  el('blockers').textContent=g.blockers.join('；')+'。'+g.note;
 }
 async function request(path,body){

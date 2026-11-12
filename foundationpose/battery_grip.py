@@ -14,11 +14,18 @@ def transform_reference(profile,base_from_object,camera_from_object):
         return {key:(T[:3,:3]@np.asarray(p)+1000*T[:3,3]).tolist() for key,p in model.items()}
     approach=base[:3,:3]@np.asarray(profile["approach_object"])
     bump=base[:3,:3]@np.asarray(profile["bump_direction_object"])
+    approach=approach/np.linalg.norm(approach);bump=bump/np.linalg.norm(bump)
+    tool_x=approach
+    tool_z=-bump
+    tool_y=np.cross(tool_z,tool_x);tool_y/=np.linalg.norm(tool_y)
+    tool_z=np.cross(tool_x,tool_y)
+    base_from_tool=np.column_stack((tool_x,tool_y,tool_z))
     angle=lambda a,b:float(np.degrees(np.arccos(np.clip(np.dot(a,b),-1,1))))
     return dict(points_object_mm=model,points_base_mm=points(base),points_camera_mm=points(camera),
         insertion_mm=profile["insertion_mm"],required_j6_deg=-90,
         bump_down_error_deg=angle(bump,[0,0,-1]),approach_x_error_deg=angle(approach,[1,0,0]),
-        approach_base=approach.tolist(),method="CAD geometric candidate, not a validated motion target")
+        approach_base=approach.tolist(),bump_base=bump.tolist(),R_base_from_tool=base_from_tool.tolist(),
+        method="CAD geometric candidate, not a validated motion target")
 
 
 def draw_reference(profile,base_from_object,camera_from_object,project,vis):

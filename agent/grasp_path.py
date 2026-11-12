@@ -18,12 +18,14 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
             or np.any(limits[:,0]>=limits[:,1])):
         raise ValueError('Invalid insertion inputs')
     delta=end-pre
-    if not 0<delta[0]<=200 or not np.allclose(delta[1:],0,atol=1e-6):
-        raise ValueError('Insertion must be constant Y/Z, positive X, at most 200 mm')
+    distance=float(np.linalg.norm(delta))
+    direction=delta/distance if distance else delta
+    if not 0<distance<=200 or not np.allclose(direction,orientation[:3,0],atol=1e-6):
+        raise ValueError('Insertion must follow tool +X and be at most 200 mm')
     if np.linalg.norm(tcp[:3,3])>1:raise ValueError('TCP uses metres; offset exceeds tool size bound')
     wrist_rotation=orientation[:3,:3]@tcp[:3,:3].T
     rpy=Rotation.from_matrix(wrist_rotation).as_euler('xyz',degrees=True)
-    points=np.linspace(pre,end,int(np.ceil(delta[0]/2))+1)
+    points=np.linspace(pre,end,int(np.ceil(distance/2))+1)
     wrists=points-(wrist_rotation@tcp[:3,3])*1000
     # Approach is a separate joint-space proposal; only the insertion below has a straightness bound.
     first=np.asarray(model.inverse_wrist(q,lift_rad,wrists[0],rpy,limits))
@@ -59,6 +61,7 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
     return dict(status='kinematic_preview',timing=timing,frame='base_link',position_unit='mm',joint_unit='rad',
         approach=dict(kind='joint_space',start_rad=q.tolist(),end_rad=first.tolist()),
         tool_points_mm=points.tolist(),wrist_pre_mm=wrists[0].tolist(),wrist_end_mm=wrists[-1].tolist(),
+        insertion_axis_base=direction.tolist(),
         joint_waypoints_rad=[v.tolist() for v in waypoints],
         interpolation_position_bound_mm=position_bound,sampled_orientation_error_deg=angle_error,
         column_checked=True,column_lower_mm=min(c['lower_mm'] for c in clearances),

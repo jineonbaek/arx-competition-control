@@ -11,7 +11,8 @@ class RefinementTests(unittest.TestCase):
             position_tolerance_mm=[.5,.5,.5],orientation_tolerance_deg=.3,lift_tolerance_rad=.02)
         self.old=dict(head_observation_id='head',observation_id='old',snapshot_id='old-frame',
             arm='right',frame='base_link',unit='mm',lift_rad=12.,
-            contact_path=dict(axis='+X',fixed_yz=True,pre_mm=[400.,-250.,700.],end_mm=[450.,-250.,700.]),
+            contact_path=dict(kind='battery_approach_axis',direction_base=[1.,0.,0.],
+                pre_mm=[400.,-250.,700.],end_mm=[450.,-250.,700.]),
             T_wrist_from_tool=np.eye(4).tolist(),R_base_from_tool=np.eye(3).tolist(),
             calibration_id='test',pick_setup_sha256='tcp',handeye_sha256='he',profile_sha256='cad',
             urdf_sha256='urdf',control_config_sha256='config')
