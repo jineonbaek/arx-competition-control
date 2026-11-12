@@ -1,0 +1,68 @@
+{
+  "clearance_mm": 50.0,
+  "alignment_tolerance_deg": 3.0,
+  "j6_tolerance_deg": 5.0,
+  "timing_limits": {
+    "joint_speed_deg_s": [5.7, 5.7, 5.7, 5.7, 5.7, 5.7],
+    "joint_acceleration_deg_s2": [12.0, 12.0, 12.0, 12.0, 12.0, 12.0],
+    "tcp_speed_mm_s": 20.0,
+    "tcp_acceleration_mm_s2": 40.0
+  },
+  "timeout_s": {
+    "execute_coarse_alignment": 30.0,
+    "execute_battery_approach": 30.0,
+    "execute_pick": 30.0
+  },
+  "coarse": {
+    "reach_bound_m": 1.0,
+    "fixed_joint_tolerance_rad": 0.02,
+    "max_pair_skew_s": 0.05,
+    "lift_policy": {
+      "tolerance": [0.02],
+      "max_speed": [0.2],
+      "settle_s": 0.25,
+      "timeout_s": 8.0,
+      "stall_s": 2.0,
+      "max_age_s": 0.3
+    },
+    "arm_policy": {
+      "tolerance": [2.0, 2.0, 2.0, 0.5, 0.5, 0.5],
+      "max_speed": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+      "settle_s": 0.25,
+      "timeout_s": 8.0,
+      "stall_s": 2.0,
+      "max_age_s": 0.3
+    }
+  },
+  "pick": {
+    "lift_tolerance_rad": 0.02,
+    "max_pair_skew_s": 0.05,
+    "arm_policy": {
+      "tolerance": [2.0, 2.0, 2.0, 0.5, 0.5, 0.5],
+      "max_speed": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+      "settle_s": 0.25,
+      "timeout_s": 8.0,
+      "stall_s": 2.0,
+      "max_age_s": 0.3
+    },
+    "gripper_target": -1.2,
+    "gripper_policy": {
+      "tolerance": [0.02],
+      "max_speed": [0.2],
+      "settle_s": 0.25,
+      "timeout_s": 8.0,
+      "stall_s": 2.0,
+      "max_age_s": 0.3
+    },
+    "hold_gripper_range": [-2.6, -1.6]
+  },
+  "refinement": {
+    "max_corrections": 2,
+    "max_target_shift_mm": [15.0, 15.0, 15.0],
+    "max_step_mm": [10.0, 10.0, 10.0],
+    "max_total_correction_mm": 20.0,
+    "position_tolerance_mm": [13.0, 13.0, 13.0],
+    "orientation_tolerance_deg": 3.0,
+    "lift_tolerance_rad": 0.02
+  }
+}

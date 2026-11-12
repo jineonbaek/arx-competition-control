@@ -52,7 +52,17 @@
       "ready_topic": "/web/left/ready",
       "stop_service": "/web/left/stop",
       "command_result_topic": "/web/left/command_result",
-      "joint_speed_deg_s": 5.7
+      "joint_speed_deg_s": 5.7,
+      "trajectory_policy": {
+        "speed_deg_s": 5.7,
+        "acceleration_deg_s2": 12.0,
+        "start_tolerance_deg": 0.5,
+        "tracking_tolerance_deg": 2.0,
+        "max_tick_gap_s": 0.05,
+        "lease_s": 0.15,
+        "max_duration_s": 60.0,
+        "start_speed_deg_s": 0.2
+      }
     },
     "right": {
       "state_topic": "/arm_r_status_full",
@@ -103,7 +113,17 @@
       "ready_topic": "/web/right/ready",
       "stop_service": "/web/right/stop",
       "command_result_topic": "/web/right/command_result",
-      "joint_speed_deg_s": 5.7
+      "joint_speed_deg_s": 5.7,
+      "trajectory_policy": {
+        "speed_deg_s": 5.7,
+        "acceleration_deg_s2": 12.0,
+        "start_tolerance_deg": 0.5,
+        "tracking_tolerance_deg": 2.0,
+        "max_tick_gap_s": 0.05,
+        "lease_s": 0.15,
+        "max_duration_s": 60.0,
+        "start_speed_deg_s": 0.2
+      }
     }
   },
   "body": {
