@@ -65,6 +65,50 @@ class BatteryTask:
     def snapshot(self, client):
         with self.lock:return self._view(client)
 
+    def result(self, after=''):
+        """Read published artifacts from the same run as the shared task."""
+        with self.lock:
+            run=(self.active['store'].path if self.active else
+                 max(self.root.glob('run-*/state.json'),key=lambda p:p.stat().st_mtime,
+                     default=None))
+        if run is None:return {'run_id':None,'revision':'idle','observations':{}}
+        if run.name=='state.json':run=run.parent
+        run=run.resolve();state_path=run/'state.json'
+        revision=run.name+':'+str(state_path.stat().st_mtime_ns)
+        if revision==after:return {'run_id':run.name,'revision':revision,'unchanged':True}
+        state=json.loads(state_path.read_text())
+        def read(relative):
+            if not isinstance(relative,str):return None
+            path=(run/relative).resolve()
+            if not path.is_relative_to(run):raise ValueError('任务结果路径无效')
+            try:return json.loads(path.read_text())
+            except (OSError,ValueError):return None
+        data=read(state.get('grasp_preview')) or {}
+        data.update(run_id=run.name,revision=revision,observations={})
+        for camera,ident in state.get('latest_battery_observations',{}).items():
+            value=read(state.get('battery_observations',{}).get(ident))
+            if value:data['observations'][camera]=value
+        data['coarse_alignment']=read(state.get('coarse_alignment'))
+        data['pick_plan']=read(state.get('battery_pick_plan'))
+        data['flow']=state.get('battery_flow',{})
+        data['tool_results']=[{'name':call['result'].get('tool'),
+            'ok':call['result'].get('ok'),'error':call['result'].get('error'),
+            'data':{k:v for k,v in call['result'].get('data',{}).items()
+                    if k in ('status','location','message','plan_id','result_file','image_time','execution_receipt')}}
+            for key,call in state.get('calls',{}).items()
+            if key.startswith('fixed_') and not key.startswith('fixed_poll_') and 'result' in call]
+        receipts={}
+        for journal in (run/'executions').glob('*.json'):
+            receipt=(read(str(journal.relative_to(run))) or {}).get('receipt',{})
+            receipts[receipt.get('execution_id')]=receipt
+        for tool in data['tool_results']:
+            original=tool['data'].get('execution_receipt',{})
+            receipt=receipts.get(original.get('execution_id'))
+            if receipt:
+                tool['data']['execution_receipt']=receipt
+                if receipt.get('status')=='completed':tool.update(ok=True,error=None)
+        return data
+
     def action(self, client, data):
         if not isinstance(client,str) or not client or not isinstance(data,dict):
             raise ValueError('Valid web session and JSON object required')

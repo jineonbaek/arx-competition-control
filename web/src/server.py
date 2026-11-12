@@ -10,7 +10,7 @@ import signal
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, parse_qs
 import uuid
 
 from control import Controller, Rejected
@@ -80,6 +80,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == "/api/battery-task/result":
+                if not self.client():return self.json(403,{"message":"请先打开控制台"})
+                if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
+                try:
+                    after=parse_qs(urlsplit(self.path).query).get('after',[''])[0]
+                    return self.json(200,battery_task.result(after))
+                except (OSError,ValueError):return self.json(503,{"message":"任务输出正在更新，请稍后重试"})
             if path == "/api/battery-task":
                 client=self.client()
                 if not client:return self.json(403,{"message":"请先打开控制台"})
@@ -102,7 +109,6 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 return self.json(200, vision.snapshot())
             if path in ("/api/vision/stream", "/api/vision/review"):
                 if not self.client(): return self.json(403, {"message":"请先打开视觉识别页"})
-                from urllib.parse import parse_qs
                 ident=parse_qs(urlsplit(self.path).query).get("run", [""])[0]
                 if path.endswith("/review"):
                     frame=vision.frame(ident, review=True)

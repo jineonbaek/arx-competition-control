@@ -17,6 +17,12 @@ class BatteryTaskUITests(unittest.TestCase):
         self.assertEqual(html.count('id="execution-log"'),1)
         self.assertIn("execution?.logs",script)
         self.assertIn("error.code",script)
+        self.assertNotIn("'/api/grasp-integration'",script)
+        self.assertIn('/api/battery-task/result',script)
+        self.assertNotIn('id="start"',html)
+        self.assertNotIn('TCP 未接入',html)
+        self.assertIn('id="d435-live"',html)
+        self.assertIn('id="d405-live"',html)
 
 
 if __name__=='__main__':unittest.main()

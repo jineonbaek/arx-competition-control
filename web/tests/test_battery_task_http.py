@@ -71,5 +71,16 @@ class BatteryTaskHTTPTests(unittest.TestCase):
         self.assertEqual(self.request(server,"POST","/api/battery-task",
             '{"action":"start","request_id":"r1","expected_epoch":0}',good)[0],503)
 
+    def test_results_require_session_and_only_read_shared_task(self):
+        task=Mock();task.result.return_value={'run_id':'run-current','revision':'r2'}
+        server,adapter=self.server(task)
+        self.assertEqual(self.request(server,'GET','/api/battery-task/result')[0],403)
+        good=self.session(server)
+        status,_,body=self.request(server,'GET','/api/battery-task/result?after=r1',headers=good)
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(body)['run_id'],'run-current')
+        task.result.assert_called_once_with('r1')
+        task.action.assert_not_called();self.assertEqual(adapter.calls,[])
+
 
 if __name__=="__main__":unittest.main()

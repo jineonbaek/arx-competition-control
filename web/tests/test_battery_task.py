@@ -166,6 +166,28 @@ class BatteryTaskTests(unittest.TestCase):
         with self.assertRaises(Rejected):
             self.controller.submit({'type':'arm.joints','arm':'right','joints':[0.]*6},task.active['token'])
 
+    def test_results_follow_active_run_and_survive_restart_without_motion(self):
+        import json
+        self.task.action('owner',{'action':'start','request_id':'outputs','expected_epoch':0,
+                                 'environment_clear':True})
+        store=self.created[0][0]
+        (store.path/'head.json').write_text(json.dumps({'status':'localized','camera':'d435'}))
+        (store.path/'preview.json').write_text(json.dumps({'status':'preview_complete','geometry':{'points':[]}}))
+        store.state.update(latest_battery_observations={'d435':'head'},
+            battery_observations={'head':'head.json'},grasp_preview='preview.json')
+        store.save()
+        result=self.task.result()
+        self.assertEqual(result['run_id'],store.state['run_id'])
+        self.assertEqual(result['observations']['d435']['status'],'localized')
+        self.assertEqual(result['geometry'],{'points':[]})
+        self.assertTrue(self.task.result(result['revision'])['unchanged'])
+        restored=BatteryTask(Path(self.temp.name),self.controller,lambda *a:None)
+        self.assertEqual(restored.result()['run_id'],result['run_id'])
+        self.assertEqual(self.adapter.calls,[])
+        store.state['grasp_preview']='../outside.json';store.save()
+        with self.assertRaises(ValueError):self.task.result()
+        self.gate.set();self.wait('needs_attention')
+
     def test_log_view_is_bounded_and_ignores_partial_records(self):
         self.task.action('owner',{'action':'start','request_id':'logs','expected_epoch':0,
                                   'environment_clear':True})
