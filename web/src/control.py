@@ -140,6 +140,7 @@ class Controller:
                 if not self.adapter.arm_stop_ready(side):
                     raise Rejected("轨迹停止服务不可用")
                 self.adapter.arm_stop(side)
+                self.motion_trajectory = None
             except Exception as error:
                 self.log("轨迹停止请求失败：" + str(error), "warning")
 

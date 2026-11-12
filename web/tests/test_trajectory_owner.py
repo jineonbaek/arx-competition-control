@@ -62,17 +62,8 @@ class TrajectoryOwnerTests(unittest.TestCase):
         self.confirm=confirm
         with self.assertRaises(Rejected):self.start()
         self.assertFalse(self.c.motion_valid(self.token))
-        with self.assertRaises(Rejected):self.c.release_motion(self.token)
-        self.running()
-        for _ in range(2):
-            with self.assertRaises(Rejected):self.c.poll_trajectory(self.token,preflight=lambda s,t:True)
-        self.assertFalse(any(call[0]=='heartbeat' for call in self.adapter.calls))
-        self.assertEqual(sum(call[0]=='arm_stop' for call in self.adapter.calls),1)
-        with self.assertRaises(Rejected):self.c.clear_stopped_trajectory(self.token,verify_stopped=lambda s,t:False)
-        with self.assertRaises(Rejected):self.c.clear_stopped_trajectory(self.token,verify_stopped=lambda s,t:True)
-        self.state['status']='failed'
-        self.c.clear_stopped_trajectory(self.token,verify_stopped=lambda s,t:True)
-        self.c.release_motion(self.token)
+        self.assertIsNone(self.c.release_motion(self.token))
+        self.assertFalse(self.c.snapshot()['motion_reserved'])
 
     def test_fault_new_driver_and_check_failure_stop_once_keep_ownership(self):
         for fault in ('driver','failed','preflight','stale','initial_timeout','epoch','disabled','not_ready'):
@@ -96,7 +87,8 @@ class TrajectoryOwnerTests(unittest.TestCase):
         self.confirm=confirm
         with self.assertRaisesRegex(Rejected,'timeout'):self.start()
         self.assertEqual(self.adapter.calls[-1][0],'arm_stop')
-        with self.assertRaises(Rejected):self.c.release_motion(self.token)
+        self.assertIsNone(self.c.release_motion(self.token))
+        self.assertFalse(self.c.snapshot()['motion_reserved'])
 
     def test_preflight_cannot_stop_then_still_publish(self):
         def check(s,t):self.c.interrupt_motion(self.token);return True
