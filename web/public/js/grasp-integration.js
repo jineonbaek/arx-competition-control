@@ -1,7 +1,8 @@
 import * as THREE from '../vendor/lift2-preview/three.module.js';
 import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 const el=id=>document.getElementById(id);
-let state=null,shown=null,geometry=null,submitting=false;
+let state=null,shown=null,geometry=null,submitting=false,execution=null;
+const requestId=()=>crypto.randomUUID?.()||([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
 const stageNames={thinking:'Agent 读取结果并选择下一阶段',observe_d435:'D435 观察定位',observe_d405:'D405 观察定位',tool:'调用工具',tool_result:'工具返回',recognition:'识别电池并复核分割',foundationpose:'估计电池位姿',pointcloud_path:'核对点云并生成线段',preview_complete:'预览完成',recognition_rejected:'识别未通过',pose_rejected:'位姿与深度表面不一致',handoff_rejected:'两台相机的目标几何未对应'};
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,1,.005,5);camera.up.set(0,0,1);
 let renderer,orbit;const objects=new THREE.Group();scene.add(objects);
@@ -63,7 +64,7 @@ el('start').onclick=async()=>{
   submitting=true;clear();shown=null;buttons();
   // Each preview owns a fresh Agent run; old receipts remain on disk.
   state=await request('/api/grasp-integration',{action:'new',conversation_id:state.conversation_id});
-  state=await request('/api/grasp-integration',{action:'send',conversation_id:state.conversation_id,request_id:([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)),message:'按抓取计划从 D435 观察定位开始，规划升降粗对位，再检查当前 D405 视野并生成 FoundationPose、点云和水平路径预览。预抓距离 '+el('distance').value+' mm。TCP 留空；本次只预览，不移动任何硬件。'});
+  state=await request('/api/grasp-integration',{action:'send',conversation_id:state.conversation_id,request_id:requestId(),message:'按抓取计划从 D435 观察定位开始，规划升降粗对位，再检查当前 D405 视野并生成 FoundationPose、点云和水平路径预览。预抓距离 '+el('distance').value+' mm。TCP 留空；本次只预览，不移动任何硬件。'});
  }catch(e){el('status').textContent=e.message;}finally{submitting=false;buttons();}
 };
 el('cancel').onclick=async()=>{try{state=await request('/api/grasp-integration',{action:'cancel',conversation_id:state.conversation_id,request_id:state.job.id});}catch(e){el('status').textContent=e.message;}buttons();};
@@ -83,3 +84,29 @@ async function poll(){
  setTimeout(poll,1000);
 }
 poll();
+
+function executionButtons(){
+ const running=execution?.status==='running';
+ el('execute').disabled=running||!execution?.available||!el('environment-clear').checked;
+ el('stop-task').disabled=!running;
+}
+el('environment-clear').onchange=executionButtons;
+el('execute').onclick=async()=>{
+ try{
+  execution=await request('/api/battery-task',{action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true});
+  el('execution-status').textContent='自动任务已启动；停止按钮始终优先。';
+ }catch(e){el('execution-status').textContent=e.message;}executionButtons();
+};
+el('stop-task').onclick=async()=>{
+ try{execution=await request('/api/battery-task',{action:'cancel',request_id:requestId()});el('execution-status').textContent='停止请求已提交。';}
+ catch(e){el('execution-status').textContent=e.message;}executionButtons();
+};
+async function pollExecution(){
+ try{
+  execution=await request('/api/battery-task');executionButtons();
+  const labels={idle:'执行后端就绪，等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',awaiting_hold_verification:'夹爪反馈尚未确认夹持。',owned_by_other:'自动任务由另一个网页会话占用。'};
+  el('execution-status').textContent=(labels[execution.status]||execution.status)+(execution.reason?' '+execution.reason:'');
+ }catch(e){execution=null;executionButtons();el('execution-status').textContent=e.message;}
+ setTimeout(pollExecution,1000);
+}
+pollExecution();

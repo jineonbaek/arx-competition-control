@@ -19,7 +19,8 @@ class PreparationTests(unittest.TestCase):
                          tcp_speed_mm_s=20.,tcp_acceleration_mm_s2=40.)
         self.setup=dict(calibration_id='synthetic-only',T_wrist_from_tool=self.f.tcp.tolist(),timing_limits=self.timing)
         self.policies=dict(pick=dict(lift_tolerance_rad=.02,max_pair_skew_s=.05,
-            arm_policy=self.f.arm_policy,gripper_target=-1.2,gripper_policy=self.f.grip_policy))
+            arm_policy=self.f.arm_policy,gripper_target=-1.2,
+            gripper_policy=self.f.grip_policy,hold_gripper_range=[-2.6,-1.6]))
         q0=self.f.q.copy();q1=q0.copy();q1[0]+=.001
         a=(self.c.models['right'].wrist_transform(q0,12)@self.f.tcp)[:3,3]*1000
         b=(self.c.models['right'].wrist_transform(q1,12)@self.f.tcp)[:3,3]*1000

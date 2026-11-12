@@ -22,7 +22,8 @@ class CloseStepTests(unittest.TestCase):
             timeout_s=2.,stall_s=.8,max_age_s=.15)
         self.monitor=PickMonitor(self.c.models['right'],self.tcp,self.target,
             expected_lift_rad=12.,lift_tolerance_rad=.02,max_pair_skew_s=.05,
-            started_at=10.,arm_policy=self.arm_policy,gripper_target=-1.2,gripper_policy=self.grip_policy)
+            started_at=10.,arm_policy=self.arm_policy,gripper_target=-1.2,
+            gripper_policy=self.grip_policy,hold_gripper_range=[-2.6,-1.6])
         self.token=self.c.reserve_motion(self.c.command_epoch)
         self.step=PickCloseStep(self.c,self.token,self.monitor)
 

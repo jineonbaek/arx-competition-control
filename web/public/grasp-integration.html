@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>自动抓取链路预览 · ARX</title><link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/grasp.css"><link rel="stylesheet" href="css/grasp-integration.css"><script type="module" src="js/grasp-integration.js"></script></head>
 <body><header class="topbar"><div class="brand"><span class="brand-mark">A</span><strong>自动抓取链路 · Agent 预览</strong></div><a class="button secondary" href="/">返回控制台</a></header>
-<main><div class="page-heading"><div><h1>D435 粗定位 → D405 精定位 → 路径预览</h1><p>Agent 按工具结果逐阶段推进。两台相机分别冻结 RGB-D，各自后续计算复用同一快照。当前仅观察和规划，不执行升降或机械臂运动。</p></div><span class="mode-badge">仅预览 · TCP 待标定</span></div>
+<main><div class="page-heading"><div><h1>D435 粗定位 → D405 精定位 → 路径预览</h1><p>两台相机分别冻结 RGB-D，各自后续计算复用同一快照。上方预览不运动；页面末尾的实机流程需要单独确认后才启动。</p></div><span class="mode-badge">预览默认 · 实机需确认</span></div>
 <div class="grasp-actions"><label>预抓距离 <input id="distance" type="number" min="1" max="200" value="50" step="1"> mm</label><button id="start" class="button primary" disabled>从 D435 开始预览</button><button id="cancel" class="button secondary" disabled>取消本次计算</button><span id="status" role="status">正在连接…</span></div>
 <p id="stages" role="status"></p>
 <div class="grasp-grid"><section class="panel"><h2>D435 · 电池粗定位</h2><img id="head" alt="头部相机电池识别" hidden><p id="head-status">等待头部观察</p></section>
@@ -11,4 +11,7 @@
 <section class="panel"><h2>FoundationPose · CAD 提手参考点</h2><img id="pose" alt="CAD 位姿叠加与 F G T 点" hidden><p class="hint">F：提手前沿，G：夹持参考点，T：夹指伸入末端。</p></section></div>
 <section class="panel"><div class="panel-heading"><h2>base_link 点云与 +X 线段</h2><button id="reset" class="button secondary">重置视角</button></div><div id="viewport"></div><p class="hint">青色点云：识别到的电池表面。线段青色端点：预抓点；橙色端点：CAD 夹持参考点 G。两者 Y、Z 固定；尚不是腕部轨迹。</p></section>
 <section class="panel candidates"><h2>本次结果</h2><p id="stamp"></p><dl id="metrics"></dl><p id="quality"></p><p id="blockers">TCP 未接入：腕部起终点暂不计算，不发送运动指令。</p></section>
+<section class="panel"><h2>实机固定链路</h2><p>按当前 D435 → 升降粗调 → D405 → FoundationPose/点云 → 右臂路径执行。开始后由任务独占控制；停止优先。</p>
+<label><input id="environment-clear" type="checkbox"> 本轮已确认右臂、升降和夹取通道无人且无临时障碍</label>
+<div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机流程</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">正在读取执行后端…</span></div></section>
 </main></body></html>
