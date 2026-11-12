@@ -34,7 +34,8 @@ class WorkflowTests(unittest.TestCase):
         path=self.store.path/'head.json'
         atomic_json(path,dict(status='localized',camera='d435',observation_id=obs))
         self.store.state.update(latest_battery_observations={'d435':obs},battery_observations={obs:path.name},coarse_alignment='fixture')
-        plan=dict(plan_id='p',arm='right',observation_id=obs,observer_required=False,
+        plan=dict(plan_id='p',arm='right',observation_id=obs,
+            observer={'status':'fixed_observer_candidate','joints_rad':[0.]*6,'column_path':{'clear':True}},
             lift={'fixed':True,'target_rad':5.52,'current_rad':5.0})
         self.store.state['mission'].update(stage='COARSE_PLANNED',plan=plan)
         flow.flow.update(phase='coarse_execute',index=2)

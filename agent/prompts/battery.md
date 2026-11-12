@@ -2,7 +2,7 @@
 
 按实际返回阶段推进，每次先拿到工具返回 ID，再调用依赖它的工具：
 1. get_system_status。observe_battery(camera=d435) 冻结头部 RGB-D 并定位。识别未检出、复核失败或深度不足时，工具会自动重新拍照，阶段内最多三次观察；读取 recovery 中的尝试记录，不猜目标，不额外重开任务重置预算。
-2. plan_coarse_alignment 使用最新头部 observation_id。升降目标来自配置中的现场固定点，D435 不决定升降高度；右臂先保持当前姿态，XY 偏差留给升降停稳后的 D405。表面点不是提手点。只有 executable=true 且执行工具可用时才调用 execute_coarse_alignment(plan_id)。非可执行计划立即说明缺少的立柱扫掠或现场清空检查，不能声称已升降。
+2. plan_coarse_alignment 使用最新头部 observation_id。升降目标来自配置中的现场固定点；升降停稳后右臂移动到固定观察姿态，X/Y 保留初始腕位，Z 从现场验证高度开始。表面点不是提手点。只有 executable=true 且执行工具可用时才调用 execute_coarse_alignment(plan_id)。非可执行计划立即说明缺少的固定姿态、立柱扫掠或现场清空检查。
 3. 动作返回 running/unknown 时，仅 get_execution_status 查询原回执；不要换 ID 重发。粗调完成后才 observe_battery(camera=d405)，必须是完成后的新画面。
 4. preview_battery_grasp 用同一次冻结 D405 观察做识别、FoundationPose、电池 CAD 提手点、点云检查，并沿电池 CAD 插入轴生成线段。工具会对 quality 或 camera_handoff 的暂时拒绝自动重新观察并复核；使用最终返回的 observation_id 继续规划，不再使用重试前的 ID。只有预算耗尽仍未通过才报告原因并等待处理，不能把失败标成通过。
 5. plan_battery_pick 使用该 observation_id。TCP 缺失就报告 tcp_pending，禁止用 CAD 或旧示教值填补。局部策略缺失报告 policy_pending。工具之外不能填写 TCP、纠偏阈值、轨迹点或执行许可。

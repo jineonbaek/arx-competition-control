@@ -34,7 +34,7 @@ function show(data){
  const observationStatus=o=>!o?'尚未进行':o.status==='localized'?'已定位：可见表面 '+xyz(o.location.surface_base_mm):o.status==='target_not_found'?'本帧未找到电池':o.status==='depth_rejected'?'识别到电池，但深度不足：'+o.message:'识别或分割复核未通过';
  image('head',head?.recognition?.overlay);el('head-status').textContent=observationStatus(head);
  el('wrist-status').textContent=observationStatus(wrist);
- if(coarse)el('coarse-status').textContent='固定升降 '+coarse.lift.target_rad.toFixed(3)+' SDK rad；右臂保持当前姿态，XY 偏差由升降停稳后的 D405 自适应处理。'+(coarse.lift.column_sweep?.status==='column_clear'?coarse.lift.column_sweep.message+'。':'')+coarse.blockers.join('；')+'。未执行运动。';
+ if(coarse)el('coarse-status').textContent='固定升降 '+coarse.lift.target_rad.toFixed(3)+' SDK rad；右臂到固定观察位 '+xyz(coarse.observer?.target_wrist_base_mm||[])+'，再由 D405 自适应抓取。'+(coarse.lift.column_sweep?.status==='column_clear'?coarse.lift.column_sweep.message+'。':'')+coarse.blockers.join('；')+'。未执行运动。';
  image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
  const fit=data.quality;

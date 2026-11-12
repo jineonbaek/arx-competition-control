@@ -68,7 +68,7 @@ class BatteryFlow:
         digest=plan_digest(plan)
         if self.flow.get('reviewed_plan')==digest:return
         evidence=self.review_plan(operation,copy.deepcopy(plan))
-        required=COMMON_CHECKS if operation=='execute_coarse_alignment' else PICK_CHECKS
+        required=PICK_CHECKS
         if (not isinstance(evidence,dict) or evidence.get('plan_sha256')!=digest
                 or any(evidence.get(k) is not True for k in required)):
             raise AgentError('plan_not_verified','Local path review incomplete or rejected')

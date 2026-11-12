@@ -18,8 +18,9 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.store=RunStore.create(self.temp.name);self.addCleanup(self.store.close)
         self.head=self.observation('d435',time.time())
         self.plan=dict(plan_id='coarse',arm='right',observation_id=self.head['observation_id'],
-            executable=True,ik_checked=False,collision_checked=True,collision_free=True,
-            environment_collision_checked=True,observer_required=False,
+            executable=True,ik_checked=True,collision_checked=True,collision_free=True,
+            environment_collision_checked=True,
+            observer={'status':'fixed_observer_candidate','joints_rad':[0.]*6,'column_path':{'clear':True}},
             lift={'fixed':True,'target_rad':5.52,'current_rad':5.0})
         self.store.state.update(coarse_alignment='coarse.json')
         self.store.state['mission'].update(stage='COARSE_PLANNED',plan=copy.deepcopy(self.plan))
@@ -65,7 +66,8 @@ class BatteryExecutionToolsTests(unittest.TestCase):
             self.store.state['mission']['plan']=dict(self.plan,**{key:False})
             r=self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},key)
             self.assertEqual(r['error']['code'],'plan_not_verified',r)
-        self.store.state['mission']['plan']=dict(self.plan,observer_required=True)
+        self.store.state['mission']['plan']=dict(self.plan,observer={
+            'status':'fixed_observer_unavailable','joints_rad':None})
         r=self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},'observer')
         self.assertEqual(r['error']['code'],'plan_not_verified',r)
         r=self.tools.execute('execute_coarse_alignment',{'plan_id':'other'},'wrong')

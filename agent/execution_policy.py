@@ -55,11 +55,23 @@ def load(path,*,gripper_limits=None):
     for name,value in timeout.items():_number(value,name,upper=3600)
 
     coarse=_exact(data['coarse'],{'reach_bound_m','fixed_lift_target_rad','fixed_joint_tolerance_rad',
-        'max_pair_skew_s','lift_policy','arm_policy'},'coarse')
+        'max_pair_skew_s','observer_search','lift_policy','arm_policy'},'coarse')
     _number(coarse['reach_bound_m'],'reach_bound_m')
     _number(coarse['fixed_lift_target_rad'],'coarse.fixed_lift_target_rad',upper=18)
     _number(coarse['fixed_joint_tolerance_rad'],'fixed_joint_tolerance_rad')
     _number(coarse['max_pair_skew_s'],'coarse.max_pair_skew_s')
+    observer=_exact(coarse['observer_search'],
+        {'start_z_mm','rpy_deg','offsets_mm','z_tolerance_mm','orientation_tolerance_deg'},
+        'coarse.observer_search')
+    _number(observer['start_z_mm'],'coarse.observer_search.start_z_mm')
+    rpy=np.asarray(observer['rpy_deg'],float)
+    if rpy.shape!=(3,) or not np.isfinite(rpy).all():raise ValueError('observer_search.rpy_deg must have three values')
+    offsets=np.asarray(observer['offsets_mm'],float)
+    if (offsets.shape!=(8,) or not np.isfinite(offsets).all()
+            or np.any(np.abs(offsets)>100) or len(set(offsets))!=len(offsets)):
+        raise ValueError('observer_search.offsets_mm must be eight distinct finite values within +/-100 mm')
+    _number(observer['z_tolerance_mm'],'coarse.observer_search.z_tolerance_mm',upper=20)
+    _number(observer['orientation_tolerance_deg'],'coarse.observer_search.orientation_tolerance_deg',upper=45)
     _arrival(coarse['lift_policy'],1,'coarse.lift_policy')
     _arrival(coarse['arm_policy'],6,'coarse.arm_policy')
 

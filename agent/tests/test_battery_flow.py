@@ -68,12 +68,12 @@ class FlowTests(unittest.TestCase):
         flow=BatteryFlow(self.tools,review_plan=lambda op,p:dict(review(op,p),plan_sha256='wrong'))
         out=flow.run();self.assertEqual(out['status'],'needs_attention')
         self.assertNotIn('execute_coarse_alignment',self.tools.calls)
-    def test_coarse_review_does_not_require_arm_ik_but_arm_stages_do(self):
+    def test_all_motion_stages_require_ik_evidence(self):
         def stage_review(operation,plan):
-            return dict(review(operation,plan),ik_checked=operation!='execute_coarse_alignment')
+            return dict(review(operation,plan),ik_checked=False)
         out=BatteryFlow(self.tools,review_plan=stage_review).run()
-        self.assertEqual(out['status'],'completed')
-        self.assertEqual(self.tools.calls.count('execute_coarse_alignment'),1)
+        self.assertEqual(out['status'],'needs_attention')
+        self.assertNotIn('execute_coarse_alignment',self.tools.calls)
     def test_finished_run_never_replays(self):
         self.flow().run();before=list(self.tools.calls)
         self.flow().run();self.assertEqual(before,self.tools.calls)

@@ -16,9 +16,12 @@ class CoarseTests(unittest.TestCase):
         model=ColumnModel()
         zero=model.wrist_transform(np.zeros(6),0)[:3,3]*1000
         target=zero+np.array([200,0,300])
-        result=coarse_geometry(target,2.,model,fixed_lift_rad=5.52)
+        limits=[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]
+        result=coarse_geometry(target,5.52,model,fixed_lift_rad=5.52,
+            observer_start_z_mm=700.5,observer_rpy_deg=[-.3,-2.6,.1],
+            current_joints=np.zeros(6),limits_deg=limits)
         self.assertEqual(result['lift']['target_rad'],5.52)
-        self.assertAlmostEqual(result['lift']['delta_rad'],3.52)
+        self.assertAlmostEqual(result['lift']['delta_rad'],0)
         self.assertTrue(result['lift']['fixed'])
         self.assertAlmostEqual(result['reference_wrist_base_mm'][2],
             zero[2]+5.52/NOMINAL_RAD_PER_M*1000)
@@ -27,23 +30,30 @@ class CoarseTests(unittest.TestCase):
         self.assertIsNone(result['tcp'])
         self.assertFalse(result['executable'])
         self.assertFalse(result['lift']['both_arms_sweep_checked'])
+        self.assertEqual(result['observer']['status'],'fixed_observer_candidate')
+        self.assertAlmostEqual(result['observer']['target_wrist_base_mm'][2],700.5)
+        self.assertTrue(result['observer']['column_path']['clear'])
 
     def test_rejects_invalid_fixed_lift_and_inputs(self):
         from web.src.handeye_column import ColumnModel
         model=ColumnModel()
-        low=coarse_geometry([500,-250,-1000],2,model,fixed_lift_rad=0)
-        high=coarse_geometry([500,-250,3000],2,model,fixed_lift_rad=18)
+        limits=[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]
+        low=coarse_geometry([500,-250,-1000],0,model,fixed_lift_rad=0,
+            observer_start_z_mm=700.5,observer_rpy_deg=[0,0,0],current_joints=np.zeros(6),limits_deg=limits)
+        high=coarse_geometry([500,-250,3000],18,model,fixed_lift_rad=18,
+            observer_start_z_mm=700.5,observer_rpy_deg=[0,0,0],current_joints=np.zeros(6),limits_deg=limits)
         self.assertEqual((low['lift']['target_rad'],high['lift']['target_rad']),(0,18))
         for xyz,lift,fixed in (([1,2,float('nan')],0,5.52),([1,2],0,5.52),
                                ([1,2,3],19,5.52),([1,2,3],0,-1),([1,2,3],0,19)):
-            with self.assertRaises(ValueError):coarse_geometry(xyz,lift,model,fixed_lift_rad=fixed)
+            with self.assertRaises(ValueError):coarse_geometry(xyz,lift,model,fixed_lift_rad=fixed,
+                observer_start_z_mm=700.5,observer_rpy_deg=[0,0,0],current_joints=np.zeros(6),limits_deg=limits)
 
     def test_plan_requires_localized_head_evidence_and_uses_fixed_lift(self):
         with tempfile.TemporaryDirectory() as directory:
             store=RunStore.create(directory)
             self.addCleanup(store.close)
             tools=GraspTools(Config(),store)
-            f=frame();f['camera_id']=np.array('d435')
+            f=frame();f['camera_id']=np.array('d435');f['joints']=np.zeros(6);f['left_joints']=np.zeros(6)
             blob=io.BytesIO();np.savez(blob,**f)
             obs=save_frame(store,blob.getvalue(),source='fixture',camera='d435')
             ident=obs['observation_id']
@@ -60,8 +70,8 @@ class CoarseTests(unittest.TestCase):
             self.assertFalse(result['lift']['column_sweep']['both_arms_column_checked'])
             self.assertEqual(result['lift']['target_rad'],5.52)
             self.assertTrue(result['lift']['fixed'])
-            self.assertFalse(result['observer_required'])
-            self.assertNotIn('observer',result)
+            self.assertEqual(result['observer']['status'],'fixed_observer_candidate')
+            self.assertEqual(len(result['observer']['joints_rad']),6)
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)
             with self.assertRaisesRegex(ValueError,'D435'):plan(tools,ident,'wrong')
@@ -80,8 +90,8 @@ class CoarseTests(unittest.TestCase):
             store.state['battery_observations']={ident:'result.json'}
             result=plan(GraspTools(Config(),store),ident,'coarse')
             self.assertEqual(result['lift']['target_rad'],5.52)
-            self.assertNotIn('observer',result)
-            self.assertFalse(result['observer_required'])
+            self.assertEqual(result['observer']['status'],'fixed_observer_candidate')
+            self.assertTrue(result['observer']['column_path']['clear'])
             self.assertFalse(result['executable']);self.assertIsNone(result['tcp'])
             self.assertFalse(result['ik_checked'])
 

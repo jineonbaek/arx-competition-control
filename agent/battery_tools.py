@@ -91,11 +91,11 @@ class BatteryExecutionTools(WorkflowTools):
                 raise AgentError('stale_observation','粗对位计划不再对应最新头部观察')
             if (plan.get('arm')!='right'
                     or any(plan.get(k) is not True for k in
-                           ('executable','collision_checked','collision_free',
+                           ('executable','ik_checked','collision_checked','collision_free',
                             'environment_collision_checked'))
-                    or plan.get('observer_required') is not False
-                    or plan.get('lift',{}).get('fixed') is not True):
-                raise AgentError('plan_not_verified','固定升降建议缺少立柱、现场清空或执行适配证据')
+                    or plan.get('lift',{}).get('fixed') is not True
+                    or plan.get('observer',{}).get('status')!='fixed_observer_candidate'):
+                raise AgentError('plan_not_verified','固定升降或观察姿态缺少立柱、现场清空或执行适配证据')
         return super()._operation(name,arguments,call_id,mission)
 
     def _perception(self,name,a,call_id):

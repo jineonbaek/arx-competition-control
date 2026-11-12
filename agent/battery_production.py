@@ -20,14 +20,18 @@ def review_plan(operation,plan,*,environment_clear):
     if operation=='execute_coarse_alignment':
         lift=plan.get('lift',{})
         sweep=lift.get('column_sweep',{})
-        fixed=(lift.get('fixed') is True and plan.get('observer_required') is False
+        observer=plan.get('observer',{})
+        observer_joints=np.asarray(observer.get('joints_rad'),float)
+        fixed=(lift.get('fixed') is True and observer.get('status')=='fixed_observer_candidate'
                and type(lift.get('target_rad')) in (int,float)
-               and np.isfinite(lift['target_rad']))
-        ik=False
+               and np.isfinite(lift['target_rad']) and observer_joints.shape==(6,)
+               and np.isfinite(observer_joints).all())
+        ik=fixed and observer.get('column_path',{}).get('clear') is True
         checked=(sweep.get('both_arms_column_checked') is True
-                 and sweep.get('status')=='column_clear' and fixed)
-        clear=checked
-        method='Fixed lift, both-arm column sweep and one operator clear-area confirmation'
+                 and sweep.get('status')=='column_clear'
+                 and isinstance(observer.get('column_path'),dict))
+        clear=checked and ik
+        method='Fixed lift, fixed observer path, both-arm column sweep and operator clear-area confirmation'
     else:
         points=np.asarray(plan.get('joint_waypoints_rad'),float)
         timing=plan.get('timing',{})
@@ -61,8 +65,8 @@ def preflight(operation,plan,snapshot,now):
             or any(plan.get(k) is not True for k in required)):
         return False
     if operation=='execute_coarse_alignment' and (
-            plan.get('observer_required') is not False
-            or plan.get('lift',{}).get('fixed') is not True):
+            plan.get('lift',{}).get('fixed') is not True
+            or plan.get('observer',{}).get('status')!='fixed_observer_candidate'):
         return False
     arms=snapshot.get('arms',{});body=snapshot.get('body',{});caps=snapshot.get('capabilities',{})
     if body.get('fresh') is not True or arms.get('right',{}).get('fresh') is not True:

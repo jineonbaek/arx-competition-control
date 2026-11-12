@@ -16,7 +16,8 @@ def frame():
     return dict(id=np.array("a"*32),xyz=xyz,rgb=np.zeros((20,30,3),np.uint8),
       raw_depth=np.full((20,30),400,np.uint16),scale=np.array(.001),
       intrinsics=np.array(json.dumps(dict(width=30,height=20,fx=30,fy=30,cx=15,cy=10,serial="test"))),
-      base_from_color=np.eye(4),image_time=np.array(10.),arm_time=np.array(10.05),body_time=np.array(10.05),lift_rad=np.array(3.))
+      base_from_color=np.eye(4),image_time=np.array(10.),arm_time=np.array(10.05),body_time=np.array(10.05),lift_rad=np.array(3.),
+      joints=np.zeros(6),left_joints=np.zeros(6))
 def pose():
     return dict(id="a"*32,frame="base_link",T_camera_from_object=np.eye(4).tolist(),
         T_base_from_object=np.eye(4).tolist())
