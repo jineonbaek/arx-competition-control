@@ -198,3 +198,13 @@ preview recovery summary; inspect perception_recovery events for the full sequen
 Files staged for this task only: agent/battery_tools.py, agent/grasp_tools.py,
 agent/prompts/battery.md, agent/tests/test_battery_refinement_tools.py,
 agent/tests/test_battery_recovery.py, docs/grasp-integration.md.
+
+### 2026-11-12: request-bound Controller backend
+
+BatteryControllerBackend now prepares coarse/approach/insertion steps only for the
+run's persisted pending request and exact mission plan. Exclusive durable journals
+precede effects; replay returns the stored receipt and uncertain/corrupt journals
+require recovery. Cancellation and an uncertain previous execution prevent new motion.
+Completed closure still does not mean confirmed retention. No live registration.
+Validation: 8 inert-backend tests; initial missing-module test reproduced before fix.
+Scope: agent/battery_backend.py, agent/tests/test_battery_backend.py, this ledger.
