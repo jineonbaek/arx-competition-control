@@ -56,7 +56,9 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
         if angle_error>.7:raise ValueError('Insertion orientation departs from fixed tool pose')
         waypoints.append(b)
     if not all(c['clear'] for c in clearances):raise ValueError('Path approaches central column')
-    timing=(TimedJointPath(waypoints,model.reach+np.linalg.norm(tcp[:3,3]),**timing_limits).receipt()
+    timing=(TimedJointPath(waypoints,model.reach+np.linalg.norm(tcp[:3,3]),
+            tcp_position=lambda angles:(model.wrist_transform(angles,lift_rad)@tcp)[:3,3],
+            **timing_limits).receipt()
             if timing_limits is not None else None)
     return dict(status='kinematic_preview',timing=timing,frame='base_link',position_unit='mm',joint_unit='rad',
         approach=dict(kind='joint_space',start_rad=q.tolist(),end_rad=first.tolist()),
@@ -78,29 +80,39 @@ class TimedJointPath:
     path check. Bounds describe references, not motor tracking or braking behavior.
     """
     def __init__(self,waypoints,reach_m,*,joint_speed_deg_s,joint_acceleration_deg_s2,
-                 tcp_speed_mm_s,tcp_acceleration_mm_s2,tcp_path_mm=None):
+                 tcp_speed_mm_s,tcp_acceleration_mm_s2,tcp_position=None):
         q=np.asarray(waypoints,float)
         v=np.asarray(joint_speed_deg_s,float);a=np.asarray(joint_acceleration_deg_s2,float)
         if (q.ndim!=2 or q.shape[1]!=6 or len(q)<2 or v.shape!=(6,) or a.shape!=(6,)
                 or not np.isfinite(q).all() or not np.isfinite(v).all() or not np.isfinite(a).all()
-                or np.any(v<=0) or np.any(v>5.7) or np.any(a<=0)
+                or np.any(v<=0) or np.any(v>8.55) or np.any(a<=0)
                 or not np.isfinite([reach_m,tcp_speed_mm_s,tcp_acceleration_mm_s2]).all()
                 or min(reach_m,tcp_speed_mm_s,tcp_acceleration_mm_s2)<=0):
-            raise ValueError('Explicit finite six-joint timing limits required; X5 speed cap is 5.7 deg/s')
+            raise ValueError('Explicit finite six-joint timing limits required; X5 speed cap is 8.55 deg/s')
         delta=np.abs(np.diff(q,axis=0));length=delta.sum(axis=1)
         if np.any(length==0):raise ValueError('Duplicate adjacent trajectory knots')
-        tcp_distance=(reach_m*1000*length if tcp_path_mm is None
-                      else np.asarray(tcp_path_mm,float))
-        if (tcp_distance.shape!=(len(delta),) or not np.isfinite(tcp_distance).all()
-                or np.any(tcp_distance<=0)):
-            raise ValueError('TCP path length must match trajectory segments')
+        speed_bound=reach_m*1000*length
+        curvature_bound=reach_m*1000*length**2
+        if tcp_position is not None:
+            if not callable(tcp_position):raise ValueError('TCP position function required')
+            for i,(start,end) in enumerate(zip(q,q[1:])):
+                steps=max(2,int(np.ceil(np.max(np.abs(end-start))/np.radians(.25))))
+                xyz=np.asarray([tcp_position(start+s*(end-start))
+                                for s in np.linspace(0,1,steps+1)],float)*1000
+                if xyz.shape!=(steps+1,3) or not np.isfinite(xyz).all():
+                    raise ValueError('Finite metre-unit TCP positions required')
+                # Serial revolute-chain derivative bounds cover the gaps between FK samples.
+                speed_bound[i]=(np.linalg.norm(np.diff(xyz,axis=0),axis=1).max()*steps
+                                +reach_m*1000*length[i]**2/(2*steps))
+                curvature_bound[i]=(np.linalg.norm(np.diff(xyz,n=2,axis=0),axis=1).max()*steps**2
+                                    +2*reach_m*1000*length[i]**3/steps)
         # Exact extrema of s=10u^3-15u^4+6u^5: max s'=15/8, max |s''|=10/sqrt(3).
-        peak_v=15/8;peak_a=10/np.sqrt(3);radius=reach_m*1000
+        peak_v=15/8;peak_a=10/np.sqrt(3)
         durations=np.maximum.reduce([
             peak_v*np.max(delta/np.radians(v),axis=1),
             np.sqrt(peak_a*np.max(delta/np.radians(a),axis=1)),
-            tcp_distance*peak_v/tcp_speed_mm_s,
-            np.sqrt(radius*(length*peak_a+(length*peak_v)**2)/tcp_acceleration_mm_s2)])
+            speed_bound*peak_v/tcp_speed_mm_s,
+            np.sqrt((speed_bound*peak_a+curvature_bound*peak_v**2)/tcp_acceleration_mm_s2)])
         if not np.isfinite(durations).all() or np.any(durations<=0):raise ValueError('Invalid trajectory duration')
         self.q=q.copy();self.times=np.r_[0.,np.cumsum(durations)]
         if not np.isfinite(self.times).all() or np.any(np.diff(self.times)<=0):

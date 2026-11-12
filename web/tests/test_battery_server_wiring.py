@@ -38,7 +38,7 @@ class BatteryServerWiringTests(unittest.TestCase):
         finally:task.close()
         start=(ROOT/'web/start.sh').read_text()
         self.assertIn('--battery-policy "$CONTROL_ROOT/config/battery-execution.json"',start)
-        expected={'speed_deg_s':5.7,'acceleration_deg_s2':12.0,
+        expected={'speed_deg_s':8.55,'acceleration_deg_s2':18.0,
                   'start_tolerance_deg':0.5,'tracking_tolerance_deg':3.0,
                   'max_tick_gap_s':0.05,'lease_s':0.5,
                   'max_duration_s':60.0,'start_speed_deg_s':0.2}

@@ -13,21 +13,10 @@ from .pick_execution import ApproachTrajectoryStep, StationaryApproachStep, Pick
 OPERATIONS={'execute_coarse_alignment','execute_battery_approach','execute_pick'}
 
 
-def _trajectory(points,reach,limits,*,tcp_path_mm=None):
-    path=TimedJointPath(points,reach,tcp_path_mm=tcp_path_mm,**limits)
+def _trajectory(points,reach,limits,*,tcp_position):
+    path=TimedJointPath(points,reach,tcp_position=tcp_position,**limits)
     return dict(interpolation='segment_quintic_scalar',time_from_start_s=path.times.tolist(),
                 joint_waypoints_rad=path.q.tolist())
-
-
-def _wrist_path_mm(model,points,lift_rad):
-    lengths=[]
-    for start,end in zip(points,points[1:]):
-        delta=end-start
-        steps=max(1,int(np.ceil(np.max(np.abs(delta))/np.radians(.5))))
-        xyz=np.asarray([model.wrist_transform(start+t*delta,lift_rad)[:3,3]
-                        for t in np.linspace(0,1,steps+1)])
-        lengths.append(float(np.linalg.norm(np.diff(xyz,axis=0),axis=1).sum()*1000))
-    return lengths
 
 
 def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight):
@@ -57,9 +46,9 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
         if np.array_equal(q0,q1):
             trajectory=dict(version=1,kind='stationary',joint_position_rad=q0.tolist())
         else:
-            wrist_path=_wrist_path_mm(controller.models['right'],[q0,q1],plan['lift']['acceptance_rad'])
             trajectory=dict(version=1,**_trajectory([q0,q1],p['reach_bound_m'],p['timing_limits'],
-                tcp_path_mm=wrist_path))
+                tcp_position=lambda angles:controller.models['right'].wrist_transform(
+                    angles,plan['lift']['target_rad'])[:3,3]))
         return CoarseAlignmentStep(controller,token,lift_target_rad=plan['lift']['target_rad'],
             lift_acceptance_rad=plan['lift'].get('acceptance_rad'),
             observer_plan=trajectory,initial_joints=initial,initial_lift_rad=plan['lift']['current_rad'],
@@ -95,7 +84,8 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if stationary:
         step=StationaryApproachStep(controller,token,monitor,preflight=guard)
     else:
-        trajectory=_trajectory(points,reach,setup['timing_limits'])
+        trajectory=_trajectory(points,reach,setup['timing_limits'],
+            tcp_position=lambda angles:(model.wrist_transform(angles,plan['lift_rad'])@tcp)[:3,3])
         cls=ApproachTrajectoryStep if approach else PickTrajectoryStep
         step=cls(controller,token,monitor,trajectory,preflight=guard)
     return OpenThenApproachStep(step,start) if approach else step

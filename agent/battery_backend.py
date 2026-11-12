@@ -67,7 +67,9 @@ class BatteryControllerBackend:
             self.controller.config['arms']['right']['joint_limits_deg'])
         if not geometry['clear']:raise ValueError('观察搜索路径接近中央立柱')
         target=np.asarray(geometry['joints_rad'],float)
-        path=TimedJointPath([q,target],p['reach_bound_m'],**p['timing_limits'])
+        model=ColumnModel()
+        path=TimedJointPath([q,target],p['reach_bound_m'],
+            tcp_position=lambda angles:model.wrist_transform(angles,lift)[:3,3],**p['timing_limits'])
         timed=dict(version=1,interpolation='segment_quintic_scalar',
             time_from_start_s=path.times.tolist(),joint_waypoints_rad=path.q.tolist())
         initial={side:np.asarray(snapshot['arms'][side]['joints'],float).copy() for side in ('left','right')}

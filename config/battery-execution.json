@@ -3,10 +3,10 @@
   "alignment_tolerance_deg": 5.0,
   "j6_tolerance_deg": 5.0,
   "timing_limits": {
-    "joint_speed_deg_s": [5.7, 5.7, 5.7, 5.7, 5.7, 5.7],
-    "joint_acceleration_deg_s2": [12.0, 12.0, 12.0, 12.0, 12.0, 12.0],
-    "tcp_speed_mm_s": 20.0,
-    "tcp_acceleration_mm_s2": 40.0
+    "joint_speed_deg_s": [8.55, 8.55, 8.55, 8.55, 8.55, 8.55],
+    "joint_acceleration_deg_s2": [18.0, 18.0, 18.0, 18.0, 18.0, 18.0],
+    "tcp_speed_mm_s": 30.0,
+    "tcp_acceleration_mm_s2": 60.0
   },
   "timeout_s": {
     "execute_coarse_alignment": 60.0,

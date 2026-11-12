@@ -30,7 +30,7 @@ public:
     for(double v:{p.speed_deg_s,p.acceleration_deg_s2,p.start_tolerance_deg,p.tracking_tolerance_deg,
                   p.max_tick_gap_s,p.lease_s,p.max_duration_s,p.start_speed_deg_s})
       if(!std::isfinite(v)||v<=0)throw std::invalid_argument("Invalid trajectory policy");
-    if(p.speed_deg_s>5.7 || p.start_tolerance_deg>p.tracking_tolerance_deg ||
+    if(p.speed_deg_s>8.55 || p.start_tolerance_deg>p.tracking_tolerance_deg ||
        p.tracking_tolerance_deg>limits.max_delta_deg || p.max_tick_gap_s>p.lease_s ||
        p.lease_s>p.max_duration_s || p.start_speed_deg_s>p.speed_deg_s)throw std::invalid_argument("Inconsistent trajectory policy");
   }
@@ -55,8 +55,10 @@ public:
        !std::all_of(actual.begin(),actual.end(),[](double v){return std::isfinite(v);}))
       throw std::invalid_argument("Invalid trajectory shape or actual state");
     for(size_t i=0;i<times.size();++i){
-      if(!std::isfinite(times[i])||times[i]<0||times[i]>policy_.max_duration_s||
-         !limits_.valid(points[i],limits_.gripper[1],actual,5))throw std::invalid_argument("Trajectory outside limits");
+      if(!std::isfinite(times[i])||times[i]<0||times[i]>policy_.max_duration_s)
+        throw std::invalid_argument("Trajectory duration outside configured range");
+      if(!limits_.valid(points[i],limits_.gripper[1],actual,5))
+        throw std::invalid_argument("Trajectory outside joint limits");
       if(i==0)continue;
       double dt=times[i]-times[i-1];
       if(dt<=0)throw std::invalid_argument("Non-increasing trajectory times");

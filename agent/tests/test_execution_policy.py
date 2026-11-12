@@ -61,7 +61,7 @@ class ExecutionPolicyTests(unittest.TestCase):
 
     def test_policy_shapes_and_controller_limits_are_checked(self):
         cases=[]
-        value=policy();value['timing_limits']['joint_speed_deg_s']=[6.]*6;cases.append(value)
+        value=policy();value['timing_limits']['joint_speed_deg_s']=[9.]*6;cases.append(value)
         value=policy();value['coarse']['lift_policy']['tolerance']=[.02,.02];cases.append(value)
         value=policy();value['pick']['arm_policy']['tolerance']=[1.]*3;cases.append(value)
         value=policy();value['pick']['gripper_target']=.1;cases.append(value)

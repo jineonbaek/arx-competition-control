@@ -104,11 +104,31 @@ class TimingTests(unittest.TestCase):
             with self.assertRaises(ValueError):TimedJointPath(bad,.7,**self.policy())
         for reach in (0.,-1.,float('nan')):
             with self.assertRaises(ValueError):TimedJointPath(q,reach,**self.policy())
-        policy=self.policy();policy['joint_speed_deg_s']=[6.]*6
+        policy=self.policy();policy['joint_speed_deg_s']=[9.]*6
         with self.assertRaises(ValueError):TimedJointPath(q,.7,**policy)
         path=TimedJointPath(q,.7,**self.policy())
         for t in (-1.,float('nan'),path.times[-1]+1):
             with self.assertRaises(ValueError):path.sample(t)
+
+    def test_real_tcp_bounds_cover_large_wrist_rotation_without_arm_reach_inflation(self):
+        model=ColumnModel();tcp=np.eye(4);tcp[:3,3]=[.148,.00018,-.00114]
+        q=np.radians([[0,24.1,39.92,-13.04,-.14,-.45],
+                      [13.24,52.69,46.,11.17,13.36,-88.86]])
+        limits=dict(joint_speed_deg_s=[8.55]*6,joint_acceleration_deg_s2=[18.]*6,
+                    tcp_speed_mm_s=30.,tcp_acceleration_mm_s2=60.)
+        position=lambda angles:(model.wrist_transform(angles,5.1)@tcp)[:3,3]
+        path=TimedJointPath(q,model.reach+np.linalg.norm(tcp[:3,3]),tcp_position=position,**limits)
+        self.assertLess(path.times[-1],25.)
+        times=np.linspace(0,path.times[-1],2001)
+        samples=[path.sample(t) for t in times]
+        self.assertLessEqual(np.max(np.abs([s[1] for s in samples])),np.radians(8.55)+1e-8)
+        self.assertLessEqual(np.max(np.abs([s[2] for s in samples])),np.radians(18.)+1e-8)
+        xyz=np.array([position(s[0]) for s in samples])*1000
+        dt=times[1]-times[0]
+        self.assertLessEqual(np.linalg.norm(np.diff(xyz,axis=0)/dt,axis=1).max(),30.)
+        self.assertLessEqual(np.linalg.norm(np.diff(xyz,n=2,axis=0)/dt**2,axis=1).max(),60.)
+        with self.assertRaises(ValueError):
+            TimedJointPath(q,1.,tcp_position=lambda q:[float('nan')]*3,**limits)
 
     def test_real_model_timed_insert_retains_tcp_line_and_pose(self):
         model=ColumnModel();root=Path(__file__).resolve().parents[2]
