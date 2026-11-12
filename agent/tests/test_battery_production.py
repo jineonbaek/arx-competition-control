@@ -59,6 +59,7 @@ class ProductionTests(unittest.TestCase):
                     gripper_limits=(-3.14,0.))
                 flow=factory(store,Controller(),'owned',True)
                 self.assertEqual(flow.flow['phase'],'head')
+                self.assertEqual(flow.receipt_timeout_s,65.)
                 self.assertEqual(list((store.path/'executions').iterdir()),[])
             finally:store.close()
 

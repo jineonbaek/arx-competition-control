@@ -9,7 +9,7 @@
     "tcp_acceleration_mm_s2": 40.0
   },
   "timeout_s": {
-    "execute_coarse_alignment": 45.0,
+    "execute_coarse_alignment": 60.0,
     "execute_battery_approach": 30.0,
     "execute_pick": 30.0
   },
@@ -29,7 +29,7 @@
       "tolerance": [0.02],
       "max_speed": [0.2],
       "settle_s": 0.25,
-      "timeout_s": 16.0,
+      "timeout_s": 30.0,
       "stall_s": 2.0,
       "max_age_s": 0.3
     },
