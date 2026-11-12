@@ -59,7 +59,8 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(len(self.created),1)
         self.assertEqual(self.adapter.calls,[])
         self.assertTrue(self.controller.snapshot()['motion_reserved'])
-        self.assertEqual(self.task.snapshot('other')['status'],'owned_by_other')
+        self.assertEqual(self.task.snapshot('other')['status'],'running')
+        self.assertEqual(self.task.snapshot('other')['run_id'],self.task.snapshot('owner')['run_id'])
         self.created[0][0].event('tool_result',{'name':'observe_battery','ok':False,
             'error':{'code':'target_not_found','message':'没有找到电池'}})
         view=self.task.snapshot('owner')
@@ -83,7 +84,7 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls,[])
         self.gate.set();self.wait('needs_attention')
 
-    def test_invalid_payload_stale_epoch_and_other_client_cancel_are_rejected(self):
+    def test_invalid_payload_and_stale_epoch_rejected_other_client_can_cancel(self):
         for payload in ({}, {'action':'start','request_id':'x'},
                         {'action':'start','request_id':'x','expected_epoch':True},
                         {'action':'start','request_id':'x','expected_epoch':0,
@@ -96,8 +97,8 @@ class BatteryTaskTests(unittest.TestCase):
                                       'environment_clear':True})
         self.task.action('owner',{'action':'start','request_id':'good','expected_epoch':0,
                                   'environment_clear':True})
-        with self.assertRaises(Rejected):
-            self.task.action('other',{'action':'cancel','request_id':'stop'})
+        self.assertEqual(self.task.action('other',{'action':'cancel','request_id':'stop'})['status'],'running')
+        self.assertTrue((self.created[0][0].path/'cancel.flag').exists())
         self.gate.set();self.wait('needs_attention')
 
     def test_unknown_or_interrupted_completion_returns_control(self):

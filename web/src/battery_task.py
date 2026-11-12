@@ -53,9 +53,6 @@ class BatteryTask:
         if state is None:
             return {'status':'idle','available':True,'command_epoch':epoch,
                     'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[]}
-        if state['client'] != client:
-            return {'status':'owned_by_other','available':False,'command_epoch':epoch,
-                    'recovery_required':state['recovery_required']}
         return {'status':state['status'],'available':state['status']!='running'
                     and not state['recovery_required'],
                 'command_epoch':epoch,'run_id':state['run_id'],
@@ -120,8 +117,8 @@ class BatteryTask:
         return self._view(client)
 
     def _cancel(self, client):
-        if self.active is None or self.active['client']!=client:
-            raise Rejected('没有本会话拥有的自动任务')
+        if self.active is None:
+            raise Rejected('当前没有自动任务')
         (self.active['store'].path/'cancel.flag').touch(mode=0o600)
         return self._view(client)
 

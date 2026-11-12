@@ -112,7 +112,7 @@ el('stop-task').onclick=async()=>{
 async function pollExecution(){
  try{
   execution=await request('/api/battery-task');executionButtons();
-  const labels={idle:'执行后端就绪，等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',awaiting_hold_verification:'夹爪反馈尚未确认夹持。',owned_by_other:'自动任务由另一个网页会话占用。'};
+  const labels={idle:'执行后端就绪，等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',awaiting_hold_verification:'夹爪反馈尚未确认夹持。'};
   el('execution-status').textContent=(labels[execution.status]||execution.status)+(execution.reason?' '+execution.reason:'');
   executionLog();
  }catch(e){execution=null;executionButtons();el('execution-status').textContent=e.message;}
