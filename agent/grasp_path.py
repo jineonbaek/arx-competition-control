@@ -78,7 +78,7 @@ class TimedJointPath:
     path check. Bounds describe references, not motor tracking or braking behavior.
     """
     def __init__(self,waypoints,reach_m,*,joint_speed_deg_s,joint_acceleration_deg_s2,
-                 tcp_speed_mm_s,tcp_acceleration_mm_s2):
+                 tcp_speed_mm_s,tcp_acceleration_mm_s2,tcp_path_mm=None):
         q=np.asarray(waypoints,float)
         v=np.asarray(joint_speed_deg_s,float);a=np.asarray(joint_acceleration_deg_s2,float)
         if (q.ndim!=2 or q.shape[1]!=6 or len(q)<2 or v.shape!=(6,) or a.shape!=(6,)
@@ -89,12 +89,17 @@ class TimedJointPath:
             raise ValueError('Explicit finite six-joint timing limits required; X5 speed cap is 5.7 deg/s')
         delta=np.abs(np.diff(q,axis=0));length=delta.sum(axis=1)
         if np.any(length==0):raise ValueError('Duplicate adjacent trajectory knots')
+        tcp_distance=(reach_m*1000*length if tcp_path_mm is None
+                      else np.asarray(tcp_path_mm,float))
+        if (tcp_distance.shape!=(len(delta),) or not np.isfinite(tcp_distance).all()
+                or np.any(tcp_distance<=0)):
+            raise ValueError('TCP path length must match trajectory segments')
         # Exact extrema of s=10u^3-15u^4+6u^5: max s'=15/8, max |s''|=10/sqrt(3).
         peak_v=15/8;peak_a=10/np.sqrt(3);radius=reach_m*1000
         durations=np.maximum.reduce([
             peak_v*np.max(delta/np.radians(v),axis=1),
             np.sqrt(peak_a*np.max(delta/np.radians(a),axis=1)),
-            radius*length*peak_v/tcp_speed_mm_s,
+            tcp_distance*peak_v/tcp_speed_mm_s,
             np.sqrt(radius*(length*peak_a+(length*peak_v)**2)/tcp_acceleration_mm_s2)])
         if not np.isfinite(durations).all() or np.any(durations<=0):raise ValueError('Invalid trajectory duration')
         self.q=q.copy();self.times=np.r_[0.,np.cumsum(durations)]
