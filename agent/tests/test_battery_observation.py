@@ -150,7 +150,12 @@ class WorkflowGateTests(unittest.TestCase):
             path.write_text(json.dumps(dict(observation_id=ident,camera=camera,status='localized')))
             self.store.state['battery_observations'][ident]=path.name
         result=dict(status='handoff_rejected',message='mismatch',camera_handoff={'identity_confirmed':False})
-        with patch('agent.grasp_tools.pipeline',return_value=result) as pipeline:
+        def saved_result(store,ident,clearance,output,*args,**kwargs):
+            from agent.storage import atomic_json
+            output.mkdir(parents=True,exist_ok=True)
+            atomic_json(output/'result.json',result)
+            return result
+        with patch('agent.grasp_tools.pipeline',side_effect=saved_result) as pipeline:
             out=self.tools.execute('preview_battery_grasp',{'observation_id':'wrist','clearance_mm':50},'fine')
         self.assertTrue(out['ok'])
         self.assertEqual(pipeline.call_args.kwargs['head_observation_id'],'head')

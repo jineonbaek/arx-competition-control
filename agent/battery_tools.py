@@ -9,24 +9,28 @@ from .contracts import AgentError, object_schema
 from .grasp_tools import WorkflowTools, WORKFLOW_TOOLS
 from .tools import ToolRegistry, TEXT
 from .mission import Mission
+from .battery_pick_plan import plan as plan_battery_pick
 
-EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status'}
+EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick'}
 
 
 class BatteryExecutionTools(WorkflowTools):
     schemas={k:v for k,v in WorkflowTools.schemas.items() if k in WORKFLOW_TOOLS}
-    schemas.update(execute_coarse_alignment=object_schema({'plan_id':TEXT},['plan_id']),
+    schemas.update(plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
+                   execute_coarse_alignment=object_schema({'plan_id':TEXT},['plan_id']),
                    get_execution_status=ToolRegistry.schemas['get_execution_status'])
     descriptions={k:v for k,v in WorkflowTools.descriptions.items() if k in WORKFLOW_TOOLS}
-    descriptions.update(execute_coarse_alignment='Execute only the stored verified coarse plan. '
+    descriptions.update(plan_battery_pick='Plan a fixed +X insertion from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
+        execute_coarse_alignment='Execute only the stored verified coarse plan. '
         'Wait for its existing receipt, then capture a new D405 observation. Never retry motion with a new call ID.',
         get_execution_status=ToolRegistry.descriptions['get_execution_status'])
 
-    def __init__(self,config,store,observations=None,backends=None,*,allowed_tools=None):
+    def __init__(self,config,store,observations=None,backends=None,*,allowed_tools=None,pick_setup=None):
         if config.services or (config.motion_enabled and backends is None):
             raise ValueError('An explicitly prepared local execution backend is required')
         ToolRegistry.__init__(self,config,store,observations,backends,
                               allowed_tools=EXECUTION_TOOLS if allowed_tools is None else allowed_tools)
+        self.pick_setup=copy.deepcopy(pick_setup)
         self.progress=lambda stage:None
 
     def _operation(self,name,arguments,call_id,mission):
@@ -46,6 +50,16 @@ class BatteryExecutionTools(WorkflowTools):
         state=self.store.state;mission=Mission(state['mission'])
         head=name=='observe_battery' and a['camera']=='d435'
         wrist=name=='observe_battery' and a['camera']=='d405'
+        if name=='plan_battery_pick':
+            mission.require(('COARSE_ALIGNED',))
+            state.pop('battery_pick_plan',None)
+            self.store.save()
+            if a['observation_id']!=self._localized('d405'):
+                raise AgentError('stale_observation','必须使用本轮最新 D405 定位')
+            self._post_stage_observation(a['observation_id'],'COARSE_ALIGNED','d405')
+            try:return plan_battery_pick(self,a['observation_id'],call_id,self.pick_setup)
+            except (OSError,ValueError,KeyError,TypeError) as error:
+                raise AgentError('pick_plan_failed','抓取规划证据或参数无效：'+str(error)[:180]) from error
         if head:
             mission.require(('IDLE','HEAD_LOCALIZED','COARSE_PLANNED'))
             mission.data.update(stage='IDLE',plan=None)

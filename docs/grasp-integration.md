@@ -76,3 +76,30 @@ FoundationPose 在与输入一致的去畸变相机下渲染 CAD 深度，与同
 这仅检查中央立柱；周围物体、线缆、自碰撞及左右臂相互碰撞尚未覆盖。41.54 rad/m 仍是名义比例。`both_arms_sweep_checked=false`、`environment_checked=false`、`executable=false` 保留，不能把局部检查通过当作可执行许可。机器人未运动，驱动未重启，TCP 仍空。
 
 本阶段软件验证：Agent 66 项、网页 217 项通过，JS 语法和 diff 检查通过；未部署或进行实机验证。
+
+
+## 2026-11-12：视觉结果接入腕部插入规划（源码阶段）
+
+`BatteryExecutionTools.plan_battery_pick(observation_id)` 在粗对位完成且重新取得
+D405 观察后，读取本轮已通过复核的 FoundationPose／点云预览。它核对预览哈希、
+D435/D405 同目标记录、深度归档、手眼和 CAD 参考版本，再调用已有 `plan_insert`。
+新观察或重新计算预览会使上一份抓取计划失效，失败不能沿用旧结果。
+
+当前没有配置实际 TCP，所以实际返回 `tcp_pending`，腕部目标与关节轨迹为空。
+完整参数只允许本地控制程序通过 `BatteryExecutionTools(..., pick_setup=...)` 注入，
+Agent 参数只有 `observation_id`，不能自行填写矩阵、容差或运动限速。
+`pick_setup` 必须包含：
+
+- `calibration_id`、`parent_frame=right_link26`、`tool_frame=grip_reference`、`translation_unit=m`。
+- 完整刚性变换 `T_wrist_from_tool`，包括旋转；TCP 旋转不能从仅有平移的定点标定中猜出。
+- `alignment_tolerance_deg`、`j6_tolerance_deg`，由实际夹指与电池的对位验证确定。
+- `timing_limits`：六轴 `joint_speed_deg_s`、`joint_acceleration_deg_s2`，以及
+  `tcp_speed_mm_s`、`tcp_acceleration_mm_s2`。测试中的参数仅用于软件验证。
+
+夹持坐标定义：原点为 CAD 夹持参考 G，+X 沿伸入方向，+Z 背离朝下凸起，+Y 构成右手系。
+只接受与整车 +X／凸起朝下相容的电池姿态；预抓和插入的夹持坐标旋转固定为整车轴向。
+完整 IK 后还检查 J6 接近约定 -90°，不把 J6 单独当作世界姿态。
+
+输出保留接近段、连续插入关节轨迹、时序和证据版本；即使 IK 通过也始终
+`executable=false`。完整环境／双臂自碰撞、预抓后重新观察修正、现场标定与抓持核验
+仍需完成后续连接。此次未注册到正在运行的 9983，未发送运动或重启驱动。

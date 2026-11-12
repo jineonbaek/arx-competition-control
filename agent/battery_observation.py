@@ -39,7 +39,8 @@ def surface_location(frame, mask):
 
 def observe(registry,camera,call_id):
     registry.progress('observe_'+camera)
-    registry.store.state.pop('grasp_preview',None)
+    for key in ('grasp_preview','grasp_preview_sha256','battery_pick_plan'):
+        registry.store.state.pop(key,None)
     latest=registry.store.state.setdefault('latest_battery_observations',{})
     latest.pop(camera,None)
     if camera=='d435':

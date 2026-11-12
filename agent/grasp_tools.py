@@ -1,5 +1,6 @@
 """Read-only Agent tools composing recognition, pose and geometric preview."""
 from pathlib import Path
+import hashlib
 from .contracts import AgentError,object_schema
 from .tools import ToolRegistry,TEXT
 from . import grasp_scene
@@ -32,10 +33,15 @@ class GraspTools(ToolRegistry):
             if name=="observe_battery":return observe(self,a["camera"],call_id)
             if name=="capture_grasp_scene":return grasp_scene.capture(self)
             if name=="preview_battery_grasp":
+                for key in ("grasp_preview","grasp_preview_sha256","battery_pick_plan"):
+                    self.store.state.pop(key,None)
+                self.store.save()
                 result=pipeline(self.store,a["observation_id"],a["clearance_mm"],
                     self.store.path/"previews"/call_id,self.progress,
                     head_observation_id=self._localized('d435') if self.require_head_evidence else None)
-                self.store.state["grasp_preview"]=str(Path("previews")/call_id/"result.json")
+                relative=Path("previews")/call_id/"result.json"
+                digest=hashlib.sha256((self.store.path/relative).read_bytes()).hexdigest()
+                self.store.state.update(grasp_preview=str(relative),grasp_preview_sha256=digest)
                 return {"observation_id":a["observation_id"],"status":result["status"],"message":result["message"],
                     "tcp_status":"pending","executable":False,"result_file":self.store.state["grasp_preview"],
                     "quality":result.get("quality"),"camera_handoff":result.get("camera_handoff"),"depth":result.get("geometry",{}).get("depth"),"path":result.get("geometry",{}).get("path")}
