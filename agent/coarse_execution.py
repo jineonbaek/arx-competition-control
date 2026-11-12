@@ -146,8 +146,9 @@ class CoarseAlignmentStep:
             if cancelled:return self._abort('cancelled')
             if self.stage=='prepared':raise ValueError('Coarse step has not started')
             try:
+                snapshot=self.controller.snapshot()
                 now=self.controller.clock()
-                q,height,stamp=self._check(self.controller.snapshot(),now,lifting=self.stage=='lifting')
+                q,height,stamp=self._check(snapshot,now,lifting=self.stage=='lifting')
                 if self.stage=='lifting':
                     if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
                     r=self.lift.update([height],stamp,now)

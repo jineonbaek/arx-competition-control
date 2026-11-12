@@ -117,6 +117,19 @@ class CoarseStepTests(unittest.TestCase):
             self.assertTrue(self.step.poll()['stop_required'],fault)
             self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
 
+    def test_snapshot_arriving_after_first_clock_read_is_not_future_feedback(self):
+        self.step.start()
+        self.height=6.;self.feedback(10.1);self.now=10.05
+        original=self.c.snapshot
+        def snapshot():
+            result=original()
+            self.now=max(self.now,result['arms']['right']['received'])
+            return result
+        self.c.snapshot=snapshot
+        result=self.step.poll()
+        self.assertFalse(result['stop_required'])
+        self.assertEqual(result['status'],'lifting')
+
     def test_right_drift_at_atomic_observer_start_stops_without_trajectory(self):
         original=self.c.start_trajectory
         def changed(*args,**kwargs):
