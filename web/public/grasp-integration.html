@@ -13,5 +13,6 @@
 <section class="panel candidates"><h2>本次结果</h2><p id="stamp"></p><dl id="metrics"></dl><p id="quality"></p><p id="blockers">TCP 未接入：腕部起终点暂不计算，不发送运动指令。</p></section>
 <section class="panel"><h2>实机固定链路</h2><p>按当前 D435 → 升降粗调 → D405 → FoundationPose/点云 → 右臂路径执行。开始后由任务独占控制；停止优先。</p>
 <label><input id="environment-clear" type="checkbox"> 本轮已确认右臂、升降和夹取通道无人且无临时障碍</label>
-<div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机流程</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">正在读取执行后端…</span></div></section>
+<div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机流程</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">正在读取执行后端…</span></div>
+<h3>实时执行日志</h3><ol id="execution-log" aria-live="polite"><li>等待任务启动。</li></ol></section>
 </main></body></html>

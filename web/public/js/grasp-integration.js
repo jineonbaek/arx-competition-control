@@ -90,6 +90,16 @@ function executionButtons(){
  el('execute').disabled=running||!execution?.available||!el('environment-clear').checked;
  el('stop-task').disabled=!running;
 }
+const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束'};
+function executionLog(){
+ const list=el('execution-log'),logs=execution?.logs||[];
+ if(!logs.length){list.replaceChildren(Object.assign(document.createElement('li'),{textContent:'等待任务启动。'}));return;}
+ list.replaceChildren(...logs.map(row=>{
+  const data=row.data||{},error=data.error||{},detail=error.code?'['+error.code+'] '+error.message:data.name||data.operation||data.status||data.reason||data.stage||'';
+  return Object.assign(document.createElement('li'),{textContent:new Date(row.time*1000).toLocaleTimeString('zh-CN')+' · '+(executionNames[row.event]||row.event)+(detail?' · '+detail:'')});
+ }));
+ list.scrollTop=list.scrollHeight;
+}
 el('environment-clear').onchange=executionButtons;
 el('execute').onclick=async()=>{
  try{
@@ -106,6 +116,7 @@ async function pollExecution(){
   execution=await request('/api/battery-task');executionButtons();
   const labels={idle:'执行后端就绪，等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',awaiting_hold_verification:'夹爪反馈尚未确认夹持。',owned_by_other:'自动任务由另一个网页会话占用。'};
   el('execution-status').textContent=(labels[execution.status]||execution.status)+(execution.reason?' '+execution.reason:'');
+  executionLog();
  }catch(e){execution=null;executionButtons();el('execution-status').textContent=e.message;}
  setTimeout(pollExecution,1000);
 }

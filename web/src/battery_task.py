@@ -1,5 +1,6 @@
 """Single fixed-flow task owner for the web process; construction is inert."""
 import copy
+import json
 import threading
 from pathlib import Path
 
@@ -25,12 +26,24 @@ class BatteryTask:
             raise ValueError('request_id must be a bounded string')
         return value
 
+    @staticmethod
+    def _logs(store):
+        try:lines=(store.path/'events.jsonl').read_text(encoding='utf-8').splitlines()[-100:]
+        except OSError:return []
+        output=[]
+        for line in lines:
+            try:
+                record=json.loads(line)
+                if isinstance(record,dict):output.append(record)
+            except (ValueError,TypeError):pass
+        return output
+
     def _view(self, client):
         state=self.active
         epoch=self.controller.snapshot()['command_epoch']
         if state is None:
             return {'status':'idle','available':True,'command_epoch':epoch,
-                    'recovery_required':False}
+                    'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[]}
         if state['client'] != client:
             return {'status':'owned_by_other','available':False,'command_epoch':epoch,
                     'recovery_required':state['recovery_required']}
@@ -38,7 +51,10 @@ class BatteryTask:
                     and not state['recovery_required'],
                 'command_epoch':epoch,'run_id':state['run_id'],
                 'reason':state['reason'],'flow':copy.deepcopy(state['flow']),
-                'recovery_required':state['recovery_required']}
+                'recovery_required':state['recovery_required'],
+                'phase':state['store'].state.get('battery_flow',{}).get('phase','starting'),
+                'mission_stage':state['store'].state.get('mission',{}).get('stage','IDLE'),
+                'logs':self._logs(state['store'])}
 
     def snapshot(self, client):
         with self.lock:return self._view(client)

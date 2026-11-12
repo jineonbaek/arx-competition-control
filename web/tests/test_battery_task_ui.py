@@ -14,6 +14,9 @@ class BatteryTaskUITests(unittest.TestCase):
         self.assertIn("expected_epoch:execution.command_epoch",script)
         self.assertIn("environment_clear:true",script)
         self.assertIn("action:'cancel'",script)
+        self.assertEqual(html.count('id="execution-log"'),1)
+        self.assertIn("execution?.logs",script)
+        self.assertIn("error.code",script)
 
 
 if __name__=='__main__':unittest.main()

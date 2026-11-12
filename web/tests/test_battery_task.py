@@ -52,6 +52,12 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls,[])
         self.assertTrue(self.controller.snapshot()['motion_reserved'])
         self.assertEqual(self.task.snapshot('other')['status'],'owned_by_other')
+        self.created[0][0].event('tool_result',{'name':'observe_battery','ok':False,
+            'error':{'code':'target_not_found','message':'没有找到电池'}})
+        view=self.task.snapshot('owner')
+        self.assertEqual(view['phase'],'starting')
+        self.assertEqual(view['mission_stage'],'IDLE')
+        self.assertEqual(view['logs'][-1]['data']['error']['code'],'target_not_found')
         with self.assertRaises(Rejected):
             self.task.action('other',{'action':'start','request_id':'req-2','expected_epoch':1,
                                       'environment_clear':True})
@@ -102,6 +108,18 @@ class BatteryTaskTests(unittest.TestCase):
         state=task.snapshot('owner')
         self.assertTrue(state['recovery_required'])
         self.assertTrue(self.controller.snapshot()['motion_reserved'])
+
+    def test_log_view_is_bounded_and_ignores_partial_records(self):
+        self.task.action('owner',{'action':'start','request_id':'logs','expected_epoch':0,
+                                  'environment_clear':True})
+        store=self.created[0][0]
+        for index in range(105):store.event('tool_result',{'stage':index})
+        with (store.path/'events.jsonl').open('a') as handle:handle.write('{partial')
+        logs=self.task.snapshot('owner')['logs']
+        self.assertEqual(len(logs),99)
+        self.assertEqual(logs[0]['data']['stage'],6)
+        self.assertEqual(logs[-1]['data']['stage'],104)
+        self.gate.set();self.wait('needs_attention')
 
 
 if __name__=='__main__':unittest.main()
