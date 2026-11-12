@@ -114,6 +114,30 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.assertNotIn('d405',self.store.state['latest_battery_observations'])
         self.assertEqual(self.step.calls,['start'])
 
+    def test_d405_target_not_found_searches_z_then_retries_only_on_new_frame(self):
+        self.assertTrue(self.run_coarse()['ok'])
+        calls=[]
+        def observe_search(*args):
+            calls.append(args)
+            if len(calls)==1:
+                return {'observation_id':'missing','camera':'d405','status':'target_not_found','message':''}
+            observed=self.observation('d405',time.time())
+            relative=observed['observation_id']+'.json'
+            path=self.store.path/relative
+            path.write_text(json.dumps(dict(observation_id=observed['observation_id'],camera='d405',status='localized')))
+            self.store.state['battery_observations'][observed['observation_id']]=relative
+            self.store.state['latest_battery_observations']['d405']=observed['observation_id']
+            self.store.save()
+            return dict(observed,location={'surface_base_mm':[400,0,700]})
+        moves=[]
+        self.tools.backends.observer_search_offsets=lambda:[10.0,20.0]
+        self.tools.backends.adjust_observer_search=lambda call_id,index,offset:moves.append((call_id,index,offset)) or {'status':'completed'}
+        with patch('agent.grasp_tools.observe',side_effect=observe_search):
+            r=self.tools.execute('observe_battery',{'camera':'d405'},'search')
+        self.assertTrue(r['ok'],r)
+        self.assertEqual(moves,[('search',0,10.0)])
+        self.assertEqual(r['data']['status'],'localized')
+
     def test_bad_completion_does_not_advance_mission(self):
         from agent.mission import Mission
         from agent.contracts import AgentError

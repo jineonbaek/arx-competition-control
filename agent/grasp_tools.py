@@ -73,6 +73,9 @@ class WorkflowTools(GraspTools):
     def _observation_budget_key(self,camera):
         return camera
 
+    def _observation_limit(self,camera):
+        return self.observation_limit
+
     def _dispatch(self,name,a,call_id):
         if name=='observe_battery' and a['camera']=='d405':
             self._localized('d435')
@@ -85,8 +88,9 @@ class WorkflowTools(GraspTools):
         if name=='observe_battery':
             counts=self.store.state.setdefault('battery_observation_attempts',{})
             camera=self._observation_budget_key(a['camera'])
-            if counts.get(camera,0)>=self.observation_limit:
-                raise AgentError('observation_budget',f'本阶段该相机已观察 {self.observation_limit} 次，请查看原因后开始新任务')
+            limit=self._observation_limit(a['camera'])
+            if counts.get(camera,0)>=limit:
+                raise AgentError('observation_budget',f'本阶段该相机已观察 {limit} 次，请查看原因后开始新任务')
             counts[camera]=counts.get(camera,0)+1
             self.store.save()
         return super()._dispatch(name,a,call_id)

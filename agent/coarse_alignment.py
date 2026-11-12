@@ -58,6 +58,22 @@ def coarse_geometry(target_mm,current_lift,model,limits=(0.,18.),*,fixed_lift_ra
                   'TCP 待用户提供；不得替用旧示教偏移'],
         note='升降后先到固定观察点，再由 D405 判断目标并进入 FoundationPose 自适应抓取。')
 
+def observer_search_geometry(observer,offset_mm,current_q,current_lift,model,limits_deg):
+    if not isinstance(observer,dict) or observer.get('status')!='fixed_observer_candidate':
+        raise ValueError('固定观察姿态尚未通过检查')
+    if type(offset_mm) not in (int,float) or not np.isfinite(offset_mm) or abs(offset_mm)>100:
+        raise ValueError('观察搜索偏移无效')
+    q=np.asarray(current_q,float);target=np.asarray(observer.get('target_wrist_base_mm'),float)
+    rpy=np.asarray(observer.get('rpy_deg'),float)
+    if (q.shape!=(6,) or target.shape!=(3,) or rpy.shape!=(3,)
+            or not np.isfinite(np.r_[q,target,rpy,current_lift]).all()):
+        raise ValueError('观察搜索反馈无效')
+    target=target.copy();target[2]+=float(offset_mm)
+    joints=np.asarray(model.inverse_wrist(q,current_lift,target,rpy,limits_deg),float)
+    path=model.check(q,joints,current_lift)
+    return dict(target_wrist_base_mm=target.tolist(),joints_rad=joints.tolist(),
+        column_path=path,clear=path['clear'])
+
 def plan(registry,observation_id,call_id):
     store=registry.store
     relative=store.state.get('battery_observations',{}).get(observation_id)

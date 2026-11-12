@@ -8,7 +8,7 @@ from agent.storage import RunStore, atomic_json
 from agent.grasp_tools import GraspTools
 from agent.grasp_scene import save_frame
 from agent.tests.test_grasp_integration import frame
-from agent.coarse_alignment import coarse_geometry, plan
+from agent.coarse_alignment import coarse_geometry, observer_search_geometry, plan
 
 class CoarseTests(unittest.TestCase):
     def test_fixed_lift_ignores_target_z_and_defers_xy_to_d405(self):
@@ -94,5 +94,16 @@ class CoarseTests(unittest.TestCase):
             self.assertTrue(result['observer']['column_path']['clear'])
             self.assertFalse(result['executable']);self.assertIsNone(result['tcp'])
             self.assertFalse(result['ik_checked'])
+
+    def test_observer_search_uses_absolute_z_offset_and_checked_joint_path(self):
+        from web.src.handeye_column import ColumnModel
+        model=ColumnModel();limits=[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]
+        q=np.zeros(6);observer=coarse_geometry([250,-249,442],5.52,model,fixed_lift_rad=5.52,
+            observer_start_z_mm=700.5,observer_rpy_deg=[-.3,-2.6,.1],current_joints=q,
+            limits_deg=limits)['observer']
+        result=observer_search_geometry(observer,10.,q,5.52,model,limits)
+        self.assertAlmostEqual(result['target_wrist_base_mm'][2],710.5)
+        self.assertTrue(result['clear'])
+        self.assertEqual(np.asarray(result['joints_rad']).shape,(6,))
 
 if __name__=='__main__':unittest.main()

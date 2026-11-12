@@ -5,8 +5,14 @@ import json
 import math
 from threading import Lock
 import time
+import numpy as np
+from web.src.handeye_column import ColumnModel
 from .battery_execution import prepare_step
+from .coarse_alignment import observer_search_geometry
+from .coarse_execution import CoarseAlignmentStep
+from .grasp_path import TimedJointPath
 from .pick_backend import CoarseExecutionBackend, ApproachExecutionBackend, PickExecutionBackend
+from .storage import atomic_json
 
 BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend)}
 
@@ -31,6 +37,71 @@ class BatteryControllerBackend:
                 and not self.store.cancelled and not self.cancelled()
                 and self.controller.motion_valid(self.token)
                 and (operation=='execute_coarse_alignment' or self.pick_setup is not None))
+
+    def observer_search_offsets(self):
+        return list(self.policies.get('coarse',{}).get('observer_search',{}).get('offsets_mm',[]))
+
+    def adjust_observer_search(self,call_id,index,offset_mm,arm='right'):
+        """Move only the observation arm along absolute configured Z offsets."""
+        if arm!='right' or type(index) is not int or index<0 or not isinstance(call_id,str):
+            raise ValueError('Invalid observer search identity')
+        key=hashlib.sha256((self.store.state['run_id']+':'+call_id+':observer:'+str(index)).encode()).hexdigest()
+        directory=self.directory/'observer-search';directory.mkdir(exist_ok=True)
+        journal=directory/(key+'.json')
+        if journal.exists():
+            try:saved=json.loads(journal.read_text())
+            except (OSError,ValueError) as error:raise ValueError('Observer search journal unreadable') from error
+            if saved.get('status')=='completed':return copy.deepcopy(saved['data'])
+            raise ValueError('Earlier observer search requires recovery')
+        mission=self.store.state.get('mission') or {}
+        plan=mission.get('plan') or {};observer=plan.get('observer') or {}
+        if mission.get('stage')!='COARSE_ALIGNED':
+            raise ValueError('Observer search is only allowed after coarse alignment')
+        if self.store.state.get('pending') is not None or not self.available('execute_coarse_alignment'):
+            raise ValueError('Observer search cannot start while another execution is pending')
+        p=copy.deepcopy(self.policies['coarse'])
+        snapshot=self.controller.snapshot()
+        q=np.asarray(snapshot['arms']['right']['joints'],float)
+        lift=float(snapshot['body']['height'])
+        geometry=observer_search_geometry(observer,float(offset_mm),q,lift,ColumnModel(),
+            self.controller.config['arms']['right']['joint_limits_deg'])
+        if not geometry['clear']:raise ValueError('观察搜索路径接近中央立柱')
+        target=np.asarray(geometry['joints_rad'],float)
+        path=TimedJointPath([q,target],p['reach_bound_m'],**p['timing_limits'])
+        timed=dict(version=1,interpolation='segment_quintic_scalar',
+            time_from_start_s=path.times.tolist(),joint_waypoints_rad=path.q.tolist())
+        initial={side:np.asarray(snapshot['arms'][side]['joints'],float).copy() for side in ('left','right')}
+        intent=dict(call_id=call_id,index=index,offset_mm=float(offset_mm),target=geometry['target_wrist_base_mm'])
+        atomic_json(journal,dict(status='unknown',**intent))
+        def guard(fresh,now):
+            return self.preflight('execute_coarse_alignment',copy.deepcopy(plan),fresh,now) is True
+        step=None
+        try:
+            step=CoarseAlignmentStep(self.controller,self.token,lift_target_rad=lift,
+                observer_plan=timed,initial_joints=initial,initial_lift_rad=lift,
+                fixed_joint_tolerance_rad=p['fixed_joint_tolerance_rad'],
+                lift_policy=p['lift_policy'],arm_policy=p['arm_policy'],
+                max_pair_skew_s=p['max_pair_skew_s'],lift_preflight=guard,arm_preflight=guard)
+            receipt=step.start();deadline=time.monotonic()+self.timeout_s['execute_coarse_alignment']
+            while receipt.get('status')!='ready_to_observe' and not receipt.get('stop_required'):
+                if self.cancelled():receipt=step.cancel()
+                elif time.monotonic()>=deadline:receipt=step.timeout()
+                else:time.sleep(.02);receipt=step.poll(cancelled=self.cancelled())
+            if receipt.get('status')!='ready_to_observe':
+                raise ValueError('Observer search failed: '+str(receipt.get('status')))
+            final=self.controller.snapshot()
+            data=dict(status='completed',offset_mm=float(offset_mm),
+                target_wrist_base_mm=geometry['target_wrist_base_mm'],
+                joints_rad=np.asarray(final['arms']['right']['joints'],float).tolist(),
+                lift_rad=float(final['body']['height']))
+            atomic_json(journal,dict(status='completed',**intent,data=data))
+            return data
+        except Exception as error:
+            if step is not None:
+                try:step.cancel()
+                except Exception:pass
+            atomic_json(journal,dict(status='failed',**intent,error=str(error)[:180]))
+            raise ValueError('Observer search failed: '+str(error)[:180]) from error
 
     def _path(self,request):
         if not isinstance(request,str) or len(request)>256 or not request.startswith(self.store.state['run_id']+':'):

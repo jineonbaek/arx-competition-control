@@ -51,6 +51,11 @@ class BatteryExecutionTools(WorkflowTools):
         barrier=self.store.state['mission'].get('evidence_barriers',{}).get(self._wrist_stage(),{})
         return camera+':'+str(barrier.get('completed_at','missing'))
 
+    def _observation_limit(self,camera):
+        if camera=='d405' and self.store.state.get('mission',{}).get('stage')=='COARSE_ALIGNED':
+            return 12
+        return self.observation_limit
+
     def _save_pick_plan(self,result):
         path=self.store.path/result['result_file']
         atomic_json(path,result)
@@ -105,6 +110,11 @@ class BatteryExecutionTools(WorkflowTools):
         attempts=[]
         retryable={'target_not_found','recognition_rejected','depth_rejected',
                    'pose_rejected','handoff_rejected'}
+        stage=self.store.state.get('mission',{}).get('stage')
+        offsets=(self.backends.observer_search_offsets()
+                 if camera=='d405' and stage=='COARSE_ALIGNED'
+                 and hasattr(self.backends,'observer_search_offsets') else [])
+        search_index=0
         current=dict(a);attempt_id=call_id
         while True:
             if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
@@ -113,8 +123,18 @@ class BatteryExecutionTools(WorkflowTools):
                                  message=result.get('message','')))
             if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
             if result.get('status') not in retryable:break
+            if result.get('status')=='target_not_found' and offsets:
+                if search_index>=len(offsets):break
+                self.progress('observer_search_'+str(search_index+1))
+                try:self.backends.adjust_observer_search(call_id,search_index,offsets[search_index])
+                except Exception as error:
+                    raise AgentError('observer_search_failed',str(error)[:180]) from error
+                search_index+=1
+                attempt_id=call_id+'_search_'+str(search_index)
+                continue
             used=self.store.state.get('battery_observation_attempts',{}).get(self._observation_budget_key(camera),0)
-            if used>=self.observation_limit or len(attempts)>=self.observation_limit:break
+            limit=self._observation_limit(camera)
+            if used>=limit or len(attempts)>=limit:break
             self.progress('reobserve_'+camera)
             # External call IDs cannot contain '/', so retries cannot overwrite their artifacts.
             attempt_id=call_id+'/retry_'+str(len(attempts))
