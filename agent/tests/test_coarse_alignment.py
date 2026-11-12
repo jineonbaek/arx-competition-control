@@ -11,31 +11,34 @@ from agent.tests.test_grasp_integration import frame
 from agent.coarse_alignment import coarse_geometry, plan
 
 class CoarseTests(unittest.TestCase):
-    def test_cad_zero_and_lift_units_not_target_z_directly(self):
+    def test_fixed_lift_ignores_target_z_and_defers_xy_to_d405(self):
         from web.src.handeye_column import ColumnModel, NOMINAL_RAD_PER_M
         model=ColumnModel()
         zero=model.wrist_transform(np.zeros(6),0)[:3,3]*1000
         target=zero+np.array([200,0,300])
-        result=coarse_geometry(target,2.,model)
-        self.assertAlmostEqual(result['lift']['target_rad'],.2*NOMINAL_RAD_PER_M)
-        self.assertAlmostEqual(result['reference_wrist_base_mm'][2],target[2]-100)
+        result=coarse_geometry(target,2.,model,fixed_lift_rad=5.52)
+        self.assertEqual(result['lift']['target_rad'],5.52)
+        self.assertAlmostEqual(result['lift']['delta_rad'],3.52)
+        self.assertTrue(result['lift']['fixed'])
+        self.assertAlmostEqual(result['reference_wrist_base_mm'][2],
+            zero[2]+5.52/NOMINAL_RAD_PER_M*1000)
+        self.assertEqual(result['x_y_alignment'],'deferred_to_d405')
         self.assertEqual(result['reference_joints_deg'],[0]*6)
         self.assertIsNone(result['tcp'])
         self.assertFalse(result['executable'])
         self.assertFalse(result['lift']['both_arms_sweep_checked'])
 
-    def test_clamps_both_ends_and_explains_unmet_preference(self):
+    def test_rejects_invalid_fixed_lift_and_inputs(self):
         from web.src.handeye_column import ColumnModel
         model=ColumnModel()
-        for z,limit in ((-1000,0),(3000,18)):
-            result=coarse_geometry([500,-250,z],2,model)
-            self.assertEqual(result['lift']['target_rad'],limit)
-            self.assertTrue(result['lift']['clamped'])
-            self.assertGreater(abs(result['lift']['preference_residual_mm']),1)
-        for xyz,lift in (([1,2,float('nan')],0),([1,2],0),([1,2,3],19)):
-            with self.assertRaises(ValueError):coarse_geometry(xyz,lift,model)
+        low=coarse_geometry([500,-250,-1000],2,model,fixed_lift_rad=0)
+        high=coarse_geometry([500,-250,3000],2,model,fixed_lift_rad=18)
+        self.assertEqual((low['lift']['target_rad'],high['lift']['target_rad']),(0,18))
+        for xyz,lift,fixed in (([1,2,float('nan')],0,5.52),([1,2],0,5.52),
+                               ([1,2,3],19,5.52),([1,2,3],0,-1),([1,2,3],0,19)):
+            with self.assertRaises(ValueError):coarse_geometry(xyz,lift,model,fixed_lift_rad=fixed)
 
-    def test_plan_requires_localized_head_evidence_and_archives_source(self):
+    def test_plan_requires_localized_head_evidence_and_uses_fixed_lift(self):
         with tempfile.TemporaryDirectory() as directory:
             store=RunStore.create(directory)
             self.addCleanup(store.close)
@@ -55,13 +58,15 @@ class CoarseTests(unittest.TestCase):
             self.assertFalse(result['executable'])
             self.assertEqual(result['lift']['column_sweep']['status'],'unavailable')
             self.assertFalse(result['lift']['column_sweep']['both_arms_column_checked'])
-            self.assertEqual(result['observer']['status'],'observer_unavailable')
-            self.assertIsNone(result['observer']['joints_rad'])
+            self.assertEqual(result['lift']['target_rad'],5.52)
+            self.assertTrue(result['lift']['fixed'])
+            self.assertFalse(result['observer_required'])
+            self.assertNotIn('observer',result)
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)
             with self.assertRaisesRegex(ValueError,'D435'):plan(tools,ident,'wrong')
 
-    def test_archived_head_frame_reaches_observer_planner_without_tcp(self):
+    def test_fixed_lift_plan_does_not_require_pre_lift_observer_or_tcp(self):
         with tempfile.TemporaryDirectory() as directory:
             store=RunStore.create(directory);self.addCleanup(store.close)
             f=frame();f.update(camera_id=np.array('d435'),joints=np.zeros(6))
@@ -74,10 +79,10 @@ class CoarseTests(unittest.TestCase):
             atomic_json(store.path/'result.json',evidence)
             store.state['battery_observations']={ident:'result.json'}
             result=plan(GraspTools(Config(),store),ident,'coarse')
-            self.assertEqual(result['observer']['status'],'observer_candidate')
-            self.assertEqual(len(result['observer']['calibration_sha256']),64)
-            self.assertEqual(result['observer']['lift_rad'],result['lift']['target_rad'])
+            self.assertEqual(result['lift']['target_rad'],5.52)
+            self.assertNotIn('observer',result)
+            self.assertFalse(result['observer_required'])
             self.assertFalse(result['executable']);self.assertIsNone(result['tcp'])
-            self.assertFalse(result['observer']['executable'])
+            self.assertFalse(result['ik_checked'])
 
 if __name__=='__main__':unittest.main()

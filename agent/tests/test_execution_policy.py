@@ -22,7 +22,7 @@ def policy():
         timing_limits=timing,
         timeout_s={name:30. for name in (
             'execute_coarse_alignment','execute_battery_approach','execute_pick')},
-        coarse=dict(reach_bound_m=1.,fixed_joint_tolerance_rad=.02,
+        coarse=dict(reach_bound_m=1.,fixed_lift_target_rad=5.52,fixed_joint_tolerance_rad=.02,
             max_pair_skew_s=.05,lift_policy=arrival_scalar,arm_policy=arrival_arm),
         pick=dict(lift_tolerance_rad=.02,max_pair_skew_s=.05,
             arm_policy=arrival_arm,gripper_target=-1.2,

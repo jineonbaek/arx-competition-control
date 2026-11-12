@@ -54,9 +54,10 @@ def load(path,*,gripper_limits=None):
     timeout=_exact(data['timeout_s'],_TIMEOUTS,'timeout_s')
     for name,value in timeout.items():_number(value,name,upper=3600)
 
-    coarse=_exact(data['coarse'],{'reach_bound_m','fixed_joint_tolerance_rad',
+    coarse=_exact(data['coarse'],{'reach_bound_m','fixed_lift_target_rad','fixed_joint_tolerance_rad',
         'max_pair_skew_s','lift_policy','arm_policy'},'coarse')
     _number(coarse['reach_bound_m'],'reach_bound_m')
+    _number(coarse['fixed_lift_target_rad'],'coarse.fixed_lift_target_rad',upper=18)
     _number(coarse['fixed_joint_tolerance_rad'],'fixed_joint_tolerance_rad')
     _number(coarse['max_pair_skew_s'],'coarse.max_pair_skew_s')
     _arrival(coarse['lift_policy'],1,'coarse.lift_policy')
