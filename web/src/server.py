@@ -24,9 +24,19 @@ from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
 from tcp_calibration import TcpCalibration
 from grasp_integration import GraspIntegration
+from battery_task import BatteryTask
+from agent.battery_production import workflow_factory
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
+
+
+def make_battery_task(controller,port,policy_path):
+    if policy_path is None:return None
+    limits=controller.config['arms']['right']['gripper_limits_raw']
+    factory=workflow_factory(policy_path,console_url=f'http://127.0.0.1:{port}',
+                             gripper_limits=limits)
+    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory)
 
 
 def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None):
@@ -244,6 +254,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9983)
+    parser.add_argument("--battery-policy", help="explicit fixed-flow execution policy")
     args = parser.parse_args()
     config = json.loads((WEB_ROOT / "config/control.json").read_text())
     adapter = RosAdapter(config)
@@ -252,7 +263,10 @@ def main():
     grasp_integration = GraspIntegration.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,DepthControl())
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent, vision=vision, foundation=foundation, grasp_integration=grasp_integration))
+    battery_task=make_battery_task(controller,args.port,args.battery_policy)
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
+        vision=vision,foundation=foundation,grasp_integration=grasp_integration,
+        battery_task=battery_task))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -271,6 +285,7 @@ def main():
         vision.close()
         arxgent.close()
         grasp_integration.close()
+        if battery_task is not None:battery_task.close()
         adapter.close()
         server.server_close()
 

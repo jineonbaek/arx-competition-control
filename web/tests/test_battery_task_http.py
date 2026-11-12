@@ -60,7 +60,7 @@ class BatteryTaskHTTPTests(unittest.TestCase):
             '{"action":"start","action":"cancel"}',good)[0],400)
         task.action.assert_not_called()
         status,_,body=self.request(server,"POST","/api/battery-task",
-            '{"action":"start","request_id":"r1","expected_epoch":4}',good)
+            '{"action":"start","request_id":"r1","expected_epoch":4,"environment_clear":true}',good)
         self.assertEqual(status,202);self.assertEqual(json.loads(body)["run_id"],"run-1")
         task.action.assert_called_once()
         self.assertEqual(adapter.calls,[])
