@@ -23,6 +23,14 @@ class _Flow:
         return dict(self.result)
 
 
+class _Depth:
+    def __init__(self):self.requested={'d435':False,'d405':True};self.calls=[]
+    def snapshot(self):
+        return {'cameras':{camera:{'requested':enabled} for camera,enabled in self.requested.items()}}
+    def request(self,data):
+        self.calls.append(dict(data));self.requested[data['camera']]=data['enabled']
+
+
 class BatteryTaskTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
@@ -120,6 +128,21 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(logs[0]['data']['stage'],6)
         self.assertEqual(logs[-1]['data']['stage'],104)
         self.gate.set();self.wait('needs_attention')
+
+    def test_task_keeps_needed_depth_on_then_restores_previous_state(self):
+        depth=_Depth()
+        task=BatteryTask(Path(self.temp.name)/'depth',self.controller,
+            lambda store,controller,token,environment_clear:_Flow(store,self.gate),depth_control=depth)
+        self.addCleanup(task.close)
+        task.action('owner',{'action':'start','request_id':'depth','expected_epoch':0,
+                             'environment_clear':True})
+        self.assertEqual(depth.requested,{'d435':True,'d405':True})
+        self.gate.set()
+        end=time.monotonic()+2
+        while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
+        self.assertEqual(depth.requested,{'d435':False,'d405':True})
+        self.assertEqual(depth.calls,[{'camera':'d435','enabled':True},{'camera':'d405','enabled':True},
+                                      {'camera':'d435','enabled':False},{'camera':'d405','enabled':True}])
 
 
 if __name__=='__main__':unittest.main()

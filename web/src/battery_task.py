@@ -9,16 +9,25 @@ from control import Rejected
 
 
 class BatteryTask:
-    def __init__(self, root, controller, workflow_factory, *, close_timeout_s=2.):
+    def __init__(self, root, controller, workflow_factory, *, depth_control=None, close_timeout_s=2.):
         if not callable(workflow_factory) or close_timeout_s <= 0:
             raise ValueError('Workflow factory and bounded close timeout required')
         self.root=Path(root)
         self.controller=controller
         self.workflow_factory=workflow_factory
+        self.depth_control=depth_control
         self.close_timeout_s=float(close_timeout_s)
         self.lock=threading.RLock()
         self.active=None
         self.requests={}
+
+    def _restore_depth(self,state):
+        previous=state.get('depth_previous')
+        if self.depth_control is None or previous is None:return
+        state['depth_previous']=None
+        for camera,enabled in previous.items():
+            try:self.depth_control.request({'camera':camera,'enabled':enabled})
+            except Exception as error:self.controller.log(camera+' depth restore failed: '+str(error),'warning')
 
     @staticmethod
     def _request(value):
@@ -88,17 +97,22 @@ class BatteryTask:
             if self.active['store'] is not None and not self.active['store'].closed:
                 self.active['store'].close()
         token=self.controller.reserve_motion(expected_epoch)
-        store=None
+        store=None;depth_previous=None
         try:
+            if self.depth_control is not None:
+                cameras=self.depth_control.snapshot()['cameras']
+                depth_previous={camera:cameras[camera]['requested'] for camera in ('d435','d405')}
+                for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             store=RunStore.create(self.root)
             flow=self.workflow_factory(store,self.controller,token,environment_clear)
         except Exception:
+            if depth_previous is not None:self._restore_depth({'depth_previous':depth_previous})
             if store is not None:store.close()
             if self.controller.motion_valid(token):self.controller.release_motion(token)
             raise
         self.active={'client':client,'run_id':store.state['run_id'],'status':'running',
                      'reason':'','flow':None,'recovery_required':False,
-                     'store':store,'token':token,'worker':None}
+                     'store':store,'token':token,'worker':None,'depth_previous':depth_previous}
         worker=threading.Thread(target=self._run,args=(self.active,flow),
                                 daemon=True,name='battery-fixed-flow')
         self.active['worker']=worker
@@ -117,6 +131,7 @@ class BatteryTask:
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:
             result={'status':'needs_attention','reason':str(error)[:300]}
+        self._restore_depth(state)
         with self.lock:
             state['flow']=copy.deepcopy(result)
             state['status']=str(result.get('status') or 'needs_attention')
@@ -142,3 +157,4 @@ class BatteryTask:
             if worker is not None and worker.is_alive():
                 (state['store'].path/'cancel.flag').touch(mode=0o600)
         if worker is not None and worker.is_alive():worker.join(self.close_timeout_s)
+        if worker is None or not worker.is_alive():self._restore_depth(state)

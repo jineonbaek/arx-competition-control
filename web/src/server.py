@@ -31,12 +31,12 @@ WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_battery_task(controller,port,policy_path):
+def make_battery_task(controller,port,policy_path,depth_control=None):
     if policy_path is None:return None
     limits=controller.config['arms']['right']['gripper_limits_raw']
     factory=workflow_factory(policy_path,console_url=f'http://127.0.0.1:{port}',
                              gripper_limits=limits)
-    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory)
+    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
 def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None):
@@ -259,13 +259,14 @@ def main():
     config = json.loads((WEB_ROOT / "config/control.json").read_text())
     adapter = RosAdapter(config)
     controller = Controller(config, adapter)
+    depth_control=DepthControl()
     arxgent = ArxgentChat.from_repository(WEB_ROOT.parent, args.port)
     grasp_integration = GraspIntegration.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
-    foundation = FoundationPosePreview(controller,DepthControl())
-    battery_task=make_battery_task(controller,args.port,args.battery_policy)
+    foundation = FoundationPosePreview(controller,depth_control)
+    battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
-        vision=vision,foundation=foundation,grasp_integration=grasp_integration,
+        depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
         battery_task=battery_task))
     server.daemon_threads = True
     server.stopping = threading.Event()
