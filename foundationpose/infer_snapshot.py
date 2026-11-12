@@ -61,6 +61,11 @@ def main():
     if any((args.head_frame,args.head_mask,args.head_id)) and not all((args.head_frame,args.head_mask,args.head_id)):
         parser.error('Head frame, mask and ID are required together')
     if not np.isfinite(args.mesh_scale) or args.mesh_scale<=0:parser.error("Invalid mesh scale")
+    infer(args)
+
+
+def infer(args,state=None):
+    state={} if state is None else state
     started=time.perf_counter()
     with np.load(args.frame,allow_pickle=False) as f:
         if str(f["id"])!=args.id:raise ValueError("快照已更新")
@@ -83,15 +88,29 @@ def main():
     import torch
     torch.manual_seed(0);np.random.seed(0)
     source=args.mesh
-    mesh=trimesh.load(source)
-    mesh.apply_scale(args.mesh_scale)
+    mesh_key=(str(source.resolve()),hashlib.sha256(source.read_bytes()).hexdigest(),args.mesh_scale)
+    if state.get('mesh_key')!=mesh_key:
+        state.clear()
+        mesh=trimesh.load(source)
+        mesh.apply_scale(args.mesh_scale)
+        state.update(mesh_key=mesh_key,mesh=mesh)
+    mesh=state['mesh']
     torch.cuda.reset_peak_memory_stats()
     output=args.output.parent
-    est=FoundationPose(model_pts=mesh.vertices,model_normals=mesh.vertex_normals,mesh=mesh,
-        scorer=ScorePredictor(),refiner=PoseRefinePredictor(),glctx=dr.RasterizeCudaContext(),
-        debug_dir=str(output/"debug"),debug=0)
+    if 'est' not in state:
+        state['est']=FoundationPose(model_pts=mesh.vertices,model_normals=mesh.vertex_normals,mesh=mesh,
+            scorer=ScorePredictor(),refiner=PoseRefinePredictor(),glctx=dr.RasterizeCudaContext(),
+            debug_dir=str(output/"debug"),debug=0)
+    est=state['est']
     torch.cuda.synchronize();tick=time.perf_counter()
-    pose=est.register(K=K,rgb=color,depth=z,ob_mask=fg,iteration=5)
+    tracking='base_from_object' in state
+    if tracking:
+        # The wrist camera moved: seed tracking in this frame, using the centered-mesh convention.
+        seed=np.linalg.inv(base)@state['base_from_object']
+        est.pose_last=torch.as_tensor(seed,dtype=torch.float32,device='cuda')@torch.linalg.inv(est.get_tf_to_centered_mesh())
+        pose=est.track_one(K=K,rgb=color,depth=z,iteration=2)
+    else:
+        pose=est.register(K=K,rgb=color,depth=z,ob_mask=fg,iteration=5)
     torch.cuda.synchronize();seconds=time.perf_counter()-tick
     if pose.shape!=(4,4) or not np.isfinite(pose).all():raise ValueError("Invalid estimated pose")
     if not np.allclose(pose[:3,:3].T@pose[:3,:3],np.eye(3),atol=1e-3) or np.linalg.det(pose[:3,:3])<.99:
@@ -156,11 +175,14 @@ def main():
         rpy_base_deg=Rotation.from_matrix(transform[:3,:3]).as_euler("xyz",degrees=True).tolist(),
         model_size_mm=(mesh.extents*1000).tolist(),mask_pixels=int(mask.sum()),
         mesh_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),registration_s=seconds,
+        estimation_method='track' if tracking else 'register',
         total_s=time.perf_counter()-started,peak_allocated_mib=torch.cuda.max_memory_allocated()/2**20,
         overlay=image_url(vis),mask_image=image_url(mask_vis),edges=edges,grasp_reference=grip,quality=quality,camera_handoff=handoff,
         message="仅位姿预览；请核对轮廓和 CAD 叠加，未生成运动指令")
     args.output.write_text(json.dumps(report,allow_nan=False))
     print("result",str(args.output),flush=True)
+    if quality['status']=='consistent':state['base_from_object']=transform.copy()
+    return report
 
 
 if __name__=="__main__":main()

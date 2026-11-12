@@ -26,6 +26,29 @@ class RefinementTests(unittest.TestCase):
         self.assertEqual(r['observation_id'],'new');self.assertEqual(r['correction_mm'],[0.,0.,0.])
         self.assertEqual(r['remaining_corrections'],2)
 
+    def test_new_visual_orientation_within_policy_preserves_calibrated_tcp(self):
+        from scipy.spatial.transform import Rotation
+        policy=copy.deepcopy(self.policy);policy['orientation_tolerance_deg']=5.
+        policy['position_tolerance_mm']=[18.]*3
+        self.new['R_base_from_tool']=Rotation.from_euler('z',2.,degrees=True).as_matrix().tolist()
+        direction=np.asarray(self.new['R_base_from_tool'])[:,0]
+        self.new['contact_path']['direction_base']=direction.tolist()
+        self.new['contact_path']['end_mm']=(np.asarray(self.new['contact_path']['pre_mm'])+50*direction).tolist()
+        self.assertEqual(assess(self.new,self.old,policy,corrections=0,total_mm=0.)['status'],'aligned')
+        self.new['T_wrist_from_tool'][0][3]=.001
+        with self.assertRaisesRegex(ValueError,'TCP calibration'):
+            assess(self.new,self.old,policy,corrections=0,total_mm=0.)
+
+    def test_visual_axis_rotation_beyond_policy_requires_reacquisition(self):
+        from scipy.spatial.transform import Rotation
+        rotation=Rotation.from_euler('z',6.,degrees=True).as_matrix()
+        self.new['R_base_from_tool']=rotation.tolist()
+        self.new['contact_path']['direction_base']=rotation[:,0].tolist()
+        self.new['contact_path']['end_mm']=(np.asarray(self.new['contact_path']['pre_mm'])+50*rotation[:,0]).tolist()
+        policy=copy.deepcopy(self.policy);policy['orientation_tolerance_deg']=5.
+        result=assess(self.new,self.old,policy,corrections=0,total_mm=0.)
+        self.assertEqual(result['status'],'reacquire_required')
+
     def test_xyz_correction_uses_measured_tcp_and_keeps_endpoint_height(self):
         self.new['contact_path']['pre_mm'][2]+=3
         self.new['contact_path']['end_mm'][2]+=3

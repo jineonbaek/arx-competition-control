@@ -37,8 +37,8 @@ def assess(current, previous, policy, *, corrections, total_mm):
     for key in ('observation_id','snapshot_id'):
         if not current.get(key) or not previous.get(key) or current[key]==previous[key]:
             raise ValueError('New post-approach observation required')
-    for key in ('T_wrist_from_tool','R_base_from_tool'):
-        if not np.array_equal(current[key],previous[key]):raise ValueError('Correction tool frame changed')
+    if not np.array_equal(current['T_wrist_from_tool'],previous['T_wrist_from_tool']):
+        raise ValueError('Correction TCP calibration changed')
     rigid(current['T_wrist_from_tool'])
     actual=rigid(current['actual_base_from_tool'])
     target=np.eye(4);target[:3,:3]=np.asarray(current['R_base_from_tool'],float);rigid(target)
@@ -54,8 +54,14 @@ def assess(current, previous, policy, *, corrections, total_mm):
             raise ValueError('Invalid battery-axis insertion line')
         endpoints.append(points)
     before,after=endpoints
-    if not np.allclose(before[1]-before[0],after[1]-after[0],atol=1e-6,rtol=0):
-        raise ValueError('Insertion axis or clearance changed during correction')
+    old_axis=before[1]-before[0];new_axis=after[1]-after[0]
+    if not np.isclose(np.linalg.norm(old_axis),np.linalg.norm(new_axis),atol=1e-6,rtol=0):
+        raise ValueError('Insertion clearance changed during correction')
+    axis_angle=float(np.degrees(np.arccos(np.clip(np.dot(old_axis,new_axis)/
+        (np.linalg.norm(old_axis)*np.linalg.norm(new_axis)),-1.,1.))))
+    old_rotation=np.eye(4);old_rotation[:3,:3]=np.asarray(previous['R_base_from_tool'],float)
+    rigid(old_rotation)
+    target_angle=float(np.degrees(Rotation.from_matrix(old_rotation[:3,:3].T@target[:3,:3]).magnitude()))
     lift=np.asarray([current['lift_rad'],previous['lift_rad']],float)
     if lift.shape!=(2,) or not np.isfinite(lift).all() or np.any(lift<0) or np.any(lift>18):
         raise ValueError('Invalid paired lift feedback')
@@ -73,6 +79,8 @@ def assess(current, previous, policy, *, corrections, total_mm):
         return result|{'reason':'target_changed_too_far'}
     if angle>policy['orientation_tolerance_deg']:
         return result|{'reason':'tool_orientation_changed'}
+    if max(axis_angle,target_angle)>policy['orientation_tolerance_deg']:
+        return result|{'reason':'target_orientation_changed'}
     if np.all(np.abs(delta)<=policy['position_tolerance_mm']):
         return result|dict(status='aligned',correction_mm=[0.,0.,0.],reason='measured_pregrasp_aligned')
     distance=float(np.linalg.norm(delta))

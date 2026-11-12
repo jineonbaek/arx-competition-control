@@ -51,13 +51,19 @@ def segment(store,ident,output,cancelled):
     camera=store.observation(ident).get("camera_id","d405")
     image=store.image_path(ident,camera)
     log=output/"recognition.log"
-    code=run_worker([str(VISION/".venv/bin/python"),str(VISION/"pipeline.py"),
-        "--image",str(image),"--camera-id",camera,"--attempts","1"],VISION,log,cancelled,420)
-    if code not in (0,2):raise AgentError("vision_failed","电池识别失败；请检查本次 recognition.log")
-    # Existing recognition CLI emits the JSON receipt as its final line.
-    report=json.loads(log.read_text().strip().splitlines()[-1])
+    session=getattr(store,'perception_session',None)
+    if session is not None:
+        report=session.call('segment',dict(frame=str(frame_path(store,ident)),image=str(image),
+            output=str(output)),cancelled,420)
+        atomic_json(log,report)
+    else:
+        code=run_worker([str(VISION/".venv/bin/python"),str(VISION/"pipeline.py"),
+            "--image",str(image),"--camera-id",camera,"--attempts","1"],VISION,log,cancelled,420)
+        if code not in (0,2):raise AgentError("vision_failed","电池识别失败；请检查本次 recognition.log")
+        report=json.loads(log.read_text().strip().splitlines()[-1])
     source=Path(report["output"]).resolve()
-    if not source.is_relative_to((VISION/"runtime").resolve()):raise ValueError("Unknown recognition artifact")
+    allowed=store.path.resolve() if session is not None else (VISION/"runtime").resolve()
+    if not source.is_relative_to(allowed):raise ValueError("Unknown recognition artifact")
     result={key:report.get(key) for key in ("status","selection","coarse_selection","review","path","elapsed_s","peak_gpu_mib")}
     selected=(report.get("selection") or {}).get("status")=="selected"
     mask_ok=(report.get("geometry") or {}).get("mask_valid") is True
@@ -94,8 +100,16 @@ def estimate(store,ident,recognition,output,cancelled,head=None):
         "--mask",str(output/"mask.png"),"--output",str(result)]
     if head:
         command += ['--head-frame',head['frame'],'--head-mask',head['mask'],'--head-id',head['snapshot_id']]
-    code=run_worker(command,FP,output/"pose.log",cancelled,120)
-    if code:raise AgentError("pose_failed","FoundationPose 失败；请检查本次 pose.log")
+    session=getattr(store,'perception_session',None)
+    if session is not None:
+        reply=session.call('estimate',dict(frame=str(frame),id=source_id,roi=recognition['bbox_xyxy'],
+            mask=str(output/'mask.png'),output=str(result),
+            head_frame=head['frame'] if head else None,head_mask=head['mask'] if head else None,
+            head_id=head['snapshot_id'] if head else None),cancelled,120)
+        atomic_json(output/'pose.log',reply)
+    else:
+        code=run_worker(command,FP,output/"pose.log",cancelled,120)
+        if code:raise AgentError("pose_failed","FoundationPose 失败；请检查本次 pose.log")
     report=json.loads(result.read_text())
     if report.get("id")!=source_id or report.get("roi")!=recognition["bbox_xyxy"]:
         raise ValueError("Pose receipt does not match recognition")

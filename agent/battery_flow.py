@@ -82,7 +82,11 @@ class BatteryFlow:
         if not self.store.battery_flow_lock.acquire(blocking=False):
             return dict(status='running',reason='Flow already running',grasp_confirmed=False)
         try:return self._run()
-        finally:self.store.battery_flow_lock.release()
+        finally:
+            try:
+                session=getattr(self.store,'perception_session',None)
+                if session is not None:session.close()
+            finally:self.store.battery_flow_lock.release()
 
     def _run(self):
         if self.flow['status']!='running':return copy.deepcopy(self.flow)
