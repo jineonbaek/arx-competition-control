@@ -34,6 +34,20 @@ class PickCloseStep:
                 self.controller.log('抓取停止请求失败：' + str(error), 'warning')
         return {**receipt, 'stop_request': self.stop_request}
 
+    def _on_arrived(self, receipt):
+        def preflight(fresh, now):
+            nonlocal receipt
+            receipt = self.monitor.start_closing(fresh, now, ready=self._ready(fresh))
+            return receipt['close_permitted']
+        result = self.controller.submit({'type': 'gripper', 'arm': 'right',
+            'position': self.monitor.gripper_target}, self.token, preflight=preflight)
+        if result.get('ok') is not True and result.get('deferred') is not True:
+            receipt = self.monitor.abort('execution_unknown')
+        # Manual stop may arrive while the driver confirms outside its lock.
+        if not self.controller.motion_valid(self.token):
+            receipt = self.monitor.abort('interrupted')
+        return receipt
+
     def poll(self, *, cancelled=False):
         with self.lock:
             if self.monitor.failure:
@@ -43,17 +57,7 @@ class PickCloseStep:
                 receipt = self.monitor.update(snapshot, self.controller.clock(),
                     ready=self._ready(snapshot), cancelled=cancelled)
                 if receipt['status'] == 'ready_to_close':
-                    def preflight(fresh, now):
-                        nonlocal receipt
-                        receipt = self.monitor.start_closing(fresh, now, ready=self._ready(fresh))
-                        return receipt['close_permitted']
-                    result = self.controller.submit({'type': 'gripper', 'arm': 'right',
-                        'position': self.monitor.gripper_target}, self.token, preflight=preflight)
-                    if result.get('ok') is not True and result.get('deferred') is not True:
-                        receipt = self.monitor.abort('execution_unknown')
-                    # Manual stop may arrive while the driver confirms outside its lock.
-                    if not self.controller.motion_valid(self.token):
-                        receipt = self.monitor.abort('interrupted')
+                    receipt = self._on_arrived(receipt)
             except Exception as error:
                 self.controller.log('抓取阶段中止：' + str(error), 'warning')
                 receipt = self.monitor.abort('execution_unknown')
@@ -127,3 +131,15 @@ class PickTrajectoryStep(PickCloseStep):
                     self.controller.log('前伸轨迹中止：'+str(error),'warning')
                     return self._stop(self.monitor.abort('execution_unknown'))
         return super().poll(cancelled=cancelled)
+
+
+class ApproachTrajectoryStep(PickTrajectoryStep):
+    """Stop at measured pregrasp arrival; observation precedes any insertion."""
+    def _ready(self, snapshot):
+        return (self.controller.motion_valid(self.token)
+                and snapshot.get('capabilities', {}).get('right:arm.wrist') == ''
+                and self.preflight(snapshot, self.controller.clock()) is True)
+
+    def _on_arrived(self, receipt):
+        return dict(receipt, status='ready_to_reobserve', close_permitted=False,
+                    new_observation_required=True)

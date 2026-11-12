@@ -165,3 +165,16 @@ class CoarseExecutionBackend(_PreparedExecutionBackend):
                 or type(height) not in (int,float) or not math.isfinite(height) or not 0<=height<=18):
             raise ValueError('Settled lift feedback and a new-observation barrier required')
         return dict(observer_ready=True,new_observation_required=True,achieved_lift_rad=height)
+
+
+class ApproachExecutionBackend(_PreparedExecutionBackend):
+    operation='execute_battery_approach'
+    stage_key='approach_stage'
+    terminal_stage='ready_to_reobserve'
+    running_stages=('awaiting_trajectory','awaiting_driver_status','trajectory_running','inserting')
+
+    @staticmethod
+    def _completed_data(receipt):
+        if receipt.get('new_observation_required') is not True or receipt.get('close_permitted') is not False:
+            raise ValueError('Measured arrival and mandatory reobservation required')
+        return dict(pose_reached=True,new_observation_required=True)

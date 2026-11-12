@@ -116,3 +116,7 @@ Agent 参数只有 `observation_id`，不能自行填写矩阵、容差或运动
 实际参数仍待现场 TCP 与夹指容差确认，测试数值不作为默认控制参数。
 本步骤仅有纯计算；后续由阶段工具强制到位后的重新采集时间及累计预算。
 软件验证：6 项纯计算测试通过，覆盖 XYZ 修正、预算耗尽、版本/快照错配及非有限参数。
+
+### Pregrasp measured arrival (software only)
+
+ApproachTrajectoryStep reuses the existing trajectory ownership, driver receipt, fresh measured settling and failure-stop logic. Its arrival handler cannot close the gripper: ApproachExecutionBackend completes only with a mandatory new-observation receipt. No live registration or device restart. Four fake-transport approach tests and eighteen existing pick tests passed.
