@@ -38,4 +38,9 @@ class PoseQualityTests(unittest.TestCase):
         self.assertEqual(r['status'],'rejected')
         self.assertGreater(r['p90_abs_depth_mm'],50)
 
+    def test_relaxed_screening_accepts_moderate_clean_scene_residual(self):
+        r=assess_depth_fit(self.mask,self.render+.014,self.render)
+        self.assertEqual(r['status'],'consistent')
+        self.assertAlmostEqual(r['median_abs_depth_mm'],14)
+
 if __name__=='__main__':unittest.main()

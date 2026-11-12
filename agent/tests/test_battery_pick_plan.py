@@ -25,7 +25,7 @@ class BatteryPickPlanTests(unittest.TestCase):
         tcp=np.eye(4);tcp[:3,3]=[.12,.007,-.004];tcp[:3,:3]=wrist[:3,:3].T
         self.setup=dict(calibration_id='synthetic-test-only',parent_frame='right_link26',
             tool_frame='grip_reference',translation_unit='m',T_wrist_from_tool=tcp.tolist(),
-            alignment_tolerance_deg=2.,j6_tolerance_deg=5.,timing_limits=dict(
+            alignment_tolerance_deg=5.,j6_tolerance_deg=5.,timing_limits=dict(
                 joint_speed_deg_s=[5.7]*6,joint_acceleration_deg_s2=[12.]*6,
                 tcp_speed_mm_s=20.,tcp_acceleration_mm_s2=40.))
         self.store.state['mission'].update(stage='COARSE_ALIGNED',evidence_barriers={
@@ -81,6 +81,15 @@ class BatteryPickPlanTests(unittest.TestCase):
         self.assertIsNone(data['wrist_end_mm']);unused.assert_not_called()
         self.assertEqual(self.store.state['mission']['stage'],'COARSE_ALIGNED')
         self.assertTrue((self.store.path/data['result_file']).is_file())
+
+    def test_cross_camera_handoff_quality_is_advisory_but_identity_stays_required(self):
+        self.tools=BatteryExecutionTools(Config(),self.store,observations=object(),pick_setup=self.setup)
+        report=copy.deepcopy(self.report);report['camera_handoff']['quality']['status']='rejected'
+        self.preview(report,'advisory');result=self.plan('advisory_plan')
+        self.assertTrue(result['ok'],result)
+        self.assertIn('handoff_advisory',result['data'])
+        report=copy.deepcopy(self.report);report['camera_handoff']['head_observation_id']='other'
+        self.preview(report,'identity');self.assertFalse(self.plan('identity_plan')['ok'])
 
     def test_real_ik_uses_frozen_actual_joints_and_full_calibrated_transform(self):
         self.tools=BatteryExecutionTools(Config(),self.store,observations=object(),pick_setup=self.setup)

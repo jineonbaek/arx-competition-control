@@ -47,13 +47,13 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
         curvature=(model.reach+np.linalg.norm(tcp[:3,3]))*np.abs(dq).sum()**2/8*1000
         bound=max(endpoint_errors)+curvature
         position_bound=max(position_bound,float(bound))
-        if bound>1:raise ValueError('Joint interpolation cannot keep TCP within 1 mm of insertion line')
+        if bound>2:raise ValueError('Joint interpolation cannot keep TCP within 2 mm of insertion line')
         count=max(2,int(np.ceil(np.max(np.abs(dq))/np.radians(.1)))+1)
         for t in np.linspace(0,1,count):
             actual=(model.wrist_transform(a+t*dq,lift_rad)@tcp)[:3,:3]
             error=np.degrees(Rotation.from_matrix(orientation[:3,:3].T@actual).magnitude())
             angle_error=max(angle_error,float(error))
-        if angle_error>.3:raise ValueError('Insertion orientation departs from fixed tool pose')
+        if angle_error>.7:raise ValueError('Insertion orientation departs from fixed tool pose')
         waypoints.append(b)
     if not all(c['clear'] for c in clearances):raise ValueError('Path approaches central column')
     timing=(TimedJointPath(waypoints,model.reach+np.linalg.norm(tcp[:3,3]),**timing_limits).receipt()

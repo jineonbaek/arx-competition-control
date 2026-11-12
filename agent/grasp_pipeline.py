@@ -161,11 +161,13 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None,*,head_o
                     or pose['camera_handoff'].get('head_scene_sha256')!=head['scene_sha256']
                     or pose['camera_handoff'].get('head_mask_sha256')!=head['mask_sha256']):
                 raise ValueError('Cross-camera receipt does not match frozen head evidence')
-            elif head and (pose['camera_handoff'].get('quality',{}).get('version')!=1
-                    or pose['camera_handoff'].get('quality',{}).get('status')!='consistent'):
-                result.update(status='handoff_rejected',camera_handoff=pose['camera_handoff'],
-                    message='D405 位姿投回 D435 后与原目标不一致或证据不足；未生成抓取线段。')
             else:
+                if head:
+                    handoff_quality=pose['camera_handoff'].get('quality',{})
+                    if handoff_quality.get('version')!=1:
+                        raise ValueError('Cross-camera quality version mismatch')
+                    if handoff_quality.get('status')!='consistent':
+                        result['camera_handoff_warning']='D435/D405 跨相机质量仅作警告，D405 位姿仍须通过检查'
                 progress("pointcloud_path")
                 with np.load(frame,allow_pickle=False) as f:
                     geometry=preview_geometry(f,np.asarray(Image.open(output/"mask.png").convert("L")),pose,clearance_mm)

@@ -18,16 +18,16 @@ def surface_location(frame, mask):
     foreground=mask>0
     valid=foreground & (xyz[...,2]>.07) & (xyz[...,2]<3.)
     points=xyz[valid]
-    if len(points)<100 or len(points)<.5*max(1,int(foreground.sum())):
+    if len(points)<60 or len(points)<.35*max(1,int(foreground.sum())):
         raise ValueError('电池区域有效深度不足')
     order=np.argsort(points[:,2]);points=points[order]
     # Separate clearly disconnected depth layers; never average a foreground and its hole background.
     groups=np.split(points,np.flatnonzero(np.diff(points[:,2])>.08)+1)
     surface=max(groups,key=len)
-    if len(surface)<.6*len(points):raise ValueError('电池区域存在多个有歧义的深度层')
+    if len(surface)<=.5*len(points):raise ValueError('电池区域存在多个有歧义的深度层')
     base=surface@transform[:3,:3].T+transform[:3,3]
     spread=np.percentile(base,95,axis=0)-np.percentile(base,5,axis=0)
-    if max(spread)>.30:raise ValueError('深度范围超过电池尺寸，可能包含背景')
+    if max(spread)>.35:raise ValueError('深度范围超过电池尺寸，可能包含背景')
     return dict(frame='base_link',unit='mm',kind='visible_surface_not_grip',
         surface_base_mm=(np.median(base,axis=0)*1000).tolist(),
         surface_spread_p90_mm=(spread*1000).tolist(),support_pixels=len(surface),

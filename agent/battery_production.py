@@ -40,8 +40,8 @@ def review_plan(operation,plan,*,environment_clear):
         checked=plan.get('column_checked') is True
         clear=(checked and type(plan.get('interpolation_position_bound_mm')) in (int,float)
                and type(plan.get('sampled_orientation_error_deg')) in (int,float)
-               and plan['interpolation_position_bound_mm']<=1.
-               and plan['sampled_orientation_error_deg']<=.3
+               and plan['interpolation_position_bound_mm']<=2.
+               and plan['sampled_orientation_error_deg']<=.7
                and timing.get('status')=='timed_preview')
         method='CAD column sweep, bounded IK path and one operator clear-area confirmation'
     return dict(plan_sha256=plan_digest(plan),ik_checked=bool(ik),

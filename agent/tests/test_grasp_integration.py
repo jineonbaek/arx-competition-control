@@ -172,10 +172,15 @@ class PipelineTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError,'Cross-camera receipt'):
                         pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
                     continue
+                if handoff['quality']['version']!=1:
+                    with self.assertRaisesRegex(ValueError,'Cross-camera quality'):
+                        pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
+                    continue
                 result=pipeline(self.store,self.obs['observation_id'],50,output,head_observation_id=hid)
-                good=handoff['quality']==match['quality']
-                self.assertEqual(result['status'],'preview_complete' if good else 'handoff_rejected')
-                self.assertEqual('geometry' in result,good)
+                self.assertEqual(result['status'],'preview_complete')
+                self.assertIn('geometry',result)
+                self.assertEqual('camera_handoff_warning' in result,
+                    handoff['quality']['status']!='consistent')
                 self.assertFalse(result['executable'])
                 self.assertEqual(result['camera_handoff']['head_observation_id'],hid)
                 self.assertEqual(estimate.call_args.kwargs['head'],expected)

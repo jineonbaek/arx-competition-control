@@ -140,4 +140,24 @@ class PickMonitorTests(unittest.TestCase):
         self.assertEqual(result['status'],'stalled')
         self.assertTrue(result['stop_required'])
 
+    def test_new_hold_window_accepts_object_stall_and_rejects_empty_close(self):
+        monitor=PickMonitor(self.model,self.tcp,self.target,expected_lift_rad=12.,
+            lift_tolerance_rad=.02,max_pair_skew_s=.05,started_at=10.,arm_policy=self.policy,
+            gripper_target=-.4,gripper_policy=self.grip_policy,hold_gripper_range=[-1.5,-.5])
+        for t in (10.01,10.11,10.22):monitor.update(self.state(t),t,ready=True)
+        monitor.start_closing(self.state(10.32),10.32,ready=True)
+        held=None
+        for t in (10.42,10.52,10.62,10.72,10.82,10.92,11.02,11.12,11.22,11.32):
+            held=monitor.update(self.state(t,-1.),t,ready=True)
+        self.assertEqual(held['status'],'awaiting_hold_verification')
+        monitor=PickMonitor(self.model,self.tcp,self.target,expected_lift_rad=12.,
+            lift_tolerance_rad=.02,max_pair_skew_s=.05,started_at=10.,arm_policy=self.policy,
+            gripper_target=-.4,gripper_policy=self.grip_policy,hold_gripper_range=[-1.5,-.5])
+        for t in (10.01,10.11,10.22):monitor.update(self.state(t),t,ready=True)
+        monitor.start_closing(self.state(10.32),10.32,ready=True)
+        empty=None
+        for t in (10.42,10.52,10.62,10.72,10.82):empty=monitor.update(self.state(t,-.4),t,ready=True)
+        self.assertEqual(empty['status'],'awaiting_hold_verification')
+        self.assertFalse(monitor.hold_range[0]<=-.4<=monitor.hold_range[1])
+
 if __name__=='__main__':unittest.main()

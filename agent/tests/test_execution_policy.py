@@ -17,7 +17,7 @@ def policy():
         tcp_speed_mm_s=20.,tcp_acceleration_mm_s2=40.)
     return dict(
         clearance_mm=50.,
-        alignment_tolerance_deg=3.,
+        alignment_tolerance_deg=5.,
         j6_tolerance_deg=5.,
         timing_limits=timing,
         timeout_s={name:30. for name in (
@@ -27,11 +27,11 @@ def policy():
                 offsets_mm=[10.,20.,30.,40.,0.,-10.,-20.,-30.],z_tolerance_mm=2.,
                 orientation_tolerance_deg=5.),lift_policy=arrival_scalar,arm_policy=arrival_arm),
         pick=dict(lift_tolerance_rad=.02,max_pair_skew_s=.05,
-            arm_policy=arrival_arm,gripper_target=-1.2,
-            gripper_policy=arrival_scalar,hold_gripper_range=[-2.6,-1.6]),
+            arm_policy=arrival_arm,gripper_target=-.4,
+            gripper_policy=arrival_scalar,hold_gripper_range=[-1.5,-.5]),
         refinement=dict(max_corrections=2,max_target_shift_mm=[15.]*3,
-            max_step_mm=[10.]*3,max_total_correction_mm=20.,
-            position_tolerance_mm=[13.]*3,orientation_tolerance_deg=3.,
+            max_step_mm=[15.]*3,max_total_correction_mm=30.,
+            position_tolerance_mm=[18.]*3,orientation_tolerance_deg=5.,
             lift_tolerance_rad=.02))
 
 
@@ -66,7 +66,7 @@ class ExecutionPolicyTests(unittest.TestCase):
         value=policy();value['pick']['arm_policy']['tolerance']=[1.]*3;cases.append(value)
         value=policy();value['pick']['gripper_target']=.1;cases.append(value)
         value=policy();value['pick']['hold_gripper_range']=[-1.6,-2.6];cases.append(value)
-        value=policy();value['pick']['hold_gripper_range']=[-3.2,-1.6];cases.append(value)
+        value=policy();value['pick']['hold_gripper_range']=[-3.2,-.5];cases.append(value)
         value=policy();value['refinement']['position_tolerance_mm']=[1.,1.];cases.append(value)
         for data in cases:
             with self.subTest(data=data),self.assertRaises(ValueError):

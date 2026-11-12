@@ -20,7 +20,7 @@ class WorkflowTests(unittest.TestCase):
         self.controller.snapshot=lambda:dict(arms={'right':dict(fresh=True,gripper=self.gripper)})
     def build(self,**kw):
         flow=build_workflow(self.config,self.store,self.controller,'owned',
-            policies={'pick':{'hold_gripper_range':[-2.6,-1.6]}},
+            policies={'pick':{'hold_gripper_range':[-1.5,-.5]}},
             refinement_policy={},timing_limits={},alignment_tolerance_deg=3,j6_tolerance_deg=5,
             preflight=lambda *a:True,review_plan=review,observations=object(),
             timeout_s={k:1. for k in ('execute_coarse_alignment','execute_battery_approach','execute_pick')},**kw)
@@ -66,9 +66,9 @@ class WorkflowTests(unittest.TestCase):
         m=self.store.state['mission'];m.update(stage='PICK_EXECUTED',target={'target_id':'battery'},plan={})
         result=flow.tools.execute('verify_hold',{},'outside')
         self.assertFalse(result['ok']);self.assertEqual(m['stage'],'PICK_EXECUTED')
-        self.gripper=-2.
+        self.gripper=-1.
         result=flow.tools.execute('verify_hold',{},'inside')
         self.assertTrue(result['ok'],result);self.assertEqual(m['stage'],'HOLD_CONFIRMED')
-        self.assertEqual(result['data']['gripper_feedback'],-2.)
+        self.assertEqual(result['data']['gripper_feedback'],-1.)
 
 if __name__=='__main__':unittest.main()

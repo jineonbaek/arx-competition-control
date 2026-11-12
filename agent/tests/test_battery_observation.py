@@ -76,6 +76,14 @@ class ObservationTests(unittest.TestCase):
         for m in (np.zeros((20,30)),np.ones((2,3)),np.full((20,30),np.nan)):
             with self.assertRaises(ValueError):surface_location(self.head_frame(),m)
 
+    def test_coarse_surface_accepts_relaxed_clean_scene_depth_coverage(self):
+        f=self.head_frame();xyz=f['xyz'].reshape(-1,3)
+        xyz[:360]=[.1,0,.01];xyz[360:]=[.1,0,.6]
+        f['raw_depth'].reshape(-1)[:360]=10;f['raw_depth'].reshape(-1)[360:]=600
+        result=surface_location(f,np.ones((20,30),np.uint8))
+        self.assertEqual(result['valid_pixels'],240)
+        self.assertEqual(result['mask_pixels'],600)
+
     def test_observe_rejection_archives_reason_without_pose_or_motion(self):
         f=self.head_frame();buf=io.BytesIO();np.savez(buf,**f)
         obs=save_frame(self.store,buf.getvalue(),source='test',camera='d435')

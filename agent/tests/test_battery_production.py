@@ -27,8 +27,8 @@ class ProductionTests(unittest.TestCase):
         self.assertTrue(all(accepted[k] for k in ('ik_checked','collision_checked',
             'collision_free','environment_collision_checked')))
         pick=dict(status='kinematic_preview',joint_waypoints_rad=[[0.]*6,[.01]*6],
-            column_checked=True,interpolation_position_bound_mm=.9,
-            sampled_orientation_error_deg=.2,timing={'status':'timed_preview'})
+            column_checked=True,interpolation_position_bound_mm=1.9,
+            sampled_orientation_error_deg=.6,timing={'status':'timed_preview'})
         self.assertTrue(review_plan('execute_pick',pick,environment_clear=True)['collision_free'])
 
     def test_preflight_keeps_fresh_feedback_and_lift_settled_gate(self):

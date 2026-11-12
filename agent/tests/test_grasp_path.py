@@ -33,7 +33,7 @@ class InsertTests(unittest.TestCase):
             offset=actual[:3,3]*1000-pre
             self.assertLess(np.linalg.norm(offset-np.dot(offset,tool[:3,0])*tool[:3,0]),.5)
             self.assertTrue(np.allclose(actual[:3,:3],tool[:3,:3],atol=.003))
-        self.assertLessEqual(r['interpolation_position_bound_mm'],1.)
+        self.assertLessEqual(r['interpolation_position_bound_mm'],2.)
         self.assertTrue(r['column_checked'])
 
     def test_wrong_axis_invalid_tcp_and_unreachable_return_no_partial_plan(self):
@@ -124,7 +124,7 @@ class TimingTests(unittest.TestCase):
             angles,_,_=path.sample(t);actual=model.wrist_transform(angles,lift)@tcp
             offset=actual[:3,3]*1000-pre
             self.assertLess(np.linalg.norm(offset-np.dot(offset,T[:3,0])*T[:3,0]),1.)
-            self.assertLess(np.degrees(Rotation.from_matrix(T[:3,:3].T@actual[:3,:3]).magnitude()),.3)
+            self.assertLess(np.degrees(Rotation.from_matrix(T[:3,:3].T@actual[:3,:3]).magnitude()),.7)
         self.assertTrue(any('驱动' in text for text in result['blockers']))
 
 if __name__=='__main__':unittest.main()

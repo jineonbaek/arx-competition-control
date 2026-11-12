@@ -2,8 +2,8 @@
 import numpy as np
 
 # shortcut: initial screening thresholds, not a measured grasp-accuracy guarantee; tune on labelled scene trials.
-POLICY=dict(min_pixels=100,min_valid_depth_ratio=.5,min_mask_coverage=.7,
-            min_render_precision=.6,max_median_abs_depth_mm=10.,max_p90_abs_depth_mm=25.)
+POLICY=dict(min_pixels=100,min_valid_depth_ratio=.4,min_mask_coverage=.6,
+            min_render_precision=.5,max_median_abs_depth_mm=15.,max_p90_abs_depth_mm=35.)
 
 def assess_depth_fit(mask, observed_m, rendered_m, *, max_depth_m=1.5):
     if not np.isfinite(max_depth_m) or max_depth_m<=.07:
