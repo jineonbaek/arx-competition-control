@@ -18,6 +18,7 @@ EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status
 
 
 class BatteryExecutionTools(WorkflowTools):
+    observation_limit=3
     schemas={k:v for k,v in WorkflowTools.schemas.items() if k in WORKFLOW_TOOLS}
     schemas.update(plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
                    execute_battery_approach=object_schema({'plan_id':TEXT},['plan_id']),
@@ -93,6 +94,38 @@ class BatteryExecutionTools(WorkflowTools):
                 raise AgentError('plan_not_verified','粗对位仍是建议，缺少可执行路径或完整碰撞检查')
         return super()._operation(name,arguments,call_id,mission)
 
+    def _perception(self,name,a,call_id):
+        if name not in ('observe_battery','preview_battery_grasp'):
+            return super()._dispatch(name,a,call_id)
+        camera=a['camera'] if name=='observe_battery' else 'd405'
+        attempts=[]
+        retryable={'target_not_found','recognition_rejected','depth_rejected',
+                   'pose_rejected','handoff_rejected'}
+        current=dict(a);attempt_id=call_id
+        while True:
+            if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
+            result=super()._dispatch(name,current,attempt_id)
+            attempts.append(dict(status=result.get('status'),observation_id=result.get('observation_id'),
+                                 message=result.get('message','')))
+            if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
+            if result.get('status') not in retryable:break
+            used=self.store.state.get('battery_observation_attempts',{}).get(self._observation_budget_key(camera),0)
+            if used>=self.observation_limit or len(attempts)>=self.observation_limit:break
+            self.progress('reobserve_'+camera)
+            # External call IDs cannot contain '/', so retries cannot overwrite their artifacts.
+            attempt_id=call_id+'/retry_'+str(len(attempts))
+            if name=='preview_battery_grasp':
+                observed=self._dispatch('observe_battery',{'camera':'d405'},attempt_id)
+                if observed.get('status')!='localized':
+                    attempts.extend(observed['recovery']['attempts'])
+                    result=observed
+                    break
+                current['observation_id']=observed['observation_id']
+        result=dict(result,recovery=dict(attempts=attempts,
+            exhausted=result.get('status') in retryable))
+        self.store.event('perception_recovery',dict(tool=name,call_id=call_id,**result['recovery']))
+        return result
+
     def _dispatch(self,name,a,call_id):
         state=self.store.state;mission=Mission(state['mission'])
         head=name=='observe_battery' and a['camera']=='d435'
@@ -138,7 +171,7 @@ class BatteryExecutionTools(WorkflowTools):
             mission.require(('HEAD_LOCALIZED','COARSE_PLANNED'))
             mission.data.update(stage='HEAD_LOCALIZED',plan=None)
             self.store.save()
-        result=super()._dispatch(name,a,call_id)
+        result=self._perception(name,a,call_id)
         if head and result.get('status')=='localized':
             mission.data['stage']='HEAD_LOCALIZED'
         elif name=='plan_coarse_alignment':

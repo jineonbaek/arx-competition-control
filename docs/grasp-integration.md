@@ -162,3 +162,39 @@ Six new preparation regressions plus existing approach, coarse and planner tests
 (29 tests). All transport is inert. The real TCP remains unset, full environment clearance
 is not supplied, and no live registration, restart or motion occurred. The factory does
 not grant executable flags; the caller owns the Controller token and verified-stop cleanup.
+
+
+### 2026-11-12: recover transient perception rejection without another user click
+
+User feedback: a single unsuccessful stage should not terminate the entire trial.
+BatteryExecutionTools now automatically recaptures on target-not-found, recognition
+rejection and insufficient depth. A rejected FoundationPose surface or camera-handoff
+review triggers fresh D405 observation and another preview. The final observation ID
+is returned for subsequent planning. Recovery is deterministic within the tool, with
+at most three captures per stage; completed motion establishes the next stage budget.
+Replanning or a different external call ID cannot reset the capture counter.
+The generic read-only WorkflowTools retains its existing two-capture policy.
+
+Ruling: relax transient perception handling, not numerical motion bounds or missing
+calibration checks. No measured basis for larger approach/insertion tolerance exists
+in this change, and TCP is still absent. Cancellation, invalid evidence, pending/unknown
+motion receipts, feedback freshness, lift settling, IK and collision checks remain.
+Cost: a persistent perception failure still returns a failure after bounded recovery;
+this does not make the unfinished physical integration executable.
+
+Validation: four recovery regressions exercised failure before implementation, then
+passed. All 152 tracked Agent tests plus the new recovery tests (152 total) passed;
+281 web tests passed. Unfiltered Agent discovery also found the pre-existing untracked
+agent/tests/test_battery_backend.py import failure (agent.battery_backend is absent).
+That unfinished file is preserved and excluded from this commit and the tracked-suite
+result. No real camera/model calls, motion, deployment, service reload or push occurred.
+
+Independent review: Important artifact-name collision fixed with a per-external-call
+retry subdirectory; external validated IDs cannot contain slash. The regression failed
+before the fix and passed afterward. Minor deferred: successful nested observation
+attempts have their own event/artifact records but are not all repeated in the outer
+preview recovery summary; inspect perception_recovery events for the full sequence.
+
+Files staged for this task only: agent/battery_tools.py, agent/grasp_tools.py,
+agent/prompts/battery.md, agent/tests/test_battery_refinement_tools.py,
+agent/tests/test_battery_recovery.py, docs/grasp-integration.md.

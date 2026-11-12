@@ -78,11 +78,11 @@ class RefinementToolsTests(unittest.TestCase):
         self.arrived();self.store.state['coarse_alignment']='fixture'
         obs=dict(status='localized',observation_id=self.ident)
         with patch('agent.grasp_tools.observe',return_value=obs):
-            for call in ('one','two'):
+            for call in ('one','two','three'):
                 self.assertTrue(self.tools.execute('observe_battery',{'camera':'d405'},call)['ok'])
-            self.assertEqual(self.tools.execute('observe_battery',{'camera':'d405'},'three')['error']['code'],'observation_budget')
-            self.preview(call='again_preview');self.plan('again_plan')
             self.assertEqual(self.tools.execute('observe_battery',{'camera':'d405'},'four')['error']['code'],'observation_budget')
+            self.preview(call='again_preview');self.plan('again_plan')
+            self.assertEqual(self.tools.execute('observe_battery',{'camera':'d405'},'five')['error']['code'],'observation_budget')
     def test_incomplete_arrival_never_changes_stage(self):
         self.store.state['mission']['stage']='PICK_APPROACH_PLANNED'
         with self.assertRaises(AgentError):

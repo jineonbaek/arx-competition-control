@@ -56,6 +56,7 @@ WORKFLOW_TOOLS={'get_system_status','read_observation','observe_battery','plan_c
 class WorkflowTools(GraspTools):
     """Enforce prerequisite evidence even if the model asks for stages out of order."""
     require_head_evidence=True
+    observation_limit=2
     def _localized(self,camera):
         import json
         ident=self.store.state.get('latest_battery_observations',{}).get(camera)
@@ -84,8 +85,8 @@ class WorkflowTools(GraspTools):
         if name=='observe_battery':
             counts=self.store.state.setdefault('battery_observation_attempts',{})
             camera=self._observation_budget_key(a['camera'])
-            if counts.get(camera,0)>=2:
-                raise AgentError('observation_budget','本轮该相机已观察两次，请查看原因后开始新任务')
+            if counts.get(camera,0)>=self.observation_limit:
+                raise AgentError('observation_budget',f'本阶段该相机已观察 {self.observation_limit} 次，请查看原因后开始新任务')
             counts[camera]=counts.get(camera,0)+1
             self.store.save()
         return super()._dispatch(name,a,call_id)
