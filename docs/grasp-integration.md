@@ -146,3 +146,19 @@ The fresh whole-branch review found no Critical defect and two Important interfa
 Three added regressions reproduced the failures before the fixes. Final software suites: 148 Agent tests and 275 web tests passed; diff whitespace check passed. No live commands, driver restarts, service reloads or deployments.
 
 Review disposition: both Important findings fixed. Minor deferred: a trajectory failure can cause stop requests at both the Controller and step layers; deduplication is per layer, not globally one attempt. Do not interpret stop requests as verified rest. Production backend assembly, complete environment/self-collision checks and physical hold verification remain incomplete; TCP remains unset. The software tests do not establish physical grasp success.
+
+
+### Local Controller step preparation (software only)
+
+`agent/battery_execution.py:prepare_step` connects locally verified plans to the existing
+CoarseAlignmentStep, ApproachTrajectoryStep and PickTrajectoryStep. It reuses bounded
+quintic timing and the existing feedback monitors, accepts only explicit local policies
+and preflight checks, and never starts a step while preparing it. Coarse plans now retain
+the two measured start joint arrays; missing arrays do not become invented zero poses.
+Already-at-pregrasp plans use StationaryApproachStep: fresh measured rest, then a mandatory
+new observation, with no duplicate trajectory and no gripper closure.
+
+Six new preparation regressions plus existing approach, coarse and planner tests passed
+(29 tests). All transport is inert. The real TCP remains unset, full environment clearance
+is not supplied, and no live registration, restart or motion occurred. The factory does
+not grant executable flags; the caller owns the Controller token and verified-stop cleanup.

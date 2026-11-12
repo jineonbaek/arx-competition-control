@@ -73,7 +73,9 @@ def plan(registry,observation_id,call_id):
     result['blockers'].remove('尚未求解可达且能看见电池的 D405 观察姿态')
     result['blockers'].append(observer['message'] if observer['status']!='observer_candidate'
         else '观察姿态仅预测视野与立柱间隙；环境、自碰撞、遮挡及移动后的同目标确认尚未验证')
-    result.update(observation_id=observation_id,
+    result.update(initial_joints_rad={side:(feedback[key].tolist() if key in feedback else None)
+        for side,key in (('left','left_joints'),('right','joints'))},
+        observation_id=observation_id,
         calibration_sha256=store.observation(observation_id).get('calibration_sha256'),
         urdf_sha256=hashlib.sha256((PACKAGE/'urdf/lift2_with_sensors.urdf').read_bytes()).hexdigest(),
         control_config_sha256=hashlib.sha256(config_blob).hexdigest())

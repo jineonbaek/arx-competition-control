@@ -143,3 +143,27 @@ class ApproachTrajectoryStep(PickTrajectoryStep):
     def _on_arrived(self, receipt):
         return dict(receipt, status='ready_to_reobserve', close_permitted=False,
                     new_observation_required=True)
+
+
+class StationaryApproachStep(PickCloseStep):
+    """Already at the planned pregrasp: measure rest without issuing a trajectory."""
+    _ready=ApproachTrajectoryStep._ready
+    _on_arrived=ApproachTrajectoryStep._on_arrived
+    cancel=PickTrajectoryStep.cancel
+
+    def __init__(self,controller,token,monitor,*,preflight):
+        super().__init__(controller,token,monitor)
+        if not callable(preflight) or monitor.failure or monitor.last_sample is not None:
+            raise ValueError('Fresh monitor and deterministic preflight required')
+        self.preflight=preflight;self.started=False
+
+    def start(self):
+        with self.lock:
+            if self.started or self.monitor.failure:raise ValueError('Approach cannot be replayed')
+            self.started=True
+            self.monitor.begin_settling(self.controller.clock())
+        return self.poll()
+
+    def poll(self,*,cancelled=False):
+        if not self.started:raise ValueError('Approach has not started')
+        return super().poll(cancelled=cancelled)
