@@ -2,7 +2,6 @@
 import copy
 import json
 import threading
-import time
 from pathlib import Path
 
 from agent.storage import RunStore
@@ -29,41 +28,6 @@ class BatteryTask:
         for camera,enabled in previous.items():
             try:self.depth_control.request({'camera':camera,'enabled':enabled})
             except Exception as error:self.controller.log(camera+' depth restore failed: '+str(error),'warning')
-
-    @staticmethod
-    def _rest_values(snapshot):
-        if snapshot.get('chassis_active') is not False:
-            return None
-        arms=snapshot.get('arms',{});body=snapshot.get('body',{})
-        values=[]
-        for side in ('left','right'):
-            arm=arms.get(side,{})
-            joints=arm.get('joints')
-            if (arm.get('fresh') is not True or not isinstance(joints,list)
-                    or len(joints)!=6 or not all(type(value) in (int,float) for value in joints)):
-                return None
-            values.extend(joints)
-        height=body.get('height')
-        if body.get('fresh') is not True or type(height) not in (int,float):
-            return None
-        values.append(height)
-        return values
-
-    def _wait_for_stopped(self,hold_s=.4,max_wait_s=5.,tolerance=.02):
-        with self.controller.lock:
-            if self.controller.motion_trajectory is not None:return False
-        previous=self._rest_values(self.controller.snapshot())
-        if previous is None:return False
-        deadline=time.monotonic()+max_wait_s;stable_since=None
-        while time.monotonic()<deadline:
-            time.sleep(.05)
-            current=self._rest_values(self.controller.snapshot())
-            if current is None:return False
-            if any(abs(a-b)>tolerance for a,b in zip(previous,current)):stable_since=None
-            elif stable_since is None:stable_since=time.monotonic()
-            elif time.monotonic()-stable_since>=hold_s:return True
-            previous=current
-        return False
 
     @staticmethod
     def _request(value):
@@ -172,27 +136,20 @@ class BatteryTask:
             state['flow']=copy.deepcopy(result)
             state['status']=str(result.get('status') or 'needs_attention')
             state['reason']=str(result.get('reason') or '')
-            snapshot=self.controller.snapshot()
-            unsafe=(snapshot.get('motion_interrupted') is True
-                    or snapshot.get('motion_trajectory') is not None
-                    or state['store'].state.get('pending') is not None
-                    or 'unknown' in state['reason'].lower()
-                    or 'recovery_required' in state['reason'].lower())
-            stopped=not unsafe or self._wait_for_stopped()
-            released=False
-            if stopped:
-                try:self.controller.release_motion(state['token'])
-                except Rejected:pass
-                else:
-                    released=True
-                    pending=state['store'].state.pop('pending',None)
-                    if pending is not None:
-                        state['store'].state['recovered_pending']=pending
-                        state['store'].save()
-                    state['store'].event('battery_recovery',dict(verified_stopped=True,
-                        released_control=True,reason=state['reason']))
-                    self.controller.log('自动任务已实测停止，控制权已返还 9983')
-            state['recovery_required']=not released
+            try:self.controller.release_motion(state['token'])
+            except Rejected:
+                state['recovery_required']=True
+                state['store'].event('battery_recovery',dict(verified_stopped=False,
+                    released_control=False,reason=state['reason']))
+                self.controller.log('自动任务轨迹尚未清理，继续保留控制权')
+            else:
+                pending=state['store'].state.pop('pending',None)
+                if pending is not None:
+                    state['store'].state['recovered_pending']=pending
+                    state['store'].save()
+                state['store'].event('battery_recovery',dict(verified_stopped=False,
+                    released_control=True,reason=state['reason']))
+                self.controller.log('自动任务已退出，控制权已返还 9983')
             state['store'].close()
 
     def close(self):

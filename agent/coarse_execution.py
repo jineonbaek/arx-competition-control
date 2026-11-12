@@ -47,6 +47,7 @@ class CoarseAlignmentStep:
                 raise ValueError('Observer plan must start at the fixed right-arm pose')
             self.endpoint=points[-1].copy()
         self.lift_policy=copy.deepcopy(lift_policy);self.arm_policy=copy.deepcopy(arm_policy)
+        if self.has_acceptance:self.lift_policy['settle_s']=min(self.lift_policy['settle_s'],.05)
         now=controller.clock()
         self.lift=(ArrivalMonitor([self.acceptance],started_at=now,minimum=[self.acceptance],**self.lift_policy)
                    if self.has_acceptance
@@ -56,7 +57,8 @@ class CoarseAlignmentStep:
             raise ValueError('Lift and arm policies require one and six axes')
         self.lift_preflight=lift_preflight;self.arm_preflight=arm_preflight
         self.stage='prepared';self.failure=None;self.stop_requests={};self.lift_stop_sent=False
-        self.achieved_lift=None;self.last_now=now;self.last_stamps=None
+        self.achieved_lift=None;self.stop_height=None;self.stop_stamp=None
+        self.last_now=now;self.last_stamps=None
 
     def _receipt(self):
         return dict(status=self.failure or self.stage,stop_required=self.failure is not None,
@@ -88,7 +90,7 @@ class CoarseAlignmentStep:
                     self.controller.log('粗对位停止请求失败：'+str(error),'warning')
         return self._receipt()
 
-    def _check(self, snapshot, now, *, lifting):
+    def _check(self, snapshot, now, *, lifting, commands=True):
         if (not self.controller.motion_valid(self.token) or snapshot.get('chassis_active') is not False
                 or not np.isfinite(now) or now<self.last_now):
             raise ValueError('Ownership, chassis or clock changed')
@@ -112,17 +114,18 @@ class CoarseAlignmentStep:
         if expected is not None and abs(height-expected)>self.lift.tolerance[0]:
             raise ValueError('Lift changed outside the planned phase')
         caps=snapshot.get('capabilities',{})
-        if (caps.get('lift')!=''
+        if (commands and (caps.get('lift')!=''
                 or any(caps.get(side+':arm.joints')!='' for side in ('left','right'))
-                or (not lifting and caps.get('right:arm.wrist')!='')):
+                or (not lifting and caps.get('right:arm.wrist')!=''))):
             raise ValueError('Controller not ready')
         check=self.lift_preflight if lifting else self.arm_preflight
-        if check(snapshot,now) is not True:raise ValueError('Scene or path preflight failed')
+        if commands and check(snapshot,now) is not True:raise ValueError('Scene or path preflight failed')
         self.last_now=now;self.last_stamps=stamps.copy()
         return q[1],height,float(stamps.min())
 
     def _guard(self, snapshot, now):
-        self._check(snapshot,now,lifting=self.stage in ('prepared','lifting'))
+        self._check(snapshot,now,lifting=self.stage in ('prepared','lifting','stopping_lift'),
+            commands=self.stage!='stopping_lift')
         return True
 
     def start(self):
@@ -156,33 +159,40 @@ class CoarseAlignmentStep:
             try:
                 snapshot=self.controller.snapshot()
                 now=self.controller.clock()
-                q,height,stamp=self._check(snapshot,now,lifting=self.stage=='lifting')
+                q,height,stamp=self._check(snapshot,now,lifting=self.stage in ('lifting','stopping_lift'),
+                    commands=self.stage!='stopping_lift')
                 if self.stage=='lifting':
                     if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
                     r=self.lift.update([height],stamp,now)
                     if r['stop_required']:return self._abort(r['status'])
                     if r['arrived']:
                         if self.achieved_lift is None:self.achieved_lift=height
+                        self.stop_height=height;self.stop_stamp=stamp
                         if not self.lift_stop_sent:
                             stopped=self.controller.submit({'type':'lift.stop'},self.token)
                             if stopped.get('ok') is not True:return self._abort('coarse_start_failed')
                             self.lift_stop_sent=True
-                        # Controller's lift-rest history can exceed the local arrival window.
-                        if self.controller.snapshot()['capabilities'].get('right:arm.wrist')!='':
-                            return self._receipt()
-                        self.stage='observing_motion'
-                        def observer_start(snapshot, time):
-                            actual,_,_=self._check(snapshot,time,lifting=False)
-                            if np.any(np.abs(actual-self.initial['right'])>self.fixed_tolerance):
-                                raise ValueError('Observer start no longer matches the checked path')
-                            return True
-                        if self.stationary:
-                            observer_start(self.controller.snapshot(),self.controller.clock())
-                            self.arm=ArrivalMonitor(self.endpoint,started_at=self.controller.clock(),**self.arm_policy)
-                            self.stage='settling_observer'
-                        else:
-                            trajectory={k:self.plan[k] for k in ('interpolation','time_from_start_s','joint_waypoints_rad')}
-                            self.controller.start_trajectory('right',trajectory,self.token,preflight=observer_start)
+                        self.stage='stopping_lift'
+                        return self._receipt()
+                elif self.stage=='stopping_lift':
+                    if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
+                    if stamp<=self.stop_stamp:return self._receipt()
+                    if abs(height-self.stop_height)>self.lift.tolerance[0]:
+                        raise ValueError('Lift did not stop before observer motion')
+                    self.stage='observing_motion'
+                    def observer_start(snapshot, time):
+                        actual,_,_=self._check(snapshot,time,lifting=False,commands=False)
+                        if np.any(np.abs(actual-self.initial['right'])>self.fixed_tolerance):
+                            raise ValueError('Observer start no longer matches the checked path')
+                        return True
+                    if self.stationary:
+                        observer_start(self.controller.snapshot(),self.controller.clock())
+                        self.arm=ArrivalMonitor(self.endpoint,started_at=self.controller.clock(),**self.arm_policy)
+                        self.stage='settling_observer'
+                    else:
+                        trajectory={k:self.plan[k] for k in ('interpolation','time_from_start_s','joint_waypoints_rad')}
+                        self.controller.start_trajectory('right',trajectory,self.token,
+                            preflight=observer_start,require_lift_settle=False)
                 elif self.stage=='observing_motion':
                     r=self.controller.poll_trajectory(self.token,preflight=self._guard)
                     if r['status']=='reference_complete':

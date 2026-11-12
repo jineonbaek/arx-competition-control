@@ -160,7 +160,7 @@ class CoarseExecutionBackend(_PreparedExecutionBackend):
     operation='execute_coarse_alignment'
     stage_key='coarse_stage'
     terminal_stage='ready_to_observe'
-    running_stages=('lifting','observing_motion','settling_observer')
+    running_stages=('lifting','stopping_lift','observing_motion','settling_observer')
 
     @staticmethod
     def _completed_data(receipt):

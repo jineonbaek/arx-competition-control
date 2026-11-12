@@ -100,7 +100,7 @@ class BatteryTaskTests(unittest.TestCase):
             self.task.action('other',{'action':'cancel','request_id':'stop'})
         self.gate.set();self.wait('needs_attention')
 
-    def test_unknown_or_interrupted_completion_keeps_control_reserved(self):
+    def test_unknown_or_interrupted_completion_returns_control(self):
         def factory(store,controller,token,environment_clear):
             class Unsafe:
                 def run(inner):
@@ -114,8 +114,8 @@ class BatteryTaskTests(unittest.TestCase):
         end=time.monotonic()+2
         while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
         state=task.snapshot('owner')
-        self.assertTrue(state['recovery_required'])
-        self.assertTrue(self.controller.snapshot()['motion_reserved'])
+        self.assertFalse(state['recovery_required'])
+        self.assertFalse(self.controller.snapshot()['motion_reserved'])
 
     def test_interrupted_task_with_verified_stop_returns_control(self):
         for index in range(3):self.controller.update_body(.5,[0.]*4,0.,0.,0.)
@@ -152,19 +152,6 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(logs[0]['data']['stage'],6)
         self.assertEqual(logs[-1]['data']['stage'],104)
         self.gate.set();self.wait('needs_attention')
-
-    def test_stop_verification_waits_briefly_for_motion_to_finish(self):
-        started=time.monotonic()
-        class Moving:
-            motion_trajectory=None
-            lock=threading.RLock()
-            def snapshot(self):
-                moving=max(0.,.2-(time.monotonic()-started))
-                return {'chassis_active':False,
-                    'arms':{side:{'fresh':True,'joints':[0.]*6} for side in ('left','right')},
-                    'body':{'fresh':True,'height':.5+moving}}
-        task=BatteryTask(Path(self.temp.name)/'moving',Moving(),lambda *args:None)
-        self.assertTrue(task._wait_for_stopped(hold_s=.1,max_wait_s=1.,tolerance=.001))
 
     def test_task_keeps_needed_depth_on_then_restores_previous_state(self):
         depth=_Depth()

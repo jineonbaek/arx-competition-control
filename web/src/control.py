@@ -143,20 +143,22 @@ class Controller:
             except Exception as error:
                 self.log("轨迹停止请求失败：" + str(error), "warning")
 
-    def start_trajectory(self, side, plan, token, *, preflight):
+    def start_trajectory(self, side, plan, token, *, preflight, require_lift_settle=True):
         """Process-only entry: planner checks scene, calibrated TCP and rest in preflight."""
         with self.lock:
             if side not in self.arms or not self.motion_valid(token) or not callable(preflight):
                 raise Rejected("轨迹需要有效任务控制权和执行前复查")
             if self.motion_trajectory is not None:
                 raise Rejected("已有轨迹待完成或清理")
-            reason = self.wrist_reason(side)
+            reason = (self.wrist_reason(side) if require_lift_settle
+                      else self._wrist_reason(side,require_settle=False))
             if reason:
                 raise Rejected(reason)
             if preflight(self.snapshot(), self.clock()) is not True or not self.motion_valid(token):
                 raise Rejected("轨迹执行前复查未许可")
             # Reserve before publish: failure can mean accepted but acknowledgement lost.
-            self.motion_trajectory = {"side": side, "handle": None, "started_at": self.clock()}
+            self.motion_trajectory = {"side": side, "handle": None, "started_at": self.clock(),
+                                      "require_lift_settle": bool(require_lift_settle)}
             try:
                 expected = self.adapter.trajectory_status(side)
                 handle, confirmation = self.adapter.trajectory_start(side, plan, expected)
@@ -182,7 +184,10 @@ class Controller:
                 raise Rejected("没有匹配的轨迹任务")
             side,handle = self.motion_trajectory['side'],self.motion_trajectory['handle']
             try:
-                if not self.motion_valid(token) or not callable(preflight) or self.wrist_reason(side):
+                require_settle=self.motion_trajectory.get("require_lift_settle",True)
+                reason=(self.wrist_reason(side) if require_settle
+                        else self._wrist_reason(side,require_settle=False))
+                if not self.motion_valid(token) or not callable(preflight) or reason:
                     raise Rejected("轨迹任务中断或反馈失效")
                 if preflight(self.snapshot(), self.clock()) is not True or not self.motion_valid(token):
                     raise Rejected("轨迹持续复查未许可")
@@ -320,16 +325,20 @@ class Controller:
         return ""
 
     def wrist_reason(self, side):
+        return self._wrist_reason(side,require_settle=True)
+
+    def _wrist_reason(self, side, *, require_settle):
         reason = self.arm_reason(side, "arm.joints") or self.wrist_feedback_reason(side)
         if reason:
             return reason
         if self.chassis_owner is not None:
             return "底盘正在运动"
-        samples = self.lift_history
-        if (len(samples)<3 or samples[-1][0]-samples[0][0]<.25
-                or max(b[0]-a[0] for a,b in zip(samples,list(samples)[1:]))>.20
-                or max(h for _,h in samples)-min(h for _,h in samples)>.05):
-            return "等待升降停稳"
+        if require_settle:
+            samples = self.lift_history
+            if (len(samples)<3 or samples[-1][0]-samples[0][0]<.25
+                    or max(b[0]-a[0] for a,b in zip(samples,list(samples)[1:]))>.20
+                    or max(h for _,h in samples)-min(h for _,h in samples)>.05):
+                return "等待升降停稳"
         return ""
 
     def wrist_command(self, data, client):

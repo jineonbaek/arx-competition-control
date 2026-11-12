@@ -40,6 +40,8 @@ class CoarseStepTests(unittest.TestCase):
         self.step.start();self.height=6.
         for t in (10.1,10.2,10.31):
             self.feedback(t);r=self.step.poll()
+        if r['status']=='stopping_lift':
+            self.feedback(self.now+.01);r=self.step.poll()
         return r
     def test_lift_then_observer_then_measured_rest(self):
         self.assertEqual(self.settle_lift()['status'],'observing_motion')
@@ -61,6 +63,7 @@ class CoarseStepTests(unittest.TestCase):
         self.step.start();self.height=5.12
         for t in (10.1,10.2,10.31):
             self.feedback(t);result=self.step.poll()
+        self.feedback(self.now+.01);result=self.step.poll()
         self.assertEqual(result['status'],'observing_motion')
         self.assertTrue(self.step.lift_stop_sent)
         np.testing.assert_allclose(self.step.lift.target,[5.0])
@@ -169,8 +172,8 @@ class CoarseStepTests(unittest.TestCase):
         self.assertEqual(self.step.start()['status'],'lifting')
         self.height=6.
         for t in (10.1,10.2,10.31):
-            self.feedback(t)
-            self.assertEqual(self.step.poll()['status'],'lifting')
+            self.feedback(t);r=self.step.poll()
+        self.assertEqual(r['status'],'stopping_lift')
         self.assertNotEqual(self.c.wrist_reason('right'),'')
         self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
         for t in (10.41,10.51):
@@ -178,12 +181,10 @@ class CoarseStepTests(unittest.TestCase):
         self.assertEqual(r['status'],'observing_motion')
         self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
 
-    def test_waiting_for_observer_readiness_is_bounded_and_retains_driver_checks(self):
+    def test_coarse_arm_does_not_wait_for_public_lift_settle_history(self):
         self.c.wrist_reason=lambda side:'not ready'
-        self.assertEqual(self.settle_lift()['status'],'lifting')
-        self.feedback(15.01)
-        self.assertTrue(self.step.poll()['stop_required'])
-        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+        self.assertEqual(self.settle_lift()['status'],'observing_motion')
+        self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
         self.setUp();self.step.start()
         self.c.config['arms']['right']['ready_topic']='/fake/right/ready'
         self.adapter.arm_ready=lambda side:False
@@ -200,7 +201,7 @@ class CoarseStepTests(unittest.TestCase):
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift'])
         # Lift completion's last sample must not also establish arm settling.
         self.assertEqual(self.step.poll()['status'],'settling_observer')
-        for t in (10.32,10.42,10.53):
+        for t in (10.32,10.42,10.53,10.63):
             self.feedback(t);r=self.step.poll()
         self.assertEqual(r['status'],'ready_to_observe')
         self.assertTrue(r['new_observation_required'])
