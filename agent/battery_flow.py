@@ -27,6 +27,7 @@ class BatteryFlow:
         self.store.save()
 
     def _finish(self,status,reason=''):
+        if status=='completed' and self.store.cancelled:status,reason='cancelled','Cancelled during completion'
         self.flow.update(status=status,reason=reason,grasp_confirmed=status=='completed')
         self.store.save();self.store.event('battery_flow',copy.deepcopy(self.flow))
         return copy.deepcopy(self.flow)
@@ -56,6 +57,7 @@ class BatteryFlow:
                                for k in ('coarse_stage','approach_stage','pick_stage'))):
                     raise AgentError('execution_unknown','Existing motion receipt requires recovery; will not replay')
                 if self.store.state.get('pending'):time.sleep(.1)
+        if self.store.cancelled:raise AgentError('cancelled','Task cancelled during tool completion')
         if not result['ok']:
             raise AgentError(result['error']['code'],result['error']['message'])
         return result['data']

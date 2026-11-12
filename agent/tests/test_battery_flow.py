@@ -113,6 +113,17 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(seen[0],('execute_battery_approach',{'plan_id':'original'},'fixed_5'))
         self.assertEqual(seen[1][0],'observe_battery')
 
+    def test_cancel_during_verifier_never_reports_success(self):
+        flow=self.flow();base=self.tools.execute
+        def execute(name,args,ident):
+            result=base(name,args,ident)
+            if name=='verify_hold':(self.store.path/'cancel.flag').touch()
+            return result
+        self.tools.execute=execute
+        out=flow.run()
+        self.assertEqual(out['status'],'cancelled')
+        self.assertFalse(out['grasp_confirmed'])
+
     def test_second_runner_does_not_dispatch(self):
         flow=self.flow();self.store.battery_flow_lock.acquire()
         try:self.assertEqual(flow.run()['reason'],'Flow already running')

@@ -244,3 +244,15 @@ repeat/concurrent run protection. No camera/model invocation or robot commands o
 Scope: agent/battery_flow.py, agent/battery_workflow.py, agent/battery_backend.py,
 agent/battery_tools.py, agent/tests/test_battery_flow.py, agent/tests/test_battery_workflow.py,
 docs/battery-fixed-flow.md, this ledger.
+
+
+### Final independent review and correction
+
+One important cancellation race was reproduced with a failing regression: cancellation
+inside the synchronous retention verifier could still return completed. The flow now
+checks cancellation after each tool return and before terminal success. Regression is
+green; all 176 Agent tests pass after this fix. The unchanged web suite passed 281 tests.
+Reviewer found no critical replay or TCP/frame-identity defect in this scope.
+No additional hardware/model checks, deployment, push or merge were performed.
+Scope: agent/battery_flow.py, agent/tests/test_battery_flow.py, this ledger and
+battery-fixed-flow.md (updated final test count).
