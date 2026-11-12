@@ -23,6 +23,8 @@ from agent.contracts import strict_json, validate
 from target import DINO_PROMPT, TASK, load_reference, shape_view
 
 CAMERAS = ("d435","d405","astra")
+GRIPPER_ZONE_X = .30
+GRIPPER_ZONE_Y = .68
 
 def image_part(image):
     out = BytesIO()
@@ -71,6 +73,30 @@ def validate_choice(choice, candidates, size, coarse):
     if match is None:
         raise ValueError("Qwen selected an unknown candidate")
     return {"box":checked_box(match["bbox_xyxy"],size)}
+
+def _point_in_fixed_gripper_zone(point,size):
+    width,height=size;x,y=point
+    return y>=GRIPPER_ZONE_Y*height and (x<=GRIPPER_ZONE_X*width or x>= (1-GRIPPER_ZONE_X)*width)
+
+def _box_in_fixed_gripper_zone(box,size):
+    x1,y1,x2,y2=box
+    return _point_in_fixed_gripper_zone(((x1+x2)/2,(y1+y2)/2),size)
+
+def filter_fixed_gripper_candidates(candidates,size,camera):
+    """D435 bottom corners hold the robot's own fixed grippers, never the battery."""
+    if camera!="d435":
+        return list(candidates),[]
+    kept=[];excluded=[]
+    for row in candidates:
+        (excluded if _box_in_fixed_gripper_zone(row["bbox_xyxy"],size) else kept).append(row)
+    return kept,excluded
+
+def choice_in_fixed_gripper_zone(choice,size,camera):
+    if camera!="d435" or choice is None:
+        return False
+    if "box" in choice:
+        return _box_in_fixed_gripper_zone(choice["box"],size)
+    return _point_in_fixed_gripper_zone(choice["point"],size)
 
 def overlay_candidates(image,candidates):
     result=image.copy()
@@ -189,7 +215,9 @@ class QwenJudge:
             properties["coordinate_space"]={"type":"string","enum":["normalized_1000"]}
             properties.update(bbox_xyxy={"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4},
                               point_xy={"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2})
-            instruction="No detector candidate was accepted. Locate the reference object yourself in CURRENT scene. Set coordinate_space=normalized_1000 (full CURRENT image x=0..1000,y=0..1000). If selected, supply exactly one coarse bbox_xyxy or interior point_xy in those normalized coordinates."
+            instruction=("No detector candidate was accepted. Locate the battery yourself in CURRENT scene. "
+                "Do not require an oblong hole or small mounting holes. Never select the fixed robot grippers at bottom-left or bottom-right. "
+                "Set coordinate_space=normalized_1000 (full CURRENT image x=0..1000,y=0..1000). If selected, supply exactly one coarse bbox_xyxy or interior point_xy in those normalized coordinates.")
         else:
             properties["candidate_id"]={"type":"integer"}
             instruction="Select one listed candidate_id matching the reference object and task. Do not invent another ID."
@@ -205,23 +233,31 @@ class QwenJudge:
                          "reason":{"type":"string"}},["status","reason"])
 
 def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
-              threshold=.20,force_fallback=False):
+              threshold=.20,force_fallback=False,camera=None):
     shape=shape_view(image)
     reference=shape_view(reference)
-    candidates=models.detect(shape,DINO_PROMPT,threshold)
+    detected=models.detect(shape,DINO_PROMPT,threshold)
+    candidates,excluded=filter_fixed_gripper_candidates(detected,image.size,camera)
     (output/"candidates.png").write_bytes(_png(overlay_candidates(image,candidates)))
     report={"observation_id":output.parent.name+"-"+output.name,"image_size_px":list(image.size),
-            "candidates":candidates,"forced_fallback_test":force_fallback,"read_only":True}
+            "candidates":candidates,"excluded_fixed_gripper_candidates":excluded,
+            "forced_fallback_test":force_fallback,"read_only":True}
     choice=None
     if candidates and not force_fallback:
         report["selection"]=judge.select(shape,reference,candidates,task)
         choice=validate_choice(report["selection"],candidates,image.size,False)
+    if choice_in_fixed_gripper_zone(choice,image.size,camera):
+        report["excluded_fixed_gripper_choice"]=choice
+        choice=None
     if choice is None:
         report["coarse_selection"]=judge.select(shape,reference,[],task,coarse=True)
         choice=validate_choice(report["coarse_selection"],[],image.size,True)
         report["path"]="qwen_coarse"
     else:
         report["path"]="candidate_selection"
+    if choice_in_fixed_gripper_zone(choice,image.size,camera):
+        report["excluded_fixed_gripper_choice"]=choice
+        choice=None
     if choice is None:
         report["status"]="needs_new_observation"
         return report
@@ -247,6 +283,7 @@ def main():
     source=parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--camera",choices=CAMERAS)
     source.add_argument("--image",type=Path)
+    parser.add_argument("--camera-id",choices=CAMERAS,help="Source camera for an offline image")
     parser.add_argument("--reference",type=Path)
     parser.add_argument("--task",default=TASK)
     parser.add_argument("--console",default="http://127.0.0.1:9983")
@@ -282,8 +319,9 @@ def main():
                 image=Image.open(args.image).convert("RGB");image.save(output/"rgb.png")
                 depth,meta=None,{}
             result=run_frame(models,judge,image,reference,args.task,output,depth,meta,
-                             args.threshold,args.force_fallback)
-            result.update(elapsed_s=round(time.monotonic()-started,3),camera=args.camera,
+                             args.threshold,args.force_fallback,camera=args.camera or args.camera_id)
+            result.update(elapsed_s=round(time.monotonic()-started,3),
+                          camera=args.camera or args.camera_id,
                           peak_gpu_mib=round(torch.cuda.max_memory_allocated()/2**20))
         except Exception as e:
             result={"status":"error","error_type":type(e).__name__,"message":str(e)[:200],"read_only":True}

@@ -3,7 +3,8 @@ from pathlib import Path
 import unittest
 import numpy as np
 from PIL import Image
-from pipeline import QwenJudge, checked_box, validate_choice, mask_geometry, run_frame
+from pipeline import (QwenJudge, checked_box, validate_choice, mask_geometry, run_frame,
+                      filter_fixed_gripper_candidates, choice_in_fixed_gripper_zone)
 
 class Models:
     def __init__(self, candidates):
@@ -78,6 +79,38 @@ class PipelineTests(unittest.TestCase):
         result=self.run_frame(Models(self.candidates),judge)
         self.assertEqual(judge.modes,[False,True])
         self.assertEqual(result["status"],"perception_accepted")
+
+    def test_d435_fixed_bottom_grippers_are_removed_before_qwen(self):
+        candidates=[
+            {"candidate_id":1,"bbox_xyxy":[80,370,184,477],"score":.49,"label":"case"},
+            {"candidate_id":2,"bbox_xyxy":[495,0,636,112],"score":.37,"label":"case"},
+            {"candidate_id":3,"bbox_xyxy":[535,358,634,475],"score":.29,"label":"case"}]
+        kept,excluded=filter_fixed_gripper_candidates(candidates,(640,480),"d435")
+        self.assertEqual([row["candidate_id"] for row in kept],[2])
+        self.assertEqual([row["candidate_id"] for row in excluded],[1,3])
+        same,_=filter_fixed_gripper_candidates(candidates,(640,480),"d405")
+        self.assertEqual(same,candidates)
+
+    def test_qwen_coarse_choice_cannot_reintroduce_fixed_gripper(self):
+        choice={"box":[80,370,184,477]}
+        self.assertTrue(choice_in_fixed_gripper_zone(choice,(640,480),"d435"))
+        self.assertFalse(choice_in_fixed_gripper_zone(choice,(640,480),"d405"))
+        self.image=Image.new("RGB",(640,480))
+        judge=Judge(None,{"status":"selected","coordinate_space":"normalized_1000",
+                          "bbox_xyxy":[125,771,288,994]})
+        result=self.run_frame(Models([]),judge,camera="d435")
+        self.assertEqual(result["status"],"needs_new_observation")
+        self.assertIn("excluded_fixed_gripper_choice",result)
+
+    def test_real_frame_keeps_top_right_battery_and_drops_both_grippers(self):
+        candidates=[
+            {"candidate_id":1,"bbox_xyxy":[81,370,184,477],"score":.44,"label":"case"},
+            {"candidate_id":2,"bbox_xyxy":[577,386,633,464],"score":.44,"label":"case"},
+            {"candidate_id":3,"bbox_xyxy":[494,0,636,112],"score":.37,"label":"case"},
+            {"candidate_id":4,"bbox_xyxy":[496,0,613,111],"score":.32,"label":"case"}]
+        kept,excluded=filter_fixed_gripper_candidates(candidates,(640,480),"d435")
+        self.assertEqual([row["candidate_id"] for row in kept],[3,4])
+        self.assertEqual([row["candidate_id"] for row in excluded],[1,2])
 
     def test_no_target_does_not_segment(self):
         result=self.run_frame(Models([]),Judge(None,{"status":"not_found"}))

@@ -13,7 +13,7 @@ from urllib.request import urlopen
 import numpy as np
 from PIL import Image
 from models import VisionModels
-from pipeline import QwenJudge, run_frame, overlay_candidates
+from pipeline import QwenJudge, run_frame, overlay_candidates, filter_fixed_gripper_candidates
 from target import DINO_PROMPT, TASK, load_reference, shape_view
 
 def atomic_json(path, data):
@@ -80,7 +80,7 @@ def main():
         image.save(directory/"rgb.png")
         try:
             judge=QwenJudge(Path("/home/arx/arx-competition-control/agent/.secrets/qwen.env"))
-            result=run_frame(locked,judge,image,reference,TASK,directory)
+            result=run_frame(locked,judge,image,reference,TASK,directory,camera=args.camera)
             overlay=directory/"overlay.png"
             if overlay.exists():
                 Image.open(overlay).convert("RGB").save(directory/"review.jpg",quality=88)
@@ -112,7 +112,8 @@ def main():
                 last,meta,image=sample
                 with model_lock:
                     shape=shape_view(image)
-                    candidates=models.detect(shape,DINO_PROMPT)
+                    detected=models.detect(shape,DINO_PROMPT)
+                    candidates,_=filter_fixed_gripper_candidates(detected,image.size,args.camera)
                     pixels=np.asarray(image).copy()
                     for row in candidates[:4]:
                         mask,_=models.segment(shape,box=row["bbox_xyxy"])
