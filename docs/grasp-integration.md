@@ -256,3 +256,21 @@ Reviewer found no critical replay or TCP/frame-identity defect in this scope.
 No additional hardware/model checks, deployment, push or merge were performed.
 Scope: agent/battery_flow.py, agent/tests/test_battery_flow.py, this ledger and
 battery-fixed-flow.md (updated final test count).
+
+
+### 2026-11-12: automatic open before approach
+
+OpenThenApproachStep reuses Controller.submit and the existing configured open
+position before stationary or moving pregrasp approaches. New, settled gripper
+feedback is required before approach starts; wrist/lift/base readiness is checked
+throughout opening and the approach preflight keeps jaws open. No new tool name,
+SDK owner, production registration or device command was introduced by testing.
+Cancellation, failed stop and unknown submit latch the stage without replay.
+Caller preflight still checks an empty starting gripper and the reviewed scene.
+TCP remains the user-confirmed pivot tip/grip center with no extra tip offset.
+Validation: new module initially failed import; 9 new regression tests now pass.
+The stop-transport exception regression failed before latching was added.
+All 176 Agent and 290 web tests pass, diff whitespace check passes.
+Scope: agent/gripper_open.py, agent/battery_execution.py, agent/pick_backend.py,
+web/tests/test_gripper_open_step.py, web/tests/test_battery_step_preparation.py,
+docs/battery-fixed-flow.md, docs/grasp-integration.md.

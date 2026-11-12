@@ -4,6 +4,7 @@ import hashlib
 import json
 import numpy as np
 from .coarse_execution import CoarseAlignmentStep
+from .gripper_open import OpenThenApproachStep
 from .grasp_geometry import rigid
 from .grasp_path import TimedJointPath
 from .motion_feedback import PickMonitor
@@ -74,7 +75,9 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     monitor=PickMonitor(model,tcp,target,expected_lift_rad=plan['lift_rad'],
                         started_at=controller.clock(),**p)
     if stationary:
-        return StationaryApproachStep(controller,token,monitor,preflight=guard)
-    trajectory=_trajectory(points,reach,setup['timing_limits'])
-    cls=ApproachTrajectoryStep if approach else PickTrajectoryStep
-    return cls(controller,token,monitor,trajectory,preflight=guard)
+        step=StationaryApproachStep(controller,token,monitor,preflight=guard)
+    else:
+        trajectory=_trajectory(points,reach,setup['timing_limits'])
+        cls=ApproachTrajectoryStep if approach else PickTrajectoryStep
+        step=cls(controller,token,monitor,trajectory,preflight=guard)
+    return OpenThenApproachStep(step,start) if approach else step

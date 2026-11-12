@@ -13,6 +13,7 @@ class PreparationTests(unittest.TestCase):
     def setUp(self):
         self.f=fixtures.CloseStepTests();self.f.setUp();self.c=self.f.c
         self.c.wrist_reason=lambda *a:''
+        self.c.config['arms']['right']['gripper_limits_raw']=[-3.14,0.]
         self.f.feedback(10.)
         self.timing=dict(joint_speed_deg_s=[5.7]*6,joint_acceleration_deg_s2=[12.]*6,
                          tcp_speed_mm_s=20.,tcp_acceleration_mm_s2=40.)
@@ -37,20 +38,21 @@ class PreparationTests(unittest.TestCase):
     def prepare(self,operation='execute_battery_approach'):
         return prepare_step(operation,self.plan,self.c,self.f.token,policies=self.policies,
             pick_setup=self.setup,preflight=self.preflight)
-    def test_stationary_approach_waits_for_measured_rest_without_commands(self):
-        step=self.prepare();self.assertIsInstance(step,StationaryApproachStep)
+    def test_stationary_approach_opens_then_waits_without_arm_trajectory(self):
+        step=self.prepare();self.assertIsInstance(step.approach,StationaryApproachStep)
         step.start()
-        for t in (10.01,10.11,10.22,10.32):
-            self.f.feedback(t);r=step.poll()
+        for t in (10.01,10.11,10.22,10.32,10.42,10.53):
+            self.f.feedback(t,grip=-3.14);r=step.poll()
         self.assertEqual(r['status'],'ready_to_reobserve')
         self.assertTrue(r['new_observation_required']);self.assertFalse(r['close_permitted'])
-        self.assertEqual(self.f.adapter.calls,[])
+        self.assertEqual(len(self.f.adapter.calls),1)
+        self.assertAlmostEqual(self.f.adapter.calls[0][1][2],-3.14)
         with self.assertRaises(ValueError):step.start()
     def test_moving_approach_and_insert_bind_real_steps_and_timing(self):
         # Move the synthetic start away from the fixed pregrasp pose.
         self.plan['start_joints_rad'][0]-=.001
         self.plan['approach']['start_rad']=self.plan['start_joints_rad'][:]
-        step=self.prepare();self.assertIsInstance(step,ApproachTrajectoryStep)
+        step=self.prepare().approach;self.assertIsInstance(step,ApproachTrajectoryStep)
         self.assertEqual(set(step.plan),{'interpolation','time_from_start_s','joint_waypoints_rad'})
         np.testing.assert_allclose(step.monitor.target,self.f.target)
         pick=self.prepare('execute_pick');self.assertIsInstance(pick,PickTrajectoryStep)

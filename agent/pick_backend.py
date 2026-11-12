@@ -171,7 +171,7 @@ class ApproachExecutionBackend(_PreparedExecutionBackend):
     operation='execute_battery_approach'
     stage_key='approach_stage'
     terminal_stage='ready_to_reobserve'
-    running_stages=('awaiting_trajectory','awaiting_driver_status','trajectory_running','inserting')
+    running_stages=('opening_gripper','awaiting_trajectory','awaiting_driver_status','trajectory_running','inserting')
 
     @staticmethod
     def _completed_data(receipt):
