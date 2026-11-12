@@ -129,8 +129,10 @@ class ToolRegistry:
         if fingerprint and not (call_id in self.store.state["calls"]):
             self.store.state["calls"][call_id] = {"fingerprint": fingerprint, "result": result}
         self.store.save()
-        self.store.event("tool_result", {"call_id": call_id, "name": name, "ok": result["ok"],
-                                         "error": result["error"], "stage": self.store.state["mission"]["stage"]})
+        heartbeat=(name=="get_execution_status" and (result.get("error") or {}).get("code")=="execution_pending")
+        if not heartbeat:
+            self.store.event("tool_result", {"call_id": call_id, "name": name, "ok": result["ok"],
+                                             "error": result["error"], "stage": self.store.state["mission"]["stage"]})
         return result
 
     def _box(self, arguments):

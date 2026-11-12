@@ -85,6 +85,17 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         r=self.tools.execute('get_execution_status',{},'cancelled')
         self.assertFalse(r['ok']);self.assertIsNotNone(self.store.state['pending'])
         self.assertEqual(self.store.state['mission']['stage'],'COARSE_PLANNED')
+
+    def test_execution_pending_heartbeats_are_not_written_to_event_log(self):
+        self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},'move')
+        self.assertTrue(self.step.seen.wait(1))
+        result=self.tools.execute('get_execution_status',{},'heartbeat')
+        self.assertEqual(result['error']['code'],'execution_pending')
+        events=[json.loads(line) for line in (self.store.path/'events.jsonl').read_text().splitlines()]
+        self.assertFalse(any(row['event']=='tool_result'
+            and (row.get('data') or {}).get('error',{}).get('code')=='execution_pending'
+            for row in events))
+        self.step.finish.set();self.assertTrue(self.backend.wait(1))
     def test_current_planner_proposal_is_stored_without_motion_permission(self):
         self.store.state['mission'].update(stage='HEAD_LOCALIZED',plan=None)
         proposal=dict(observation_id=self.head['observation_id'],executable=False,tcp=None)
