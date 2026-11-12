@@ -69,6 +69,9 @@ class WorkflowTools(GraspTools):
             raise AgentError('stage_not_ready',camera+' 未定位成功，不能继续下一阶段')
         return ident
 
+    def _observation_budget_key(self,camera):
+        return camera
+
     def _dispatch(self,name,a,call_id):
         if name=='observe_battery' and a['camera']=='d405':
             self._localized('d435')
@@ -80,7 +83,7 @@ class WorkflowTools(GraspTools):
             raise AgentError('stale_observation','必须使用本轮最新 D405 定位')
         if name=='observe_battery':
             counts=self.store.state.setdefault('battery_observation_attempts',{})
-            camera=a['camera']
+            camera=self._observation_budget_key(a['camera'])
             if counts.get(camera,0)>=2:
                 raise AgentError('observation_budget','本轮该相机已观察两次，请查看原因后开始新任务')
             counts[camera]=counts.get(camera,0)+1

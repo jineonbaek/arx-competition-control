@@ -131,3 +131,10 @@ and production execution preparation are not implemented. It is rejected by the
 execution tool even when motion is enabled. TCP remains unset; no wrist grasp
 execution permission is inferred from coarse alignment. These software-only tests
 use synthetic plans/feedback and do not establish physical performance.
+
+
+### Fine alignment tools (source only)
+
+After coarse alignment, `plan_battery_pick` binds the reviewed D405 scene to locally supplied full TCP. Without TCP it returns `tcp_pending`. With synthetic test calibration it can produce IK/timing and a non-executable pregrasp plan. `execute_battery_approach` accepts only a separately verified stored plan and returns measured settling plus a new-observation requirement. The same observation/preview/planning tools then assess alignment using explicitly injected local `refinement_policy`; there are no production default correction limits. Corrections are count/distance bounded and use the same approach tool.
+
+`execute_pick` cannot precede this reobservation and alignment check. Its completion means measured arrival and closure, **not** that a battery is held. The current 9983 preview registry, live services and motion settings are unchanged. Full environment/self-collision checks, production execution preparation and an actual held-object verifier are still required for an automatic physical run.

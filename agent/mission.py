@@ -1,10 +1,12 @@
 """Competition prerequisites and evidence-based stage transitions."""
 import math
+import copy
 
 from .contracts import AgentError
 
 # operation: (allowed source stages, next stage, sends physical commands)
 OPERATIONS = {
+    "execute_battery_approach": (("PICK_APPROACH_PLANNED", "PICK_CORRECTION_PLANNED"), "PICK_AT_PREGRASP", True),
     "execute_coarse_alignment": (("COARSE_PLANNED",), "COARSE_ALIGNED", True),
     "generate_grasp_candidates": (("TARGET_IDENTIFIED", "GRASP_CANDIDATE_READY", "PICK_PLANNED"), "GRASP_CANDIDATE_READY", False),
     "plan_pick": (("GRASP_CANDIDATE_READY", "PICK_PLANNED"), "PICK_PLANNED", False),
@@ -35,7 +37,22 @@ class Mission:
         self.require(OPERATIONS[operation][0])
         if not isinstance(data, dict):
             raise AgentError("invalid_backend_result", "Backend data must be an object")
-        if operation == "execute_coarse_alignment":
+        if operation == "execute_battery_approach":
+            if data.get('pose_reached') is not True or data.get('new_observation_required') is not True:
+                raise AgentError('operation_not_confirmed','Measured pregrasp arrival and reobservation required')
+            plan=arguments.get('plan') or {}
+            if not plan.get('plan_id') or plan.get('arm')!='right':
+                raise AgentError('plan_missing','Prepared right-arm approach required')
+            if self.stage=='PICK_CORRECTION_PLANNED':
+                refinement=plan.get('refinement') or {}
+                total=refinement.get('proposed_total_correction_mm')
+                if (refinement.get('status')!='correction_required' or type(total) not in (int,float)
+                        or not math.isfinite(total) or total<=self.data.get('pick_correction_mm',0)):
+                    raise AgentError('invalid_backend_result','Bounded correction plan required')
+                self.data['pick_corrections']=self.data.get('pick_corrections',0)+1
+                self.data['pick_correction_mm']=total
+            self.data.update(approach_plan=copy.deepcopy(plan),plan=None)
+        elif operation == "execute_coarse_alignment":
             height=data.get('achieved_lift_rad')
             if (data.get('observer_ready') is not True or data.get('new_observation_required') is not True
                     or type(height) not in (int,float) or not math.isfinite(height) or not 0<=height<=18):

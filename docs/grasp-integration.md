@@ -120,3 +120,11 @@ Agent 参数只有 `observation_id`，不能自行填写矩阵、容差或运动
 ### Pregrasp measured arrival (software only)
 
 ApproachTrajectoryStep reuses the existing trajectory ownership, driver receipt, fresh measured settling and failure-stop logic. Its arrival handler cannot close the gripper: ApproachExecutionBackend completes only with a mandatory new-observation receipt. No live registration or device restart. Four fake-transport approach tests and eighteen existing pick tests passed.
+
+### Agent pregrasp / correction routing (software only)
+
+BatteryExecutionTools now routes calibrated plans through PICK_APPROACH_PLANNED -> execute_battery_approach -> PICK_AT_PREGRASP -> new D405 observation + reviewed pose/cloud -> plan_battery_pick. It either reports aligned (PICK_PLANNED), bounded correction (PICK_CORRECTION_PLANNED), or stops for reacquisition / missing local policy. Corrections use the same approach operation and always require another post-completion frame. Observation attempts are bounded per completed motion; plan retries cannot renew that budget. Correction count/distance advance only on confirmed completion.
+
+The stored plan binds exact file hash, scene and TCP identity. An Agent cannot supply TCP, tolerance, execution flags or target coordinates as tool arguments. Current planners still produce executable=false, so full collision/driver preparation remains required. The new registry is not wired into the running 9983 UI. Synthetic test fixtures explicitly grant flags only to inert backends; no actual configuration, TCP or device changes.
+
+Validation: 143 Agent and 272 web tests passed before adding two further routing regressions; all 9 refinement-routing tests then passed, including fresh-scene approach -> insertion receipts, no replay, no false hold claim and tampered-plan/TCP rejection.

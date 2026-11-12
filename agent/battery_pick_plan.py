@@ -83,7 +83,8 @@ def plan(registry,observation_id,call_id,setup=None):
             raise ValueError('IK 夹姿不是约定 J6 -90 度，不能套用带槽夹指方向')
         binding.update(calibration_id=setup['calibration_id'],
             pick_setup_sha256=hashlib.sha256(json.dumps(setup,sort_keys=True,allow_nan=False).encode()).hexdigest(),
-            T_wrist_from_tool=tcp.tolist(),R_base_from_tool=np.eye(3).tolist())
+            T_wrist_from_tool=tcp.tolist(),R_base_from_tool=np.eye(3).tolist(),
+            actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
     output=store.path/'pick-plans'/call_id/'result.json'
     output.parent.mkdir(parents=True,exist_ok=True)
