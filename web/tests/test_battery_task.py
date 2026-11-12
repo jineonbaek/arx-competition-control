@@ -28,8 +28,8 @@ class BatteryTaskTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.adapter=FakeAdapter();self.controller=Controller(configured(),self.adapter)
         self.gate=threading.Event();self.created=[]
-        def factory(store,controller,token):
-            self.created.append((store,controller,token))
+        def factory(store,controller,token,environment_clear):
+            self.created.append((store,controller,token,environment_clear))
             return _Flow(store,self.gate)
         self.task=BatteryTask(Path(self.temp.name),self.controller,factory)
         self.addCleanup(self.task.close)
@@ -43,7 +43,8 @@ class BatteryTaskTests(unittest.TestCase):
         self.fail('task did not reach '+status)
 
     def test_start_is_idempotent_and_reserves_without_hardware_calls(self):
-        request={'action':'start','request_id':'req-1','expected_epoch':0}
+        request={'action':'start','request_id':'req-1','expected_epoch':0,
+                 'environment_clear':True}
         first=self.task.action('owner',request)
         again=self.task.action('owner',request)
         self.assertEqual(first['run_id'],again['run_id'])
@@ -52,13 +53,15 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertTrue(self.controller.snapshot()['motion_reserved'])
         self.assertEqual(self.task.snapshot('other')['status'],'owned_by_other')
         with self.assertRaises(Rejected):
-            self.task.action('other',{'action':'start','request_id':'req-2','expected_epoch':1})
+            self.task.action('other',{'action':'start','request_id':'req-2','expected_epoch':1,
+                                      'environment_clear':True})
         self.gate.set();done=self.wait('needs_attention')
         self.assertEqual(done['reason'],'fixture')
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
 
     def test_cancel_is_idempotent_and_marks_run_without_motion(self):
-        self.task.action('owner',{'action':'start','request_id':'req-1','expected_epoch':0})
+        self.task.action('owner',{'action':'start','request_id':'req-1','expected_epoch':0,
+                                  'environment_clear':True})
         cancel={'action':'cancel','request_id':'cancel-1'}
         one=self.task.action('owner',cancel);two=self.task.action('owner',cancel)
         self.assertEqual(one['run_id'],two['run_id'])
@@ -69,18 +72,22 @@ class BatteryTaskTests(unittest.TestCase):
     def test_invalid_payload_stale_epoch_and_other_client_cancel_are_rejected(self):
         for payload in ({}, {'action':'start','request_id':'x'},
                         {'action':'start','request_id':'x','expected_epoch':True},
+                        {'action':'start','request_id':'x','expected_epoch':0,
+                         'environment_clear':False},
                         {'action':'unknown','request_id':'x'}):
             with self.subTest(payload=payload),self.assertRaises((ValueError,Rejected)):
                 self.task.action('owner',payload)
         with self.assertRaises(Rejected):
-            self.task.action('owner',{'action':'start','request_id':'x','expected_epoch':9})
-        self.task.action('owner',{'action':'start','request_id':'good','expected_epoch':0})
+            self.task.action('owner',{'action':'start','request_id':'x','expected_epoch':9,
+                                      'environment_clear':True})
+        self.task.action('owner',{'action':'start','request_id':'good','expected_epoch':0,
+                                  'environment_clear':True})
         with self.assertRaises(Rejected):
             self.task.action('other',{'action':'cancel','request_id':'stop'})
         self.gate.set();self.wait('needs_attention')
 
     def test_unknown_or_interrupted_completion_keeps_control_reserved(self):
-        def factory(store,controller,token):
+        def factory(store,controller,token,environment_clear):
             class Unsafe:
                 def run(inner):
                     controller.interrupt_motion(token)
@@ -88,7 +95,8 @@ class BatteryTaskTests(unittest.TestCase):
             return Unsafe()
         task=BatteryTask(Path(self.temp.name)/'unsafe',self.controller,factory)
         self.addCleanup(task.close)
-        task.action('owner',{'action':'start','request_id':'unsafe','expected_epoch':0})
+        task.action('owner',{'action':'start','request_id':'unsafe','expected_epoch':0,
+                             'environment_clear':True})
         end=time.monotonic()+2
         while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
         state=task.snapshot('owner')

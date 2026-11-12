@@ -52,9 +52,11 @@ class BatteryTask:
             cached=self.requests.get((client,request))
             if cached is not None:return copy.deepcopy(cached)
             if action=='start':
-                if set(data)!= {'action','request_id','expected_epoch'} or type(data['expected_epoch']) is not int:
-                    raise ValueError('start requires request_id and integer expected_epoch')
-                result=self._start(client,data['expected_epoch'])
+                required={'action','request_id','expected_epoch','environment_clear'}
+                if (set(data)!=required or type(data['expected_epoch']) is not int
+                        or data['environment_clear'] is not True):
+                    raise ValueError('start requires expected_epoch and confirmed environment_clear')
+                result=self._start(client,data['expected_epoch'],data['environment_clear'])
             elif action=='cancel':
                 if set(data)!= {'action','request_id'}:
                     raise ValueError('cancel accepts request_id only')
@@ -63,7 +65,7 @@ class BatteryTask:
             self.requests[(client,request)]=copy.deepcopy(result)
             return result
 
-    def _start(self, client, expected_epoch):
+    def _start(self, client, expected_epoch, environment_clear):
         if self.active is not None:
             if self.active['status']=='running' or self.active['recovery_required']:
                 raise Rejected('已有自动任务或待恢复任务')
@@ -73,7 +75,7 @@ class BatteryTask:
         store=None
         try:
             store=RunStore.create(self.root)
-            flow=self.workflow_factory(store,self.controller,token)
+            flow=self.workflow_factory(store,self.controller,token,environment_clear)
         except Exception:
             if store is not None:store.close()
             if self.controller.motion_valid(token):self.controller.release_motion(token)
