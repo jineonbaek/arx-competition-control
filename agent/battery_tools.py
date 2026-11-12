@@ -20,13 +20,13 @@ EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status
 class BatteryExecutionTools(WorkflowTools):
     observation_limit=3
     schemas={k:v for k,v in WorkflowTools.schemas.items() if k in WORKFLOW_TOOLS}
-    schemas.update(capture_grasp_scene=object_schema(),verify_hold=ToolRegistry.schemas['verify_hold'],plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
+    schemas.update(capture_grasp_scene=object_schema(),verify_hold=object_schema(),plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
                    execute_battery_approach=object_schema({'plan_id':TEXT},['plan_id']),
                    execute_pick=ToolRegistry.schemas['execute_pick'],
                    execute_coarse_alignment=object_schema({'plan_id':TEXT},['plan_id']),
                    get_execution_status=ToolRegistry.schemas['get_execution_status'])
     descriptions={k:v for k,v in WorkflowTools.descriptions.items() if k in WORKFLOW_TOOLS}
-    descriptions.update(capture_grasp_scene='Freeze D405 RGB-D for post-closure verification without movement.',verify_hold=ToolRegistry.descriptions['verify_hold'],plan_battery_pick='Plan a fixed +X insertion from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
+    descriptions.update(capture_grasp_scene='Freeze D405 RGB-D without movement.',verify_hold='Confirm retention from fresh right-gripper feedback and the configured caught-battery range.',plan_battery_pick='Plan insertion along the battery approach axis from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
         execute_battery_approach='Execute a locally verified approach or bounded correction, then require a new D405 scene. Never closes the gripper.',
         execute_pick=ToolRegistry.descriptions['execute_pick'],
         execute_coarse_alignment='Execute only the stored verified coarse plan. '

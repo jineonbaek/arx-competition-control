@@ -11,7 +11,7 @@ from .pick_backend import CoarseExecutionBackend, ApproachExecutionBackend, Pick
 BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend)}
 
 class BatteryControllerBackend:
-    def __init__(self,controller,token,store,*,policies,pick_setup,preflight,cancelled,timeout_s,hold_verifier=None):
+    def __init__(self,controller,token,store,*,policies,pick_setup,preflight,cancelled,timeout_s):
         if store.closed or not callable(preflight) or not callable(cancelled):
             raise ValueError('Open run and local preflight/cancellation required')
         if set(timeout_s)!=set(BACKENDS) or any(type(t) not in (int,float) or not math.isfinite(t)
@@ -22,10 +22,11 @@ class BatteryControllerBackend:
         self.preflight=preflight;self.cancelled=cancelled;self.timeout_s=dict(timeout_s)
         self.directory=store.path/'executions';self.directory.mkdir(exist_ok=True)
         self.entries={};self.lock=Lock();self.cancelled_here=False
-        self.hold_verifier=hold_verifier
 
     def available(self,operation):
-        if operation=='verify_hold':return callable(self.hold_verifier) and not self.store.closed
+        if operation=='verify_hold':
+            return (callable(getattr(self.controller,'snapshot',None)) and not self.store.closed
+                    and len(self.policies.get('pick',{}).get('hold_gripper_range',[]))==2)
         return (operation in BACKENDS and not self.store.closed and not self.cancelled_here
                 and not self.store.cancelled and not self.cancelled()
                 and self.controller.motion_valid(self.token)
@@ -56,12 +57,16 @@ class BatteryControllerBackend:
             try:
                 self._path(request_id)
                 if not self.available(operation):raise ValueError('Hold verifier unavailable')
-                observation=arguments['observation_id']
-                self.store.observation(observation)
-                evidence=self.hold_verifier(copy.deepcopy(arguments),self.store)
-                if (not isinstance(evidence,dict) or evidence.get('evidence_observation_id')!=observation
-                        or evidence.get('evidence_after_execution') is not True):
-                    raise ValueError('Post-execution retention evidence required')
+                arm=self.controller.snapshot().get('arms',{}).get('right',{})
+                feedback=arm.get('gripper');low,high=self.policies['pick']['hold_gripper_range']
+                if (arm.get('fresh') is not True or type(feedback) not in (int,float)
+                        or not math.isfinite(feedback)):
+                    raise ValueError('Fresh right gripper feedback required')
+                if not low<=feedback<=high:
+                    raise ValueError('Gripper feedback outside configured hold range')
+                evidence=dict(hold_status='confirmed',target_id=(arguments.get('target') or {}).get('target_id'),
+                    gripper_feedback_in_range=True,gripper_feedback=float(feedback),
+                    gripper_feedback_range=[float(low),float(high)])
                 return dict(status='completed',execution_id=request_id,data=evidence)
             except (OSError,ValueError,KeyError,TypeError) as error:
                 return self._reply('rejected',request_id,str(error)[:180])

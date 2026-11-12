@@ -7,12 +7,12 @@ from .battery_tools import BatteryExecutionTools
 
 def build_workflow(config,store,controller,token,*,policies,refinement_policy,
                    timing_limits,alignment_tolerance_deg,j6_tolerance_deg,
-                   preflight,review_plan,timeout_s,observations=None,hold_verifier=None,
+                   preflight,review_plan,timeout_s,observations=None,
                    clearance_mm=50.):
     setup=load_pick_setup(timing_limits=timing_limits,alignment_tolerance_deg=alignment_tolerance_deg,
                           j6_tolerance_deg=j6_tolerance_deg)
     backend=BatteryControllerBackend(controller,token,store,policies=policies,pick_setup=setup,
-        preflight=preflight,cancelled=lambda:store.cancelled,timeout_s=timeout_s,hold_verifier=hold_verifier)
+        preflight=preflight,cancelled=lambda:store.cancelled,timeout_s=timeout_s)
     tools=BatteryExecutionTools(config,store,observations=observations,backends=backend,
                                pick_setup=setup,refinement_policy=refinement_policy)
     return BatteryFlow(tools,review_plan=review_plan,clearance_mm=clearance_mm,

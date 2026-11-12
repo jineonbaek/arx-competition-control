@@ -63,7 +63,7 @@ def load(path,*,gripper_limits=None):
     _arrival(coarse['arm_policy'],6,'coarse.arm_policy')
 
     pick=_exact(data['pick'],{'lift_tolerance_rad','max_pair_skew_s',
-        'arm_policy','gripper_target','gripper_policy'},'pick')
+        'arm_policy','gripper_target','gripper_policy','hold_gripper_range'},'pick')
     _number(pick['lift_tolerance_rad'],'pick.lift_tolerance_rad')
     _number(pick['max_pair_skew_s'],'pick.max_pair_skew_s')
     _arrival(pick['arm_policy'],6,'pick.arm_policy')
@@ -74,6 +74,13 @@ def load(path,*,gripper_limits=None):
     if gripper_limits is not None:
         low,high=map(float,gripper_limits)
         if not low<=target<=high:raise ValueError('pick.gripper_target outside controller limits')
+    hold=pick['hold_gripper_range']
+    if (not isinstance(hold,list) or len(hold)!=2
+            or any(type(x) not in (int,float) or not math.isfinite(x) for x in hold)
+            or hold[0]>hold[1]):
+        raise ValueError('pick.hold_gripper_range must be [minimum, maximum]')
+    if gripper_limits is not None and not low<=hold[0]<=hold[1]<=high:
+        raise ValueError('pick.hold_gripper_range outside controller limits')
 
     refinement=_exact(data['refinement'],_REFINEMENT,'refinement')
     budget=refinement['max_corrections']

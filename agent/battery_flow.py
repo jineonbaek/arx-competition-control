@@ -102,7 +102,7 @@ class BatteryFlow:
                     if not self.store.state.get('pending') and not self.flow.get('command'):self._review(operation)
                     plan=self.store.state['mission'].get('plan') or {}
                     self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
-                    self._next('hold_capture' if phase=='insert' else 'wrist')
+                    self._next('verify_hold' if phase=='insert' else 'wrist')
                 elif phase=='wrist':
                     data=self._call('observe_battery',{'camera':'d405'})
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','wrist_failed'))
@@ -120,11 +120,12 @@ class BatteryFlow:
                     elif data.get('refinement',{}).get('status')=='reacquire_required':self._next('wrist')
                     else:return self._finish('needs_attention',data.get('status','planning_incomplete'))
                 elif phase=='hold_capture':
-                    if not self.tools.backends.available('verify_hold'):
-                        return self._finish('awaiting_hold_verification','Closed gripper is not proof of retention; verifier unavailable')
-                    data=self._call('capture_grasp_scene',{});self.flow['hold']=data['observation_id'];self._next('verify_hold')
+                    # Compatibility for a run persisted by the earlier visual-verification flow.
+                    self._next('verify_hold')
                 elif phase=='verify_hold':
-                    self._call('verify_hold',{'observation_id':self.flow['hold']})
+                    if not self.tools.backends.available('verify_hold'):
+                        return self._finish('awaiting_hold_verification','Gripper feedback range is not configured')
+                    self._call('verify_hold',{})
                     if self.store.state['mission']['stage']!='HOLD_CONFIRMED':
                         return self._finish('awaiting_hold_verification','Retention not confirmed')
                     return self._finish('completed')

@@ -26,7 +26,7 @@ def policy():
             max_pair_skew_s=.05,lift_policy=arrival_scalar,arm_policy=arrival_arm),
         pick=dict(lift_tolerance_rad=.02,max_pair_skew_s=.05,
             arm_policy=arrival_arm,gripper_target=-1.2,
-            gripper_policy=arrival_scalar),
+            gripper_policy=arrival_scalar,hold_gripper_range=[-2.6,-1.6]),
         refinement=dict(max_corrections=2,max_target_shift_mm=[15.]*3,
             max_step_mm=[10.]*3,max_total_correction_mm=20.,
             position_tolerance_mm=[13.]*3,orientation_tolerance_deg=3.,
@@ -63,6 +63,8 @@ class ExecutionPolicyTests(unittest.TestCase):
         value=policy();value['coarse']['lift_policy']['tolerance']=[.02,.02];cases.append(value)
         value=policy();value['pick']['arm_policy']['tolerance']=[1.]*3;cases.append(value)
         value=policy();value['pick']['gripper_target']=.1;cases.append(value)
+        value=policy();value['pick']['hold_gripper_range']=[-1.6,-2.6];cases.append(value)
+        value=policy();value['pick']['hold_gripper_range']=[-3.2,-1.6];cases.append(value)
         value=policy();value['refinement']['position_tolerance_mm']=[1.,1.];cases.append(value)
         for data in cases:
             with self.subTest(data=data),self.assertRaises(ValueError):

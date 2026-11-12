@@ -85,18 +85,23 @@ class Mission:
             if any(key in data and data[key] != arguments[key] for key in ('candidate_id', 'arm')):
                 raise AgentError('plan_identity_conflict', 'Planner result contradicts requested candidate or arm')
             self.data["plan"] = dict(data, candidate_id=arguments["candidate_id"], arm=arguments["arm"])
-        elif operation in ("verify_hold", "verify_placement"):
+        elif operation == "verify_hold":
+            feedback=data.get('gripper_feedback');bounds=data.get('gripper_feedback_range')
+            feedback_ok=(data.get('gripper_feedback_in_range') is True
+                and type(feedback) in (int,float) and math.isfinite(feedback)
+                and isinstance(bounds,list) and len(bounds)==2 and bounds[0]<=feedback<=bounds[1])
+            visual_ok=(data.get("evidence_observation_id") == arguments.get("observation_id")
+                and data.get("evidence_after_execution") is True)
+            if (not (feedback_ok or visual_ok) or data.get("hold_status") != "confirmed"
+                    or data.get("target_id") != self.data["target"]["target_id"]):
+                raise AgentError("hold_not_confirmed", "Target retention is not confirmed")
+            self.data[operation + "_evidence"] = data
+        elif operation == "verify_placement":
             if data.get("evidence_observation_id") != arguments["observation_id"] or data.get("evidence_after_execution") is not True:
                 raise AgentError("evidence_missing", "Verification must identify the supplied post-execution observation")
-            if operation == "verify_hold":
-                if data.get("hold_status") != "confirmed" or data.get("target_id") != self.data["target"]["target_id"]:
-                    if data.get("hold_status") == "contradicted":
-                        self.data.update(stage="TASK_ACCEPTED", target=None, candidates=[], plan=None)
-                    raise AgentError("hold_not_confirmed", "Target retention is not confirmed")
-            else:
-                seconds = data.get("stable_for_s")
-                if data.get("placement_status") != "confirmed" or data.get("slot_id") != self.data["task"]["destination"] or any(data.get(k) is not True for k in ("correct_slot", "inserted", "released")) or type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 3:
-                    raise AgentError("placement_not_confirmed", "Correct insertion, release and at least 3 seconds stability are required")
+            seconds = data.get("stable_for_s")
+            if data.get("placement_status") != "confirmed" or data.get("slot_id") != self.data["task"]["destination"] or any(data.get(k) is not True for k in ("correct_slot", "inserted", "released")) or type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 3:
+                raise AgentError("placement_not_confirmed", "Correct insertion, release and at least 3 seconds stability are required")
             self.data[operation + "_evidence"] = data
         else:
             evidence = {"execute_pick": ("pose_reached",), "stow_for_carry": ("carry_ready",),

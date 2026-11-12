@@ -31,7 +31,6 @@ class Tools:
         elif name=='execute_battery_approach':
             m['stage']='PICK_AT_PREGRASP';m['approach_plan']=m['plan'];m['plan']=None
         elif name=='execute_pick':m['stage']='PICK_EXECUTED'
-        elif name=='capture_grasp_scene':data={'observation_id':'held'}
         elif name=='verify_hold':m['stage']='HOLD_CONFIRMED';data={'hold_status':'confirmed'}
         return dict(ok=True,data=data,error=None)
 
@@ -52,7 +51,8 @@ class FlowTests(unittest.TestCase):
         names=self.tools.calls
         self.assertEqual(names.count('execute_battery_approach'),2)
         self.assertEqual(names.count('execute_pick'),1)
-        self.assertEqual(names[-2:],['capture_grasp_scene','verify_hold'])
+        self.assertEqual(names[-1:],["verify_hold"])
+        self.assertNotIn('capture_grasp_scene',names)
         self.assertEqual(names.count('preview_battery_grasp'),3)
     def test_missing_verifier_does_not_claim_success(self):
         self.tools.available=lambda name:False

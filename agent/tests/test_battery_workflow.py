@@ -16,8 +16,11 @@ class WorkflowTests(unittest.TestCase):
         t=tempfile.TemporaryDirectory();self.addCleanup(t.cleanup)
         self.store=RunStore.create(t.name);self.addCleanup(self.store.close)
         self.config=Config();self.config.motion_enabled=True
+        self.controller=Controller();self.gripper=-3.
+        self.controller.snapshot=lambda:dict(arms={'right':dict(fresh=True,gripper=self.gripper)})
     def build(self,**kw):
-        flow=build_workflow(self.config,self.store,Controller(),'owned',policies={},
+        flow=build_workflow(self.config,self.store,self.controller,'owned',
+            policies={'pick':{'hold_gripper_range':[-2.6,-1.6]}},
             refinement_policy={},timing_limits={},alignment_tolerance_deg=3,j6_tolerance_deg=5,
             preflight=lambda *a:True,review_plan=review,observations=object(),
             timeout_s={k:1. for k in ('execute_coarse_alignment','execute_battery_approach','execute_pick')},**kw)
@@ -56,20 +59,14 @@ class WorkflowTests(unittest.TestCase):
         flow=self.build();self.coarse(flow);self.config.motion_enabled=False
         with patch('agent.battery_backend.prepare_step') as prepare:
             out=flow.run();self.assertEqual(out['status'],'needs_attention');prepare.assert_not_called()
-    def test_post_close_verification_checks_freshness_and_target(self):
-        evidence={}
-        flow=self.build(hold_verifier=lambda args,store:dict(evidence))
+    def test_post_close_verification_uses_gripper_feedback_range(self):
+        flow=self.build()
         m=self.store.state['mission'];m.update(stage='PICK_EXECUTED',target={'target_id':'battery'},plan={})
-        old=self.observation('d405')
-        m['evidence_barriers']={'PICK_EXECUTED':{'completed_at':time.time(),'previous_observation_ids':[old]}}
-        result=flow.tools.execute('verify_hold',{'observation_id':old},'old')
+        result=flow.tools.execute('verify_hold',{},'outside')
         self.assertFalse(result['ok']);self.assertEqual(m['stage'],'PICK_EXECUTED')
-        fresh=self.observation('d405')
-        evidence.update(evidence_observation_id=fresh,evidence_after_execution=True,hold_status='confirmed',target_id='wrong')
-        result=flow.tools.execute('verify_hold',{'observation_id':fresh},'wrong')
-        self.assertFalse(result['ok']);self.assertEqual(m['stage'],'PICK_EXECUTED')
-        evidence['target_id']='battery'
-        result=flow.tools.execute('verify_hold',{'observation_id':fresh},'good')
+        self.gripper=-2.
+        result=flow.tools.execute('verify_hold',{},'inside')
         self.assertTrue(result['ok'],result);self.assertEqual(m['stage'],'HOLD_CONFIRMED')
+        self.assertEqual(result['data']['gripper_feedback'],-2.)
 
 if __name__=='__main__':unittest.main()

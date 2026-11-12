@@ -218,7 +218,7 @@ class ToolRegistry:
             raise AgentError("plan_missing", "Plan is not the current verified plan")
         if "observation_id" in arguments:
             self.store.observation(arguments["observation_id"])
-        if name in ('verify_hold', 'verify_placement'):
+        if name in ('verify_hold', 'verify_placement') and 'observation_id' in arguments:
             self._post_stage_observation(arguments['observation_id'], 'PICK_EXECUTED' if name == 'verify_hold' else 'RELEASED')
         if name == 'align_battery_to_slot':
             slot = mission.data['slot']
