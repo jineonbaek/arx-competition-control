@@ -117,6 +117,30 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertTrue(state['recovery_required'])
         self.assertTrue(self.controller.snapshot()['motion_reserved'])
 
+    def test_interrupted_task_with_verified_stop_returns_control(self):
+        for index in range(3):self.controller.update_body(.5,[0.]*4,0.,0.,0.)
+        self.controller.update_arm('left',[0.]*6,-3.,[0.]*6)
+        self.controller.update_arm('right',[0.]*6,-3.,[0.]*6)
+        def factory(store,controller,token,environment_clear):
+            class Stopped:
+                def run(inner):
+                    with controller.lock:controller.motion_interrupted=True;controller.command_epoch+=1
+                    store.state['pending']={'last_receipt':{'status':'unknown','data':{'recovery_required':True}}}
+                    store.save()
+                    return {'status':'needs_attention','reason':'execution_unknown'}
+            return Stopped()
+        task=BatteryTask(Path(self.temp.name)/'stopped',self.controller,factory)
+        self.addCleanup(task.close)
+        task.action('owner',{'action':'start','request_id':'stopped','expected_epoch':0,
+                             'environment_clear':True})
+        end=time.monotonic()+2
+        while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
+        state=task.snapshot('owner')
+        self.assertFalse(state['recovery_required'])
+        self.assertFalse(self.controller.snapshot()['motion_reserved'])
+        self.assertFalse(self.controller.snapshot()['motion_interrupted'])
+        self.assertIn('recovered_pending',task.active['store'].state)
+
     def test_log_view_is_bounded_and_ignores_partial_records(self):
         self.task.action('owner',{'action':'start','request_id':'logs','expected_epoch':0,
                                   'environment_clear':True})

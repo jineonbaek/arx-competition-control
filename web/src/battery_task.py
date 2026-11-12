@@ -2,6 +2,7 @@
 import copy
 import json
 import threading
+import time
 from pathlib import Path
 
 from agent.storage import RunStore
@@ -28,6 +29,38 @@ class BatteryTask:
         for camera,enabled in previous.items():
             try:self.depth_control.request({'camera':camera,'enabled':enabled})
             except Exception as error:self.controller.log(camera+' depth restore failed: '+str(error),'warning')
+
+    @staticmethod
+    def _rest_values(snapshot):
+        if snapshot.get('chassis_active') is not False:
+            return None
+        arms=snapshot.get('arms',{});body=snapshot.get('body',{})
+        values=[]
+        for side in ('left','right'):
+            arm=arms.get(side,{})
+            joints=arm.get('joints')
+            if (arm.get('fresh') is not True or not isinstance(joints,list)
+                    or len(joints)!=6 or not all(type(value) in (int,float) for value in joints)):
+                return None
+            values.extend(joints)
+        height=body.get('height')
+        if body.get('fresh') is not True or type(height) not in (int,float):
+            return None
+        values.append(height)
+        return values
+
+    def _wait_for_stopped(self,hold_s=.4,tolerance=.005):
+        with self.controller.lock:
+            if self.controller.motion_trajectory is not None:return False
+        initial=self._rest_values(self.controller.snapshot())
+        if initial is None:return False
+        end=time.monotonic()+hold_s
+        while time.monotonic()<end:
+            time.sleep(.05)
+            current=self._rest_values(self.controller.snapshot())
+            if current is None or any(abs(a-b)>tolerance for a,b in zip(initial,current)):
+                return False
+        return True
 
     @staticmethod
     def _request(value):
@@ -142,11 +175,21 @@ class BatteryTask:
                     or state['store'].state.get('pending') is not None
                     or 'unknown' in state['reason'].lower()
                     or 'recovery_required' in state['reason'].lower())
-            if unsafe:
-                state['recovery_required']=True
-            else:
+            stopped=not unsafe or self._wait_for_stopped()
+            released=False
+            if stopped:
                 try:self.controller.release_motion(state['token'])
-                except Rejected:state['recovery_required']=True
+                except Rejected:pass
+                else:
+                    released=True
+                    pending=state['store'].state.pop('pending',None)
+                    if pending is not None:
+                        state['store'].state['recovered_pending']=pending
+                        state['store'].save()
+                    state['store'].event('battery_recovery',dict(verified_stopped=True,
+                        released_control=True,reason=state['reason']))
+                    self.controller.log('自动任务已实测停止，控制权已返还 9983')
+            state['recovery_required']=not released
             state['store'].close()
 
     def close(self):
