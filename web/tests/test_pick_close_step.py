@@ -86,6 +86,33 @@ class CloseStepTests(unittest.TestCase):
         self.feedback(10.11);self.step.poll()
         self.assertEqual(len(self.adapter.calls),1)
 
+    def test_insertion_timeout_requests_gravity_compensation(self):
+        self.feedback(13.01)
+        r=self.step.poll()
+        self.assertEqual(r['status'],'timeout')
+        self.assertEqual(r['stop_request'],'gravity_comp_sent_unverified')
+        self.assertEqual(self.adapter.calls[-1][0],'arm')
+        self.assertEqual(self.adapter.calls[-1][1][4],3)
+
+    def test_insertion_timeout_holds_when_gravity_request_fails(self):
+        self.feedback(13.01)
+        submit=self.c.submit
+        def fail_gravity(command,*args,**kwargs):
+            if command.get('type')=='arm.mode':raise RuntimeError('mode request failed')
+            return submit(command,*args,**kwargs)
+        with patch.object(self.c,'submit',side_effect=fail_gravity):r=self.step.poll()
+        self.assertEqual(r['status'],'timeout')
+        self.assertEqual(r['stop_request'],'sent_unverified')
+        self.assertAlmostEqual(self.adapter.calls[-1][1][2],-3.)
+
+    def test_closing_timeout_keeps_position_instead_of_releasing_arm(self):
+        self.feedback(10.01)
+        self.monitor.stage='closing'
+        self.monitor.failure='timeout'
+        r=self.step.poll()
+        self.assertEqual(r['stop_request'],'sent_unverified')
+        self.assertNotEqual(self.adapter.calls[-1][1][4],3)
+
     def test_uncertain_close_reply_never_retries_and_stop_failure_is_reported(self):
         self.arrive();self.feedback(10.32)
         self.c.config['arms']['right']['command_result_topic']='fake-test-topic'

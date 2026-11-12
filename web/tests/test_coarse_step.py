@@ -87,6 +87,15 @@ class CoarseStepTests(unittest.TestCase):
             self.feedback(t);r=self.step.poll()
         self.assertTrue(r['stop_required']);self.assertNotEqual(r['status'],'ready_to_observe')
 
+    def test_observer_timeout_requests_gravity_compensation(self):
+        self.settle_lift();self.state.update(command_epoch=4,request_id='observe',status='reference_complete')
+        self.q=[.01]*6;self.feedback(13.4);self.step.poll()
+        self.feedback(15.41);r=self.step.poll()
+        self.assertEqual(r['status'],'timeout')
+        modes=[c for c in self.adapter.calls if c[0]=='arm' and c[1][4]==3]
+        self.assertEqual(len(modes),1)
+        self.assertEqual(r['stop_requests']['right'],'gravity_comp_sent_unverified')
+
     def test_cancel_before_start_and_invalid_policy_cannot_send_motion(self):
         self.step.cancel()
         before=list(self.adapter.calls)

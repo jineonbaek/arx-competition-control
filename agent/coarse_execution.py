@@ -62,9 +62,19 @@ class CoarseAlignmentStep:
     def _abort(self, reason):
         if self.failure is None:
             self.failure=reason
+            gravity_timeout=reason=='timeout' and self.stage in ('observing_motion','settling_observer')
+            if gravity_timeout:
+                self.stop_requests['right']='failed'
+                try:
+                    r=self.controller.submit({'type':'arm.mode','arm':'right','mode':3},self.token)
+                    if r.get('ok') is True:self.stop_requests['right']='gravity_comp_sent_unverified'
+                except Exception as error:
+                    self.controller.log('观察姿态超时切换重力补偿失败：'+str(error),'warning')
             self.controller.interrupt_motion(self.token)
-            for name, command in (('lift',{'type':'lift.stop'}),
-                    ('right',{'type':'arm.stop','arm':'right'}),('left',{'type':'arm.stop','arm':'left'})):
+            commands=[('lift',{'type':'lift.stop'}),('left',{'type':'arm.stop','arm':'left'})]
+            if not gravity_timeout or self.stop_requests.get('right')=='failed':
+                commands.insert(1,('right',{'type':'arm.stop','arm':'right'}))
+            for name, command in commands:
                 self.stop_requests[name]='failed'
                 try:
                     r=self.controller.submit(command,self.token)
@@ -126,6 +136,9 @@ class CoarseAlignmentStep:
 
     def cancel(self):
         with self.lock:return self._abort('cancelled')
+
+    def timeout(self):
+        with self.lock:return self._abort('timeout')
 
     def poll(self, *, cancelled=False):
         with self.lock:

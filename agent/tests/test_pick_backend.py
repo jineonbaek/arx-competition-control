@@ -28,6 +28,9 @@ class Step:
     def cancel(self):
         self.calls.append('stop')
         return dict(status='cancelled',stop_required=True,stop_request='sent_unverified',grasp_confirmed=False)
+    def timeout(self):
+        self.calls.append('timeout')
+        return dict(status='timeout',stop_required=True,stop_request='gravity_comp_sent_unverified',grasp_confirmed=False)
 
 
 class PickBackendTests(unittest.TestCase):
@@ -126,6 +129,6 @@ class PickBackendTests(unittest.TestCase):
     def test_deadline_cancels_even_with_repeated_running_receipts(self):
         self.invoke();self.assertTrue(self.backend.wait(2.))
         self.assertEqual(self.backend.status('execute_pick',self.ident)['status'],'unknown')
-        self.assertEqual(self.step.calls,['start','stop'])
+        self.assertEqual(self.step.calls,['start','timeout'])
 
 if __name__=='__main__':unittest.main()

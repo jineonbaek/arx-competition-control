@@ -26,12 +26,25 @@ class PickCloseStep:
             # A failed stop cannot make the interrupted task resumable.
             self.stop_request = 'failed'
             try:
-                self.controller.interrupt_motion(self.token)
-                result = self.controller.submit({'type': 'arm.stop', 'arm': 'right'}, self.token)
+                gravity_timeout = receipt.get('status') == 'timeout' and self.monitor.stage == 'inserting'
+                if gravity_timeout:
+                    result = self.controller.submit({'type': 'arm.mode', 'arm': 'right', 'mode': 3}, self.token)
+                    self.controller.interrupt_motion(self.token)
+                else:
+                    self.controller.interrupt_motion(self.token)
+                    result = self.controller.submit({'type': 'arm.stop', 'arm': 'right'}, self.token)
                 if result.get('ok') is True:
-                    self.stop_request = 'sent_unverified'
+                    self.stop_request = 'gravity_comp_sent_unverified' if gravity_timeout else 'sent_unverified'
             except Exception as error:
                 self.controller.log('抓取停止请求失败：' + str(error), 'warning')
+                self.controller.interrupt_motion(self.token)
+                if gravity_timeout:
+                    try:
+                        result = self.controller.submit({'type': 'arm.stop', 'arm': 'right'}, self.token)
+                        if result.get('ok') is True:
+                            self.stop_request = 'sent_unverified'
+                    except Exception as fallback_error:
+                        self.controller.log('超时后保持请求也失败：' + str(fallback_error), 'warning')
         return {**receipt, 'stop_request': self.stop_request}
 
     def _on_arrived(self, receipt):
@@ -62,6 +75,10 @@ class PickCloseStep:
                 self.controller.log('抓取阶段中止：' + str(error), 'warning')
                 receipt = self.monitor.abort('execution_unknown')
             return self._stop(receipt)
+
+    def timeout(self):
+        with self.lock:
+            return self._stop(self.monitor.abort('timeout'))
 
 
 class PickTrajectoryStep(PickCloseStep):

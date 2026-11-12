@@ -67,6 +67,11 @@ class OpenThenApproachStep:
     def cancel(self):
         with self.lock:return self._abort('cancelled')
 
+    def timeout(self):
+        with self.lock:
+            if self.approaching:return self.approach.timeout()
+            return self._abort('timeout')
+
     def poll(self,*,cancelled=False):
         with self.lock:
             if self.failure:return self.failure.copy()

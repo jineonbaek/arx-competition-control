@@ -118,8 +118,12 @@ class _PreparedExecutionBackend:
                     raise ValueError('Unexpected execution stage')
                 if stage!=last:
                     self._save(self._receipt('running',stage=stage));last=stage
-                if (self.cancel_event.wait(.02) or self.cancelled() or time.monotonic()>=deadline):
+                cancelled=self.cancel_event.wait(.02) or self.cancelled()
+                expired=time.monotonic()>=deadline
+                if cancelled:
                     receipt=self.step.cancel()
+                elif expired:
+                    receipt=self.step.timeout() if hasattr(self.step,'timeout') else self.step.cancel()
                 else:receipt=self.step.poll()
         except Exception as error:
             try:stop=self._stop_data(self.step.cancel())
