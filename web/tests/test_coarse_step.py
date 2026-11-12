@@ -186,6 +186,10 @@ class CoarseStepTests(unittest.TestCase):
         self.c.wrist_reason=lambda side:'not ready'
         self.assertEqual(self.settle_lift()['status'],'observing_motion')
         self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
+        self.state.update(command_epoch=4,request_id='observe',status='running')
+        self.feedback(self.now+.02)
+        self.assertEqual(self.step.poll()['status'],'observing_motion')
+        self.assertEqual(self.adapter.calls[-1][0],'heartbeat')
         self.setUp();self.step.start()
         self.c.config['arms']['right']['ready_topic']='/fake/right/ready'
         self.adapter.arm_ready=lambda side:False

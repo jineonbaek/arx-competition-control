@@ -107,10 +107,10 @@ class CoarseAlignmentStep:
                 or not np.isfinite(height) or not 0<=height<=18):
             raise ValueError('Invalid joint or lift feedback')
         caps=snapshot.get('capabilities',{})
-        if (commands and (caps.get('lift')!=''
-                or any(caps.get(side+':arm.joints')!='' for side in ('left','right'))
-                or (not lifting and caps.get('right:arm.wrist')!=''))):
-            raise ValueError('Controller not ready')
+        if commands:
+            for capability in ('lift','left:arm.joints','right:arm.joints'):
+                reason=caps.get(capability,'Capability missing')
+                if reason!='':raise ValueError('Controller not ready: '+capability+': '+str(reason))
         check=self.lift_preflight if lifting else self.arm_preflight
         if commands and check(snapshot,now) is not True:raise ValueError('Scene or path preflight failed')
         self.last_now=now;self.last_stamps=stamps.copy()

@@ -165,10 +165,9 @@ class RosAdapter:
         return client is not None and client.service_is_ready()
 
     def arm_stop(self, side):
-        from control import Rejected
         pending = self.pending_arm_stops.get(side)
         if pending is not None and not pending.done():
-            raise Rejected("Previous arm stop request is pending")
+            return
         pending = self.arm_stop_clients[side].call_async(self.Trigger.Request())
         self.pending_arm_stops[side] = pending
         def completed(future):

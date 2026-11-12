@@ -90,6 +90,46 @@ class TrajectoryOwnerTests(unittest.TestCase):
         self.assertIsNone(self.c.release_motion(self.token))
         self.assertFalse(self.c.snapshot()['motion_reserved'])
 
+    def test_regular_stop_clears_matching_trajectory_before_release(self):
+        self.c.config['arms']['right']['stop_service']='/right/stop'
+        self.start();self.running()
+        self.c.interrupt_motion(self.token)
+        self.c.submit({'type':'arm.stop','arm':'right'},self.token)
+        self.assertIsNone(self.c.motion_trajectory)
+        self.c.release_motion(self.token)
+        self.assertFalse(self.c.snapshot()['motion_reserved'])
+
+    def test_failed_stop_is_not_treated_as_released_and_can_retry(self):
+        self.start();self.running()
+        def fail(side):raise Rejected('stop unavailable')
+        original=self.adapter.arm_stop
+        self.adapter.arm_stop=fail
+        with self.assertRaises(Rejected):self.c.release_motion(self.token)
+        self.assertIsNotNone(self.c.motion_trajectory)
+        self.adapter.arm_stop=original
+        self.c.release_motion(self.token)
+        self.assertFalse(self.c.snapshot()['motion_reserved'])
+
+    def test_repeated_stop_reuses_already_dispatched_request(self):
+        from concurrent.futures import Future
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from ros_adapter import RosAdapter
+        adapter=RosAdapter(configured())
+        adapter.controller=SimpleNamespace(log=Mock())
+        adapter.Trigger=SimpleNamespace(Request=lambda:object())
+        pending=Future()
+        client=Mock()
+        client.call_async.return_value=pending
+        adapter.arm_stop_clients['right']=client
+        adapter.arm_stop('right')
+        adapter.arm_stop('right')
+        client.call_async.assert_called_once()
+        pending.set_result(SimpleNamespace(success=True,message='holding'))
+        client.call_async.return_value=Future()
+        adapter.arm_stop('right')
+        self.assertEqual(client.call_async.call_count,2)
+
     def test_preflight_cannot_stop_then_still_publish(self):
         def check(s,t):self.c.interrupt_motion(self.token);return True
         with self.assertRaises(Rejected):self.c.start_trajectory('right',self.plan,self.token,preflight=check)

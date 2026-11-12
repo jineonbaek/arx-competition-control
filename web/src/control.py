@@ -99,12 +99,14 @@ class Controller:
             self.command_epoch += 1
 
     def release_motion(self, token):
-        """Executor cleanup, after finishing or verifying its stop requests."""
+        """Stop any leftover trajectory and return ownership when the executor exits."""
         with self.lock:
             if not isinstance(token, _MotionToken) or token is not self.motion_owner:
                 raise Rejected("任务控制权已失效")
             if self.motion_trajectory is not None:
-                raise Rejected("轨迹任务仍未清理，不能释放控制权")
+                self._trajectory_abort(self.motion_trajectory['side'],token)
+                if self.motion_trajectory is not None:
+                    raise Rejected("轨迹停止请求未发出，不能释放控制权")
             self.motion_owner = None
             self.motion_interrupted = False
             self.command_epoch += 1
@@ -142,6 +144,8 @@ class Controller:
                 self.adapter.arm_stop(side)
                 self.motion_trajectory = None
             except Exception as error:
+                if self.motion_trajectory is not None:
+                    self.motion_trajectory.pop('stop_requested',None)
                 self.log("轨迹停止请求失败：" + str(error), "warning")
 
     def start_trajectory(self, side, plan, token, *, preflight, require_lift_settle=True):
@@ -480,6 +484,8 @@ class Controller:
             joints, gripper, tcp = state["joints"][:], state["gripper"], state["tcp"][:]
             if kind == "arm.stop" and c.get("stop_service"):
                 self.adapter.arm_stop(side)
+                if self.motion_trajectory is not None and self.motion_trajectory['side']==side:
+                    self.motion_trajectory = None
                 return
             if kind == "arm.joints":
                 if not vector(data["joints"], 6):

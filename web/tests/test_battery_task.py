@@ -142,6 +142,30 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertFalse(self.controller.snapshot()['motion_interrupted'])
         self.assertIn('recovered_pending',task.active['store'].state)
 
+    def test_failed_flow_with_leftover_trajectory_returns_manual_control(self):
+        self.controller.update_arm('right',[0.]*6,-1.,[0.]*6)
+        self.controller.config['arms']['right']['stop_service']='/right/stop'
+        def factory(store,controller,token,environment_clear):
+            class Failed:
+                def run(inner):
+                    controller.motion_trajectory={'side':'right','handle':{'request_id':'old'}}
+                    controller.interrupt_motion(token)
+                    return {'status':'needs_attention','reason':'coarse_feedback_failed'}
+            return Failed()
+        task=BatteryTask(Path(self.temp.name)/'trajectory',self.controller,factory)
+        self.addCleanup(task.close)
+        task.action('owner',{'action':'start','request_id':'trajectory','expected_epoch':0,
+                            'environment_clear':True})
+        task.active['worker'].join(2)
+        self.assertFalse(task.snapshot('owner')['recovery_required'])
+        self.assertIsNone(self.controller.motion_trajectory)
+        self.assertFalse(self.controller.snapshot()['motion_reserved'])
+        self.assertFalse(self.controller.snapshot()['motion_interrupted'])
+        self.assertEqual(self.adapter.calls,[('arm_stop',('right',))])
+        self.controller.submit({'type':'arm.joints','arm':'right','joints':[0.]*6},'browser')
+        with self.assertRaises(Rejected):
+            self.controller.submit({'type':'arm.joints','arm':'right','joints':[0.]*6},task.active['token'])
+
     def test_log_view_is_bounded_and_ignores_partial_records(self):
         self.task.action('owner',{'action':'start','request_id':'logs','expected_epoch':0,
                                   'environment_clear':True})
