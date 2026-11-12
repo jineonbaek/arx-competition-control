@@ -7,7 +7,8 @@ import time
 from threading import Lock
 from .contracts import AgentError
 
-CHECKS=('ik_checked','collision_checked','collision_free','environment_collision_checked')
+COMMON_CHECKS=('collision_checked','collision_free','environment_collision_checked')
+PICK_CHECKS=('ik_checked',)+COMMON_CHECKS
 
 def plan_digest(plan):
     return hashlib.sha256(json.dumps(plan,sort_keys=True,allow_nan=False).encode()).hexdigest()
@@ -67,10 +68,11 @@ class BatteryFlow:
         digest=plan_digest(plan)
         if self.flow.get('reviewed_plan')==digest:return
         evidence=self.review_plan(operation,copy.deepcopy(plan))
+        required=COMMON_CHECKS if operation=='execute_coarse_alignment' else PICK_CHECKS
         if (not isinstance(evidence,dict) or evidence.get('plan_sha256')!=digest
-                or any(evidence.get(k) is not True for k in CHECKS)):
+                or any(evidence.get(k) is not True for k in required)):
             raise AgentError('plan_not_verified','Local path review incomplete or rejected')
-        plan.update({k:True for k in CHECKS},executable=True)
+        plan.update({k:True for k in required},executable=True)
         plan['execution_review']=copy.deepcopy(evidence)
         if operation!='execute_coarse_alignment':self.tools._save_pick_plan(plan)
         self.flow['reviewed_plan']=plan_digest(plan)

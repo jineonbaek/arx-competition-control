@@ -18,7 +18,9 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.store=RunStore.create(self.temp.name);self.addCleanup(self.store.close)
         self.head=self.observation('d435',time.time())
         self.plan=dict(plan_id='coarse',arm='right',observation_id=self.head['observation_id'],
-            executable=True,ik_checked=True,collision_checked=True,collision_free=True)
+            executable=True,ik_checked=False,collision_checked=True,collision_free=True,
+            environment_collision_checked=True,observer_required=False,
+            lift={'fixed':True,'target_rad':5.52,'current_rad':5.0})
         self.store.state.update(coarse_alignment='coarse.json')
         self.store.state['mission'].update(stage='COARSE_PLANNED',plan=copy.deepcopy(self.plan))
         self.payload=dict(plan_id='coarse',task=None,target=None,slot=None,plan=copy.deepcopy(self.plan))
@@ -59,10 +61,13 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         r=self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},'again')
         self.assertFalse(r['ok']);self.assertEqual(self.step.calls,['start'])
     def test_nonexecutable_proposal_and_wrong_plan_cannot_move(self):
-        for key in ('executable','ik_checked','collision_checked','collision_free'):
+        for key in ('executable','collision_checked','collision_free','environment_collision_checked'):
             self.store.state['mission']['plan']=dict(self.plan,**{key:False})
             r=self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},key)
             self.assertEqual(r['error']['code'],'plan_not_verified',r)
+        self.store.state['mission']['plan']=dict(self.plan,observer_required=True)
+        r=self.tools.execute('execute_coarse_alignment',{'plan_id':'coarse'},'observer')
+        self.assertEqual(r['error']['code'],'plan_not_verified',r)
         r=self.tools.execute('execute_coarse_alignment',{'plan_id':'other'},'wrong')
         self.assertEqual(r['error']['code'],'plan_missing')
         self.assertEqual(self.step.calls,[]);self.assertIsNone(self.store.state['pending'])

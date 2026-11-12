@@ -26,7 +26,7 @@ function cloud(g){
  reset();
 }
 function image(id,src){el(id).hidden=!src;if(src)el(id).src=src;else el(id).removeAttribute('src');}
-function clear(){image('head',null);el('head-status').textContent='等待头部观察';el('coarse-status').textContent='等待 D435 定位；建议尚不执行';el('wrist-status').textContent='';geometry=null;clearCloud();image('pose',null);image('recognition',null);el('metrics').replaceChildren();el('quality').textContent='';el('stamp').textContent='';el('blockers').textContent='TCP 未接入：腕部起终点暂不计算，不发送运动指令。';}
+function clear(){image('head',null);el('head-status').textContent='等待头部观察';el('coarse-status').textContent='等待 D435 定位；随后执行固定升降';el('wrist-status').textContent='';geometry=null;clearCloud();image('pose',null);image('recognition',null);el('metrics').replaceChildren();el('quality').textContent='';el('stamp').textContent='';el('blockers').textContent='TCP 未接入：腕部起终点暂不计算，不发送运动指令。';}
 const xyz=p=>p.map(v=>v.toFixed(1)).join(' / ')+' mm';
 function show(data){
  clear();
@@ -34,9 +34,7 @@ function show(data){
  const observationStatus=o=>!o?'尚未进行':o.status==='localized'?'已定位：可见表面 '+xyz(o.location.surface_base_mm):o.status==='target_not_found'?'本帧未找到电池':o.status==='depth_rejected'?'识别到电池，但深度不足：'+o.message:'识别或分割复核未通过';
  image('head',head?.recognition?.overlay);el('head-status').textContent=observationStatus(head);
  el('wrist-status').textContent=observationStatus(wrist);
- if(coarse)el('coarse-status').textContent='升降建议 '+coarse.lift.target_rad.toFixed(2)+' SDK rad；CAD 零关节腕部参考 '+xyz(coarse.reference_wrist_base_mm)+'。向上够约 100 mm；'+(coarse.lift.clamped?'已限幅，距偏好高度还差 '+coarse.lift.preference_residual_mm.toFixed(1)+' mm。':'')+(coarse.lift.column_sweep?.status==='column_clear'?coarse.lift.column_sweep.message+'。':'')+coarse.blockers.join('；')+'。未执行运动。';
- const observer=coarse?.observer;
- if(observer)el('coarse-status').textContent+=' D405 观察姿态：'+(observer.status==='observer_candidate'?'候选腕位 '+xyz(observer.wrist_base_mm)+'，预测边缘余量 '+observer.view.edge_margin_px.toFixed(0)+' px。'+(observer.arm_move_required?'需调整右臂。':'在建议升降高度下可保留当前关节姿态。')+observer.note:observer.message);
+ if(coarse)el('coarse-status').textContent='固定升降 '+coarse.lift.target_rad.toFixed(3)+' SDK rad；右臂保持当前姿态，XY 偏差由升降停稳后的 D405 自适应处理。'+(coarse.lift.column_sweep?.status==='column_clear'?coarse.lift.column_sweep.message+'。':'')+coarse.blockers.join('；')+'。未执行运动。';
  image('recognition',data.recognition?.overlay||wrist?.recognition?.overlay);image('pose',data.pose?.overlay);
  el('status').textContent=data.message;
  const fit=data.quality;

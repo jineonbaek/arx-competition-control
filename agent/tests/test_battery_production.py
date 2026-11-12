@@ -16,14 +16,16 @@ class Controller:
 
 class ProductionTests(unittest.TestCase):
     def test_review_uses_existing_geometry_and_one_clear_area_confirmation(self):
-        coarse=dict(lift={'column_sweep':{'both_arms_column_checked':True,'status':'column_clear'}},
-            observer={'status':'observer_candidate','joints_rad':[0.]*6,
-                      'column_path':{'clear':True}})
+        coarse=dict(observer_required=False,
+            lift={'fixed':True,'target_rad':5.52,
+                  'column_sweep':{'both_arms_column_checked':True,'status':'column_clear'}})
         rejected=review_plan('execute_coarse_alignment',coarse,environment_clear=False)
-        self.assertTrue(rejected['ik_checked']);self.assertFalse(rejected['environment_collision_checked'])
+        self.assertFalse(rejected['ik_checked']);self.assertTrue(rejected['collision_free'])
+        self.assertFalse(rejected['environment_collision_checked'])
         accepted=review_plan('execute_coarse_alignment',coarse,environment_clear=True)
-        self.assertTrue(all(accepted[k] for k in ('ik_checked','collision_checked',
-            'collision_free','environment_collision_checked')))
+        self.assertFalse(accepted['ik_checked'])
+        self.assertTrue(all(accepted[k] for k in ('collision_checked','collision_free',
+            'environment_collision_checked')))
         pick=dict(status='kinematic_preview',joint_waypoints_rad=[[0.]*6,[.01]*6],
             column_checked=True,interpolation_position_bound_mm=.9,
             sampled_orientation_error_deg=.2,timing={'status':'timed_preview'})
@@ -40,7 +42,12 @@ class ProductionTests(unittest.TestCase):
         self.assertTrue(preflight('execute_battery_approach',plan,snapshot,1.))
         snapshot['capabilities']['right:arm.wrist']='等待升降停稳'
         self.assertFalse(preflight('execute_battery_approach',plan,snapshot,1.))
-        self.assertTrue(preflight('execute_coarse_alignment',plan,snapshot,1.))
+        coarse=dict(observer_required=False,executable=True,collision_checked=True,
+            collision_free=True,environment_collision_checked=True,
+            execution_review={'environment_clear':True},ik_checked=False,lift={'fixed':True})
+        self.assertTrue(preflight('execute_coarse_alignment',coarse,snapshot,1.))
+        coarse['observer_required']=True
+        self.assertFalse(preflight('execute_coarse_alignment',coarse,snapshot,1.))
 
     def test_factory_loads_policy_and_constructs_without_dispatch(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -64,18 +64,16 @@ class PreparationTests(unittest.TestCase):
         f=coarse.CoarseStepTests();f.setUp()
         policies=dict(coarse=dict(reach_bound_m=1.,timing_limits=self.timing,
             fixed_joint_tolerance_rad=.002,lift_policy=f.lift_policy,arm_policy=f.arm_policy,max_pair_skew_s=.05))
-        p=dict(arm='right',executable=True,ik_checked=True,collision_checked=True,collision_free=True,
-            environment_collision_checked=True,initial_joints_rad={'left':f.left,'right':f.q},
-            lift={'target_rad':6.,'current_rad':5.},observer={'status':'observer_candidate','joints_rad':[.01]*6})
+        p=dict(arm='right',executable=True,ik_checked=False,collision_checked=True,collision_free=True,
+            environment_collision_checked=True,observer_required=False,
+            initial_joints_rad={'left':f.left,'right':f.q},
+            lift={'fixed':True,'target_rad':6.,'current_rad':5.})
         f.step=prepare_step('execute_coarse_alignment',p,f.c,f.token,policies=policies,pick_setup=None,
                             preflight=lambda *a:True)
         self.assertEqual(f.adapter.calls,[])
-        self.assertEqual(f.settle_lift()['status'],'observing_motion')
-        self.assertEqual([c[0] for c in f.adapter.calls],['lift','trajectory'])
-        p['observer']['joints_rad']=f.q[:]
-        stationary=prepare_step('execute_coarse_alignment',p,f.c,f.token,policies=policies,pick_setup=None,
-                            preflight=lambda *a:True)
-        self.assertTrue(stationary.stationary)
+        self.assertTrue(f.step.stationary)
+        self.assertEqual(f.settle_lift()['status'],'settling_observer')
+        self.assertEqual([c[0] for c in f.adapter.calls],['lift'])
 
     def test_unverified_or_changed_tcp_rejected_before_transport(self):
         original=copy.deepcopy(self.plan)

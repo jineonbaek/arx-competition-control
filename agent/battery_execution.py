@@ -30,19 +30,19 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
         raise ValueError('Known operation, reserved controller and local preflight required')
     plan=copy.deepcopy(plan);policies=copy.deepcopy(policies);setup=copy.deepcopy(pick_setup)
     if plan.get('arm')!='right' or any(plan.get(k) is not True for k in
-            ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked')):
-        raise ValueError('Complete verified path and environment checks required')
+            ('executable','collision_checked','collision_free','environment_collision_checked')):
+        raise ValueError('Complete verified motion and environment checks required')
+    if operation!='execute_coarse_alignment' and plan.get('ik_checked') is not True:
+        raise ValueError('Complete verified IK path required')
     def guard(snapshot,now):
         return preflight(operation,copy.deepcopy(plan),snapshot,now) is True
     if not guard(controller.snapshot(),controller.clock()):raise ValueError('Local preflight rejected plan')
     if operation=='execute_coarse_alignment':
-        initial=plan['initial_joints_rad'];observer=plan['observer'];p=policies['coarse']
-        q0=np.asarray(initial['right'],float);q1=np.asarray(observer['joints_rad'],float)
-        if observer.get('status')!='observer_candidate':raise ValueError('Observer pose required')
-        if np.array_equal(q0,q1):
-            trajectory=dict(version=1,kind='stationary',joint_position_rad=q0.tolist())
-        else:
-            trajectory=dict(version=1,**_trajectory([q0,q1],p['reach_bound_m'],p['timing_limits']))
+        initial=plan['initial_joints_rad'];p=policies['coarse']
+        if plan.get('observer_required') is not False or plan.get('lift',{}).get('fixed') is not True:
+            raise ValueError('Fixed lift plan required')
+        q0=np.asarray(initial['right'],float)
+        trajectory=dict(version=1,kind='stationary',joint_position_rad=q0.tolist())
         return CoarseAlignmentStep(controller,token,lift_target_rad=plan['lift']['target_rad'],
             observer_plan=trajectory,initial_joints=initial,initial_lift_rad=plan['lift']['current_rad'],
             **{k:p[k] for k in ('fixed_joint_tolerance_rad','lift_policy','arm_policy','max_pair_skew_s')},
