@@ -128,3 +128,9 @@ BatteryExecutionTools now routes calibrated plans through PICK_APPROACH_PLANNED 
 The stored plan binds exact file hash, scene and TCP identity. An Agent cannot supply TCP, tolerance, execution flags or target coordinates as tool arguments. Current planners still produce executable=false, so full collision/driver preparation remains required. The new registry is not wired into the running 9983 UI. Synthetic test fixtures explicitly grant flags only to inert backends; no actual configuration, TCP or device changes.
 
 Validation: 143 Agent and 272 web tests passed before adding two further routing regressions; all 9 refinement-routing tests then passed, including fresh-scene approach -> insertion receipts, no replay, no false hold claim and tampered-plan/TCP rejection.
+
+### Battery Agent runtime binding (software only)
+
+BatteryRuntime uses the existing serial AgentRuntime model/tool/recovery loop with an explicit BatteryExecutionTools registry and battery-stage prompt. It refuses a missing or mismatched registry/store/config rather than silently falling back to generic tools. The existing 9983 preview runtime remains unchanged. Three new runtime tests plus six original runtime tests passed; no live model API or hardware was called.
+
+Ruling: production execution remains disabled until full collision checking, prepared controller/backend assembly and the user-supplied TCP are available. This is a software integration stage, not completion of the automatic physical grasp. Synthetic success receipts in tests cannot promote production planner outputs.
