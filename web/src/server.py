@@ -29,7 +29,7 @@ WEB_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = WEB_ROOT / "public"
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None):
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
@@ -70,6 +70,11 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == "/api/battery-task":
+                client=self.client()
+                if not client:return self.json(403,{"message":"请先打开控制台"})
+                if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
+                return self.json(200,battery_task.snapshot(client))
             if path in ("/api/grasp-integration", "/api/grasp-integration/result"):
                 if not self.client():return self.json(403, {"message":"请先打开抓取链路预览页"})
                 if grasp_integration is None:return self.json(503, {"message":"抓取链路预览未启用"})
@@ -173,7 +178,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -186,6 +191,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/battery-task':
+                    if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
+                    return self.json(202,battery_task.action(self.client(),strict_json(raw)))
                 if path == '/api/grasp-integration':
                     if grasp_integration is None:return self.json(503,{"message":"抓取链路预览未启用"})
                     return self.json(202,grasp_integration.handle(self.client(),strict_json(raw)))
