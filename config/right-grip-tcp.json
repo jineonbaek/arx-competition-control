@@ -1,0 +1,69 @@
+{
+  "calibration_id": "right-grip-pivot-16-20261112",
+  "parent_frame": "right_link26",
+  "tool_frame": "grip_reference",
+  "translation_unit": "m",
+  "T_wrist_from_tool": [
+    [
+      1,
+      0,
+      0,
+      0.14814204044912216
+    ],
+    [
+      0,
+      0,
+      -1,
+      0.0001811821141967096
+    ],
+    [
+      0,
+      1,
+      0,
+      -0.00114256599184928
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "provenance": {
+    "position_method": "Joint least squares with one shared TCP and separate fixed points per session (7+9 poses); duplicate 7-pose file excluded.",
+    "user_confirmation": "Calibration pointer tip is the modeled grip center; confirmed 2026-11-12.",
+    "rotation_method": "Nominal CAD axes with J6=-90 degrees: tool +X insertion and +Z opposite downward bump. Rotation is not pivot-measured.",
+    "sources": [
+      {
+        "path": "/home/arx/arx-competition-control/web/hardware/runtime/tcp-calibration/candidates/right-1794414477-836120f4.json",
+        "sha256": "dcb30fce739bd8e7a57f9c500dba2d9a8db2712a43cd4f822504dcc7abd2c8d8"
+      },
+      {
+        "path": "/home/arx/arx-competition-control/web/hardware/runtime/tcp-calibration/candidates/right-1794414629-5d7fe963.json",
+        "sha256": "3d222652354091cbc214cf77841e8505440ad877b3ca042574ba327acd8337e9"
+      }
+    ],
+    "solution": {
+      "tcp_offset_mm": [
+        148.14204044912216,
+        0.1811821141967096,
+        -1.1425659918492799
+      ],
+      "pivot_per_session_mm": [
+        [
+          616.4121952652622,
+          -276.61549234230034,
+          660.8056555244024
+        ],
+        [
+          558.6783761611105,
+          -269.50907448840695,
+          656.1077383919096
+        ]
+      ],
+      "rms_mm": 3.120686013864943,
+      "max_error_mm": 4.181058160075474,
+      "rank": 9
+    }
+  }
+}

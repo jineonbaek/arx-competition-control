@@ -208,3 +208,17 @@ require recovery. Cancellation and an uncertain previous execution prevent new m
 Completed closure still does not mean confirmed retention. No live registration.
 Validation: 8 inert-backend tests; initial missing-module test reproduced before fix.
 Scope: agent/battery_backend.py, agent/tests/test_battery_backend.py, this ledger.
+
+### 2026-11-12: measured TCP is now supplied
+
+User explicitly confirmed the calibration pointer tip IS the modeled grip center.
+config/right-grip-tcp.json records the joint 16-pose translation
+[148.14204045, 0.18118211, -1.14256599] mm relative to right_link26.
+The two sessions have different fixed points: least squares uses a shared TCP and
+a separate pivot per session; a duplicate 7-pose save is excluded. Source hashes
+and residuals (RMS 3.121 mm) are recorded; raw runtime samples remain untracked.
+The rotation uses the agreed CAD convention (J6 -90 degrees), not a pivot-measured
+orientation. load_pick_setup binds file content into calibration identity and takes
+explicit caller timing/tolerance policies. No fallback to the nominal CAD 154.970 mm.
+Nine TCP/real-IK planning tests pass. Earlier TCP-pending notes above are historical.
+Scope: config/right-grip-tcp.json, agent/battery_tcp.py, agent/tests/test_battery_tcp.py, this ledger.
