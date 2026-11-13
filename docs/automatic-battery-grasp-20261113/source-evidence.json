@@ -1,0 +1,194 @@
+{
+  "version": "92e780f4d30f0241b2517a865638d1022e35945c",
+  "run_id": "run-20261113T011613Z-83ee3ca2",
+  "flow": {
+    "status": "completed",
+    "phase": "extract",
+    "index": 12,
+    "polls": 514,
+    "clearance_mm": 50.0,
+    "grasp_confirmed": true,
+    "head": "obs_13076522e60c4446871081d1d5c95af1",
+    "reviewed_plan": "b37d4b021fc0500f464a7374e2a4c3b64b5a83fababe6c175e145762fb86143b",
+    "wrist": "obs_b79d9bd3beec4eb890bfa52abbeee0f1",
+    "plan_id": "pick_0f027034812d7c1d6d1e6286",
+    "command": {
+      "name": "stow_for_carry",
+      "arguments": {
+        "plan_id": "pick_0f027034812d7c1d6d1e6286"
+      }
+    },
+    "pending_since": 1794532670.9344554,
+    "reason": ""
+  },
+  "stage": "CARRY_READY",
+  "refinement": {
+    "status": "aligned",
+    "observation_id": "obs_b79d9bd3beec4eb890bfa52abbeee0f1",
+    "previous_observation_id": "obs_6de7946afaa24b38bbdd9d52f638ec73",
+    "correction_mm": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "measured_pregrasp_error_mm": [
+      -0.9327521154787064,
+      7.382325721105332,
+      -2.978478105203294
+    ],
+    "target_shift_mm": [
+      -2.1773869324719044,
+      4.711079845747122,
+      -0.77062743749525
+    ],
+    "orientation_error_deg": 4.802652920183718,
+    "proposed_total_correction_mm": 0,
+    "executable": false,
+    "reason": "measured_pregrasp_aligned"
+  },
+  "policy": {
+    "clearance_mm": 50.0,
+    "alignment_tolerance_deg": 10.0,
+    "j6_tolerance_deg": 6.0,
+    "timing_limits": {
+      "joint_speed_deg_s": [
+        8.55,
+        8.55,
+        8.55,
+        8.55,
+        8.55,
+        8.55
+      ],
+      "joint_acceleration_deg_s2": [
+        18.0,
+        18.0,
+        18.0,
+        18.0,
+        18.0,
+        18.0
+      ],
+      "tcp_speed_mm_s": 30.0,
+      "tcp_acceleration_mm_s2": 60.0
+    },
+    "timeout_s": {
+      "execute_coarse_alignment": 60.0,
+      "execute_battery_approach": 30.0,
+      "execute_pick": 30.0
+    },
+    "coarse": {
+      "reach_bound_m": 1.0,
+      "fixed_lift_target_rad": 5.52,
+      "lift_acceptance_rad": 5.0,
+      "fixed_joint_tolerance_rad": 0.05,
+      "max_pair_skew_s": 0.15,
+      "observer_search": {
+        "start_z_mm": 700.5,
+        "rpy_deg": [
+          -0.3,
+          -2.6,
+          0.1
+        ],
+        "offsets_mm": [
+          10.0,
+          20.0,
+          30.0,
+          40.0,
+          0.0,
+          -10.0,
+          -20.0,
+          -30.0
+        ],
+        "z_tolerance_mm": 2.0,
+        "orientation_tolerance_deg": 5.0
+      },
+      "lift_policy": {
+        "tolerance": [
+          0.02
+        ],
+        "max_speed": [
+          0.2
+        ],
+        "settle_s": 0.25,
+        "timeout_s": 30.0,
+        "stall_s": 2.0,
+        "max_age_s": 0.3
+      },
+      "arm_policy": {
+        "tolerance": [
+          0.035,
+          0.035,
+          0.035,
+          0.035,
+          0.035,
+          0.035
+        ],
+        "max_speed": [
+          0.05,
+          0.05,
+          0.05,
+          0.05,
+          0.05,
+          0.05
+        ],
+        "settle_s": 0.25,
+        "timeout_s": 20.0,
+        "stall_s": 2.0,
+        "max_age_s": 0.3
+      }
+    },
+    "pick": {
+      "lift_tolerance_rad": 0.05,
+      "max_pair_skew_s": 0.15,
+      "arm_policy": {
+        "tolerance": [
+          5.0,
+          5.0,
+          5.0,
+          1.5,
+          1.5,
+          1.5
+        ],
+        "max_speed": [
+          2.0,
+          2.0,
+          2.0,
+          2.0,
+          2.0,
+          2.0
+        ],
+        "settle_s": 0.1,
+        "timeout_s": 10.0,
+        "stall_s": 2.0,
+        "max_age_s": 0.3
+      },
+      "gripper_target": -0.4,
+      "gripper_policy": {
+        "tolerance": [
+          0.05
+        ],
+        "max_speed": [
+          0.2
+        ],
+        "settle_s": 0.1,
+        "timeout_s": 10.0,
+        "stall_s": 2.0,
+        "max_age_s": 0.3
+      },
+      "hold_gripper_range": [
+        -1.5,
+        -0.5
+      ]
+    },
+    "refinement": {
+      "max_step_mm": 10.0,
+      "max_rotation_step_deg": 5.0,
+      "position_tolerance_mm": [
+        18.0,
+        18.0,
+        18.0
+      ],
+      "orientation_tolerance_deg": 5.0
+    }
+  },
+  "scope": "Read-only source and saved run verification; no robot motion or deployment"
+}
