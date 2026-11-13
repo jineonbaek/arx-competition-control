@@ -6,6 +6,7 @@ import math
 from threading import Lock
 import time
 import numpy as np
+from scipy.spatial.transform import Rotation
 from web.src.handeye_column import ColumnModel
 from .battery_execution import prepare_step
 from .coarse_alignment import observer_search_geometry
@@ -54,7 +55,8 @@ class BatteryControllerBackend:
             if saved.get('status')=='completed':return copy.deepcopy(saved['data'])
             raise ValueError('Earlier observer search requires recovery')
         mission=self.store.state.get('mission') or {}
-        plan=mission.get('plan') or {};observer=plan.get('observer') or {}
+        plan=self.store.state.get('coarse_observer_plan') or mission.get('plan') or {}
+        observer=plan.get('observer') or {}
         if mission.get('stage')!='COARSE_ALIGNED':
             raise ValueError('Observer search is only allowed after coarse alignment')
         if self.store.state.get('pending') is not None or not self.available('execute_coarse_alignment'):
@@ -63,11 +65,27 @@ class BatteryControllerBackend:
         snapshot=self.controller.snapshot()
         q=np.asarray(snapshot['arms']['right']['joints'],float)
         lift=float(snapshot['body']['height'])
-        geometry=observer_search_geometry(observer,float(offset_mm),q,lift,ColumnModel(),
+        if (snapshot['arms']['right'].get('fresh') is not True or snapshot['body'].get('fresh') is not True
+                or q.shape!=(6,) or not np.isfinite(q).all() or not np.isfinite(lift) or not 0<=lift<=18):
+            raise ValueError('Fresh right-arm and lift feedback required for observer search')
+        model=ColumnModel()
+        origin=self.store.state.get('observer_search_origin')
+        if origin is None:
+            if observer.get('status')!='fixed_observer_candidate':
+                raise ValueError('固定观察姿态尚未通过检查')
+            wrist=model.wrist_transform(q,lift)
+            origin=dict(plan_id=plan.get('plan_id'),
+                target_wrist_base_mm=(wrist[:3,3]*1000).tolist(),
+                rpy_deg=Rotation.from_matrix(wrist[:3,:3]).as_euler('xyz',degrees=True).tolist())
+            self.store.state['observer_search_origin']=origin
+            self.store.save()
+        if not isinstance(origin,dict) or origin.get('plan_id')!=plan.get('plan_id'):
+            raise ValueError('Observer search origin belongs to another coarse plan')
+        search_observer=observer|{k:origin[k] for k in ('target_wrist_base_mm','rpy_deg')}
+        geometry=observer_search_geometry(search_observer,float(offset_mm),q,lift,model,
             self.controller.config['arms']['right']['joint_limits_deg'])
         if not geometry['clear']:raise ValueError('观察搜索路径接近中央立柱')
         target=np.asarray(geometry['joints_rad'],float)
-        model=ColumnModel()
         path=TimedJointPath([q,target],p['reach_bound_m'],
             tcp_position=lambda angles:model.wrist_transform(angles,lift)[:3,3],**p['timing_limits'])
         timed=dict(version=1,interpolation='segment_quintic_scalar',

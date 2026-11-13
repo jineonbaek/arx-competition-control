@@ -148,7 +148,7 @@ class Steps:
                         dz_mm=self.wrist_rise_mm(target,h)
                         if self.profile=='raise' and dz_mm<=0:raise ValueError("此起姿下模型未预测到腕部抬高")
                         check=self.assess(s,q,h,target)
-                        if not check["clear"]:raise ValueError(f"整段间隙下界 {check['lower_mm']} mm，未超过 20 mm")
+                        if not check["clear"]:raise ValueError("整段运动的 CAD 几何与底座/立柱相交或无法分离")
                     except ValueError as err:
                         self.record("跳过",str(err),self.cursor)
                         if not self.raised:break

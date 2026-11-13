@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import numpy as np
 from web.src.handeye_column import ColumnModel, NOMINAL_RAD_PER_M, PACKAGE
-from .grasp_scene import frame_path
+from .grasp_scene import frame_path, CALIBRATION
+from .observer_pose import assess_observer
 from .storage import atomic_json
 from .lift_sweep import assess_lift
 from .execution_policy import load
@@ -12,7 +13,7 @@ from .execution_policy import load
 ROOT=Path(__file__).resolve().parents[1]
 
 def coarse_geometry(target_mm,current_lift,model,limits=(0.,18.),*,fixed_lift_rad,
-                    observer_start_z_mm,observer_rpy_deg,current_joints,limits_deg):
+                    observer_start_z_mm,observer_rpy_deg,current_joints,limits_deg,observer=None):
     target=np.asarray(target_mm,float)
     if len(limits)!=2 or not np.isfinite(limits).all() or limits[0]>=limits[1]:
         raise ValueError('升降范围无效')
@@ -32,21 +33,28 @@ def coarse_geometry(target_mm,current_lift,model,limits=(0.,18.),*,fixed_lift_ra
     reference=zero.copy();reference[2]+=height/NOMINAL_RAD_PER_M*1000
     current_wrist=model.wrist_transform(q,float(current_lift))[:3,3]*1000
     observer_xyz=current_wrist.copy();observer_xyz[2]=float(observer_start_z_mm)
+    directed=observer is not None
     try:
-        observer_joints=np.asarray(model.inverse_wrist(q,height,observer_xyz,rpy,limits_deg),float)
-        observer_path=model.check(q,observer_joints,height)
-        observer=dict(kind='fixed',status='fixed_observer_candidate',
+        if directed:
+            if observer.get('status')!='observer_candidate':raise ValueError(observer.get('message','D435 引导观察位不可用'))
+            observer_xyz=np.asarray(observer['wrist_base_mm'],float)
+            observer_joints=np.asarray(observer['joints_rad'],float)
+        else:
+            observer_joints=np.asarray(model.inverse_wrist(q,height,observer_xyz,rpy,limits_deg),float)
+        observer_path=observer['column_path'] if directed else model.check(q,observer_joints,height)
+        observer=(observer if directed else {})|dict(kind='d435_guided' if directed else 'fixed',status='fixed_observer_candidate',
             joints_rad=observer_joints.tolist(),target_wrist_base_mm=observer_xyz.tolist(),
             rpy_deg=rpy.tolist(),column_path=observer_path,
-            note='X/Y 保持当前初始腕位，Z 使用固定观察起点；移动后必须用新 D405 帧确认。')
+            note=('按本轮 D435 位置选择观察区域；配置 Z 为优先高度，移动后使用新 D405 帧确认。' if directed
+                  else 'X/Y 保持当前初始腕位，Z 使用固定观察起点；移动后必须用新 D405 帧确认。'))
         if not observer_path['clear']:
             observer.update(status='fixed_observer_rejected',message='固定观察姿态到中央立柱间隙不足')
     except (ValueError,TypeError) as error:
-        observer=dict(kind='fixed',status='fixed_observer_unavailable',joints_rad=None,
+        observer=dict(kind='d435_guided' if directed else 'fixed',status='fixed_observer_unavailable',joints_rad=None,
             target_wrist_base_mm=observer_xyz.tolist(),rpy_deg=rpy.tolist(),message=str(error))
     return dict(frame='base_link',unit='mm',status='coarse_proposal',
         target_surface_base_mm=target.tolist(),reference_joints_deg=[0]*6,
-        reference_wrist_base_mm=reference.tolist(),x_y_alignment='deferred_to_d405',
+        reference_wrist_base_mm=reference.tolist(),x_y_alignment='d435_guided' if directed else 'deferred_to_d405',
         lift=dict(current_rad=float(current_lift),requested_rad=height,target_rad=height,
             acceptance_rad=float(fixed_lift_rad),
             delta_rad=height-float(current_lift),limits_rad=list(limits),
@@ -102,17 +110,22 @@ def plan(registry,observation_id,call_id):
         coarse_policy=load(ROOT/'config/battery-execution.json',
             gripper_limits=config['arms']['right']['gripper_limits_raw'])['coarse']
     observer_search=coarse_policy['observer_search']
+    calibration_blob=CALIBRATION.read_bytes()
+    observer=assess_observer(feedback,location,coarse_policy['fixed_lift_target_rad'],
+        json.loads(calibration_blob),config['arms']['right']['joint_limits_deg'],
+        observer=observer_search)
     result=coarse_geometry(location['surface_base_mm'],height,ColumnModel(),limits,
         fixed_lift_rad=coarse_policy['fixed_lift_target_rad'],
         observer_start_z_mm=observer_search['start_z_mm'],
         observer_rpy_deg=observer_search['rpy_deg'],
-        current_joints=feedback['joints'],
+        current_joints=feedback['joints'],observer=observer,
         limits_deg=config['arms']['right']['joint_limits_deg'])
     sweep=assess_lift(feedback,result['lift']['target_rad'])
     result['lift']['acceptance_rad']=coarse_policy['lift_acceptance_rad']
     result['lift']['column_sweep']=sweep
     if sweep['status']!='column_clear':result['blockers'].append(sweep['message'])
-    result.update(initial_joints_rad={side:(feedback[key].tolist() if key in feedback else None)
+    result.update(observer_calibration_sha256=hashlib.sha256(calibration_blob).hexdigest(),
+        initial_joints_rad={side:(feedback[key].tolist() if key in feedback else None)
         for side,key in (('left','left_joints'),('right','joints'))},
         observation_id=observation_id,
         calibration_sha256=store.observation(observation_id).get('calibration_sha256'),

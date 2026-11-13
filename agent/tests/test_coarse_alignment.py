@@ -60,7 +60,8 @@ class CoarseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'定位'):plan(tools,ident,'missing')
             path=store.path/'result.json'
             evidence=dict(observation_id=ident,camera='d435',status='localized',
-                location=dict(surface_base_mm=[500,-250,750],kind='visible_surface_not_grip'))
+                location=dict(surface_base_mm=[500,-250,750],kind='visible_surface_not_grip',
+                    surface_bounds_p90_base_mm=[[480,-270,730],[520,-230,770]]))
             atomic_json(path,evidence)
             store.state['battery_observations']={ident:'result.json'}
             tools.backends.policies={'coarse':{
@@ -75,7 +76,9 @@ class CoarseTests(unittest.TestCase):
             self.assertEqual(result['lift']['acceptance_rad'],6.)
             self.assertTrue(result['lift']['fixed'])
             self.assertEqual(result['observer']['status'],'fixed_observer_candidate')
-            self.assertEqual(result['observer']['target_wrist_base_mm'][2],735.5)
+            self.assertEqual(result['observer']['kind'],'d435_guided')
+            self.assertEqual(result['x_y_alignment'],'d435_guided')
+            self.assertAlmostEqual(result['observer']['target_wrist_base_mm'][2],735.5,places=3)
             self.assertEqual(len(result['observer']['joints_rad']),6)
             self.assertTrue((store.path/result['result_file']).is_file())
             evidence['camera']='d405';atomic_json(path,evidence)

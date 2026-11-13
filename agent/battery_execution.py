@@ -9,6 +9,7 @@ from .grasp_geometry import rigid
 from .grasp_path import TimedJointPath
 from .motion_feedback import PickMonitor
 from .pick_execution import ApproachTrajectoryStep, StationaryApproachStep, PickTrajectoryStep
+from web.src.handeye_column import NOMINAL_RAD_PER_M
 
 OPERATIONS={'execute_coarse_alignment','execute_battery_approach','execute_pick'}
 
@@ -49,11 +50,21 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
             trajectory=dict(version=1,**_trajectory([q0,q1],p['reach_bound_m'],p['timing_limits'],
                 tcp_position=lambda angles:controller.models['right'].wrist_transform(
                     angles,plan['lift']['target_rad'])[:3,3]))
+        certificate=[float(plan['lift']['target_rad']),float(observer.get('column_path',{}).get('lower_mm',0))/1000-.00005]
+        def arm_guard(snapshot,now):
+            if not guard(snapshot,now):return False
+            if observer.get('kind')!='d435_guided':return True
+            height=float(snapshot['body']['height'])
+            # Only CAD separation matters; a height change triggers geometry recheck, not a rad gate.
+            if abs(height-certificate[0])/NOMINAL_RAD_PER_M<certificate[1]:return True
+            checked=controller.models['right'].check(snapshot['arms']['right']['joints'],q1,height)
+            certificate[:]=[height,float(checked['lower_mm'])/1000-.00005]
+            return checked['clear']
         return CoarseAlignmentStep(controller,token,lift_target_rad=plan['lift']['target_rad'],
             lift_acceptance_rad=plan['lift'].get('acceptance_rad'),
             observer_plan=trajectory,initial_joints=initial,initial_lift_rad=plan['lift']['current_rad'],
             **{k:p[k] for k in ('fixed_joint_tolerance_rad','lift_policy','arm_policy','max_pair_skew_s')},
-            lift_preflight=guard,arm_preflight=guard)
+            lift_preflight=guard,arm_preflight=arm_guard)
     if setup is None:raise ValueError('TCP pending')
     digest=hashlib.sha256(json.dumps(setup,sort_keys=True,allow_nan=False).encode()).hexdigest()
     if plan.get('pick_setup_sha256')!=digest or plan.get('calibration_id')!=setup['calibration_id']:

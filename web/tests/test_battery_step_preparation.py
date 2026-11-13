@@ -106,6 +106,34 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(receipt['status'],'ready_to_reobserve')
         self.assertEqual([call[0] for call in self.f.adapter.calls],['trajectory'])
 
+    def test_guided_observer_revalidates_actual_lift_using_cad_clearance(self):
+        import test_coarse_step as coarse
+        f=coarse.CoarseStepTests();f.setUp()
+        endpoint=np.asarray(f.q)+[.001,0,0,0,0,0]
+        policies=dict(coarse=dict(reach_bound_m=1.,timing_limits=self.timing,
+            fixed_joint_tolerance_rad=.002,lift_policy=f.lift_policy,arm_policy=f.arm_policy,max_pair_skew_s=.05))
+        p=dict(arm='right',executable=True,ik_checked=True,collision_checked=True,collision_free=True,
+            environment_collision_checked=True,initial_joints_rad={'left':f.left,'right':f.q},
+            lift={'fixed':True,'target_rad':6.,'acceptance_rad':5.5,'current_rad':5.},
+            observer={'kind':'d435_guided','status':'fixed_observer_candidate','joints_rad':endpoint,
+                      'column_path':{'clear':True,'lower_mm':100.}})
+        step=prepare_step('execute_coarse_alignment',p,f.c,f.token,policies=policies,
+                          pick_setup=None,preflight=lambda *a:True)
+        snapshot=f.c.snapshot();snapshot['body']['height']=5.4
+        self.assertTrue(step.arm_preflight(snapshot,f.now))
+        from unittest.mock import patch
+        with patch.object(f.c.models['right'],'check',return_value={'clear':True,'lower_mm':80.}) as check:
+            snapshot['body']['height']=1.
+            self.assertTrue(step.arm_preflight(snapshot,f.now))
+            self.assertEqual(check.call_count,1)
+            snapshot['body']['height']=1.1
+            self.assertTrue(step.arm_preflight(snapshot,f.now))
+            self.assertEqual(check.call_count,1)
+            check.return_value={'clear':False,'lower_mm':0.}
+            snapshot['body']['height']=9.
+            self.assertFalse(step.arm_preflight(snapshot,f.now))
+        self.assertEqual(f.adapter.calls,[])
+
     def test_aligned_insert_starts_at_measured_joints_without_extra_observation(self):
         self.plan['start_joints_rad'][0]-=.001
         self.plan['approach']['start_rad']=self.plan['start_joints_rad'][:]

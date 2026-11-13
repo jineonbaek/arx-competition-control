@@ -173,6 +173,8 @@ class CoarseAlignmentStep:
                     self.stage='observing_motion'
                     def observer_start(snapshot, time):
                         self._check(snapshot,time,lifting=False,commands=False)
+                        if self.arm_preflight(snapshot,time) is not True:
+                            raise ValueError('Observer scene or CAD path preflight failed')
                         return True
                     if self.stationary:
                         observer_start(self.controller.snapshot(),self.controller.clock())

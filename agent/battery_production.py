@@ -32,7 +32,7 @@ def review_plan(operation,plan,*,environment_clear):
                  and sweep.get('status')=='column_clear'
                  and isinstance(observer.get('column_path'),dict))
         clear=checked and ik
-        method='Fixed lift, fixed observer path, both-arm column sweep and operator clear-area confirmation'
+        method='Configured lift, D435-directed observer, CAD mesh sweep and operator clear-area confirmation'
     else:
         points=np.asarray(plan.get('joint_waypoints_rad'),float)
         timing=plan.get('timing',{})

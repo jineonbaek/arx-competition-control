@@ -68,6 +68,14 @@ class CoarseStepTests(unittest.TestCase):
         self.assertTrue(self.step.lift_stop_sent)
         np.testing.assert_allclose(self.step.lift.target,[5.0])
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
+
+    def test_observer_preflight_failure_sends_no_trajectory(self):
+        self.step.arm_preflight=lambda *_:False
+        self.step.start();self.height=6.
+        for t in (10.1,10.2,10.31,10.32):
+            self.feedback(t);result=self.step.poll()
+        self.assertTrue(result['stop_required'])
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
     def test_lift_failure_cannot_start_arm_and_stop_is_not_claimed_as_rest(self):
         for fault in ('stale','cancel','preflight'):
             with self.subTest(fault=fault):

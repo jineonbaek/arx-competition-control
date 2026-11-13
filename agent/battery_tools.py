@@ -163,6 +163,11 @@ class BatteryExecutionTools(WorkflowTools):
         if wrist or name in ('preview_battery_grasp','plan_battery_pick'):
             mission.require(('COARSE_ALIGNED','PICK_AT_PREGRASP','PICK_APPROACH_PLANNED',
                              'PICK_CORRECTION_PLANNED','PICK_PLANNED'))
+            coarse=mission.data.get('plan') or {}
+            if (mission.stage=='COARSE_ALIGNED'
+                    and coarse.get('observer',{}).get('status')=='fixed_observer_candidate'):
+                state['coarse_observer_plan']=copy.deepcopy(coarse)
+                state.pop('observer_search_origin',None)
             mission.data.update(stage=self._wrist_stage(),plan=None)
             state.pop('battery_pick_plan_sha256',None)
             self.store.save()
@@ -201,10 +206,12 @@ class BatteryExecutionTools(WorkflowTools):
                 raise AgentError('pick_plan_failed','抓取规划证据或参数无效：'+str(error)[:180]) from error
         if head:
             mission.require(('IDLE','HEAD_LOCALIZED','COARSE_PLANNED'))
+            state.pop('coarse_observer_plan',None);state.pop('observer_search_origin',None)
             mission.data.update(stage='IDLE',plan=None)
             self.store.save()
         elif name=='plan_coarse_alignment':
             mission.require(('HEAD_LOCALIZED','COARSE_PLANNED'))
+            state.pop('coarse_observer_plan',None);state.pop('observer_search_origin',None)
             mission.data.update(stage='HEAD_LOCALIZED',plan=None)
             self.store.save()
         result=self._perception(name,a,call_id)

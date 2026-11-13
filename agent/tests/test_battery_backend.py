@@ -3,6 +3,10 @@ import copy
 import tempfile
 import unittest
 from unittest.mock import patch
+import numpy as np
+from scipy.spatial.transform import Rotation
+from web.src.handeye_column import ColumnModel
+from agent.battery_flow import plan_digest
 from agent.storage import RunStore
 from agent.battery_backend import BatteryControllerBackend
 from agent.tests.test_coarse_backend import Step
@@ -91,18 +95,35 @@ class BackendTests(unittest.TestCase):
         with patch('agent.battery_backend.prepare_step') as prepare:
             self.assertEqual(self.start()['status'],'rejected');prepare.assert_not_called()
 
+    def test_d405_entry_preserves_completed_coarse_plan_before_clearing_mission_plan(self):
+        import time
+        from agent.tests.test_battery_execution_tools import BatteryExecutionToolsTests
+        fixture=BatteryExecutionToolsTests();fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.assertTrue(fixture.run_coarse()['ok'])
+        reviewed=copy.deepcopy(fixture.store.state['mission']['plan'])
+        observed=fixture.observation('d405',time.time())
+        with patch.object(fixture.tools,'_perception',return_value=observed):
+            reply=fixture.tools.execute('observe_battery',{'camera':'d405'},'new_wrist')
+        self.assertTrue(reply['ok'],reply)
+        self.assertIsNone(fixture.store.state['mission']['plan'])
+        self.assertEqual(fixture.store.state.get('coarse_observer_plan'),reviewed)
+
     def test_observer_search_is_journaled_and_never_replayed(self):
         self.store.state['pending']=None
         self.store.state['mission'].update(stage='COARSE_ALIGNED',
             plan=dict(self.payload['plan'],observer=dict(status='fixed_observer_candidate',
                 target_wrist_base_mm=[251.767,-248.9933,700.5],rpy_deg=[-.3,-2.6,.1],
                 column_path={'clear':True}),lift={'fixed':True}))
+        self.store.state['coarse_observer_plan']=copy.deepcopy(self.store.state['mission']['plan'])
+        self.store.state['mission']['plan']=None
         self.store.save()
         class SearchController(Controller):
             config={'arms':{'right':{'joint_limits_deg':[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]}}}
             def snapshot(self):
-                return dict(arms={'left':{'joints':[0.]*6},'right':{'joints':[0.]*6}},
-                            body={'height':5.52})
+                return dict(arms={'left':{'joints':[0.]*6,'fresh':True},
+                                  'right':{'joints':[0.]*6,'fresh':True}},
+                            body={'height':5.52,'fresh':True})
         class SearchStep:
             calls=[]
             def __init__(self,*args,**kwargs):self.calls.append('init')
@@ -117,5 +138,49 @@ class BackendTests(unittest.TestCase):
             second=backend.adjust_observer_search('search',0,10.)
         self.assertEqual(first,second)
         self.assertEqual(SearchStep.calls,['init','start'])
+
+    def test_search_offsets_share_measured_xyz_rpy_after_backend_and_store_reopen(self):
+        self.store.state['pending']=None
+        self.store.state['mission'].update(stage='COARSE_ALIGNED',plan=None)
+        reviewed=dict(self.payload['plan'],observer=dict(status='fixed_observer_candidate',
+            target_wrist_base_mm=[300.,-100.,700.5],rpy_deg=[-.3,-2.6,.1],column_path={'clear':True}),
+            lift={'fixed':True})
+        self.store.state['coarse_observer_plan']=copy.deepcopy(reviewed)
+        self.store.save()
+        class SearchController(Controller):
+            config={'arms':{'right':{'joint_limits_deg':[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]}}}
+            def __init__(self):self.q=np.zeros(6);self.lift=5.07686710357666
+            def snapshot(self):
+                return dict(arms={'left':{'joints':[0.]*6,'fresh':True},
+                                  'right':{'joints':self.q.tolist(),'fresh':True}},
+                            body={'height':self.lift,'fresh':True})
+        controller=SearchController();model=ColumnModel()
+        measured=model.wrist_transform(controller.q,controller.lift)
+        class SearchStep:
+            def __init__(self,controller,*args,**kwargs):
+                self.controller=controller;self.plan=kwargs['observer_plan']
+            def start(self):
+                self.controller.q=np.asarray(self.plan['joint_waypoints_rad'][-1])
+                return {'status':'ready_to_observe','stop_required':False}
+            def cancel(self):return {'status':'cancelled'}
+        settings=policy();coarse=dict(settings['coarse'],timing_limits=settings['timing_limits'])
+        def backend(store):
+            return BatteryControllerBackend(controller,'owned',store,
+                policies={'coarse':coarse},pick_setup=None,preflight=lambda *a:True,
+                cancelled=lambda:False,timeout_s={'execute_coarse_alignment':1.,'execute_battery_approach':1.,'execute_pick':1.})
+        with patch('agent.battery_backend.CoarseAlignmentStep',SearchStep):
+            first=backend(self.store).adjust_observer_search('search',0,10.)
+            np.testing.assert_allclose(first['target_wrist_base_mm'],measured[:3,3]*1000+[0,0,10],atol=1e-6)
+            origin=copy.deepcopy(self.store.state['observer_search_origin'])
+            self.store.close();restored=RunStore.open(self.store.path);self.addCleanup(restored.close)
+            second=backend(restored).adjust_observer_search('search',1,20.)
+            np.testing.assert_allclose(second['target_wrist_base_mm'],measured[:3,3]*1000+[0,0,20],atol=1e-6)
+            zero=backend(restored).adjust_observer_search('search',2,0.)
+            np.testing.assert_allclose(zero['target_wrist_base_mm'],measured[:3,3]*1000,atol=1e-6)
+        self.assertEqual(restored.state['observer_search_origin'],origin)
+        np.testing.assert_allclose(Rotation.from_euler('xyz',origin['rpy_deg'],degrees=True).as_matrix(),
+                                   measured[:3,:3],atol=1e-8)
+        np.testing.assert_allclose(model.wrist_transform(controller.q,controller.lift),measured,atol=1e-6)
+        self.assertEqual(plan_digest(restored.state['coarse_observer_plan']),plan_digest(reviewed))
 
 if __name__=='__main__':unittest.main()

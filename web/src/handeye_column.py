@@ -1,14 +1,15 @@
-"""Conservative right-arm vs central column clearance in the DIY URDF's base frame."""
+"""CAD mesh clearance against the fixed base, using the preview's URDF visuals."""
 import math
+from functools import lru_cache
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import numpy as np
+import fcl
 from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares
 
 PACKAGE = Path(__file__).resolve().parents[1] / "public/models/lift2/diy-20261105"
-MARGIN = .020
 CORNERS = np.array([[a,b,c] for a in (0,1) for b in (0,1) for c in (0,1)])
 NOMINAL_RAD_PER_M = 41.54
 
@@ -31,25 +32,62 @@ def vertices(path):
     return np.frombuffer(data, dtype=record, offset=84)["vertices"].reshape(-1,3).astype(float)
 
 
+@lru_cache(maxsize=64)
+def cad_mesh(path, scale, transform):
+    m=np.asarray(transform,float).reshape(4,4)
+    v=vertices(path)*scale
+    v=v@m[:3,:3].T+m[:3,3]
+    def build(points):
+        geometry=fcl.BVHModel()
+        geometry.beginModel(len(points),len(points)//3)
+        geometry.addSubModel(points,np.arange(len(points),dtype=np.int32).reshape(-1,3))
+        geometry.endModel()
+        return geometry
+    if path.name=='base_link.STL':
+        triangles=v.reshape(-1,3,3)
+        upper=triangles[:,:,2].max(1)>.09
+        # Same CAD triangles, split at chassis height so the tall base's BVH stays tight.
+        geometry=tuple((p.min(0),p.max(0),fcl.CollisionObject(build(p)))
+                       for p in (triangles[upper].reshape(-1,3),triangles[~upper].reshape(-1,3)) if len(p))
+    else:geometry=build(v)
+    return v,geometry
+
+
+def mesh_gap(obstacle, geometry, transform, bounds):
+    obj=fcl.CollisionObject(geometry,fcl.Transform(transform[:3,:3],transform[:3,3]))
+    if isinstance(obstacle,tuple):
+        pairs=[]
+        for lo,hi,part in obstacle:
+            delta=np.maximum(0,np.maximum(lo-bounds[1],bounds[0]-hi))
+            pairs.append((float(np.linalg.norm(delta)),part))
+        best=math.inf
+        for bound,part in sorted(pairs,key=lambda pair:pair[0]):
+            if bound>=best:continue
+            distance=float(fcl.distance(part,obj,fcl.DistanceRequest(),fcl.DistanceResult()))
+            if not math.isfinite(distance):raise ValueError('CAD mesh distance is not finite')
+            best=min(best,max(0.,distance))
+            if best==0:break
+        return best
+    gap=float(fcl.distance(obstacle,obj,fcl.DistanceRequest(),fcl.DistanceResult()))
+    if not math.isfinite(gap):raise ValueError('CAD mesh distance is not finite')
+    return max(0.,gap)
+
+
 class ColumnModel:
     def __init__(self, package=PACKAGE, *, side="right"):
         xml = ET.parse(package/"urdf/lift2_with_sensors.urdf")
         self.lift = origin(xml.find("joint[@name='joint4']/origin"))
         def mesh(name):
-            collision = xml.find(f"link[@name='{name}']/collision")
-            path = collision.find("geometry/mesh").get("filename").removeprefix("package://lift2/")
-            v = vertices(package/path)
-            m = origin(collision.find("origin"))
-            return v @ m[:3,:3].T + m[:3,3]
-        base = mesh("base_link")
-        # Above the chassis/wheels, the tall fixed structure is the central column.
-        upper = base[base[:,2] > .09]
-        lo, hi = upper.min(0), upper.max(0)
-        lo[:2] -= .01
-        hi[:2] += .01
-        lo[2] = 0.0
-        self.column = lo, hi
+            visual = xml.find(f"link[@name='{name}']/visual")
+            node=visual.find("geometry/mesh")
+            path=node.get("filename").removeprefix("package://lift2/")
+            scale=tuple(np.fromstring(node.get('scale','1 1 1'),sep=' '))
+            return cad_mesh(package/path,scale,tuple(origin(visual.find('origin')).ravel()))
+        base,geometry = mesh("base_link")
+        self.column = base.min(0),base.max(0)
+        self.obstacle=geometry
         self.parts = []
+        self.meshes=[]
         first = {"left": 11, "right": 21}[side]
         self.side = side
         self.first = first
@@ -57,7 +95,8 @@ class ColumnModel:
             j = xml.find(f"joint[@name='{side}_joint{n}']")
             m = origin(j.find("origin"))
             axis = vector(j.find("axis"),"xyz")
-            v = mesh(f"{side}_link{n}")
+            v,geometry = mesh(f"{side}_link{n}")
+            self.meshes.append(geometry)
             if n >= first + 6:
                 # Include the entire possible prismatic finger travel.
                 v = np.vstack([v + axis*float(j.find("limit").get(b)) for b in ("lower","upper")])
@@ -102,7 +141,7 @@ class ColumnModel:
                 or np.linalg.norm(error[3:]) > math.radians(.2)):
             raise ValueError("当前姿态和关节限位内未找到足够精确的逆解")
         if not self.check(q, fit.x, lift)["clear"]:
-            raise ValueError("腕部目标的关节路径接近中央立柱")
+            raise ValueError("腕部目标路径的 CAD 几何与底座/立柱相交或无法分离")
         return fit.x.tolist()
 
     def pose(self, q, lift):
@@ -117,9 +156,21 @@ class ColumnModel:
                 parent = link
             if i == 5:
                 wrist = link
-            v = corners @ link[:3,:3].T + link[:3,3]
-            gap = np.maximum(0, np.maximum(self.column[0]-v.max(0),v.min(0)-self.column[1]))
-            closest = min(closest,(float(np.linalg.norm(gap)), f"{self.side}_link{i+self.first}"))
+            def gap(offset):
+                shifted=link.copy();shifted[:3,3]+=link[:3,:3]@axis*offset
+                box=corners@shifted[:3,:3].T+shifted[:3,3]
+                return mesh_gap(self.obstacle,self.meshes[i],shifted,(box.min(0),box.max(0)))
+            distance=gap(0.)
+            if i>=6:
+                # Certify the full possible jaw stroke without replacing the finger with a box.
+                def stroke(a,b,ga,gb,depth=0):
+                    lower=min(ga,gb)-(b-a)/2
+                    if lower>0 or min(ga,gb)<=0:return max(0.,lower)
+                    if depth>=20:return 0.
+                    middle=(a+b)/2;gm=gap(middle)
+                    return min(stroke(a,middle,ga,gm,depth+1),stroke(middle,b,gm,gb,depth+1))
+                distance=stroke(0.,.044,distance,gap(.044))
+            closest = min(closest,(distance, f"{self.side}_link{i+self.first}"))
         return closest, wrist
 
     def check(self, start, end, lift):
@@ -128,9 +179,24 @@ class ColumnModel:
             raise ValueError("无效关节或升降反馈")
         delta = b-a
         steps = max(1,math.ceil(np.max(np.abs(delta))/math.radians(.5)))
-        # Between grid points, any point can travel at most reach * sum(|dq|).
-        between = self.reach * np.abs(delta).sum() / (2*steps)
-        gap,link = min(self.pose(a + t*delta,lift)[0] for t in np.linspace(0,1,steps+1))
-        bound = gap-between
-        return {"clear":bool(bound > MARGIN),"lower_mm":round(max(0.,bound)*1000,1),
-                "margin_mm":int(MARGIN*1000),"link":link,"steps":steps+1}
+        samples={}
+        def sample(t):
+            if t not in samples:samples[t]=self.pose(a+t*delta,lift)[0]
+            return samples[t]
+        def interval(left,right,depth=0):
+            gl,ll=sample(left);gr,lr=sample(right)
+            gap,link=min((gl,ll),(gr,lr))
+            # Mesh distance is Lipschitz; refine unresolved intervals instead of applying 20 mm.
+            lower=gap-self.reach*np.abs(delta).sum()*(right-left)/2
+            if lower>0 or gap<=0:return max(0.,lower),link
+            if depth>=20:return 0.,link
+            mid=(left+right)/2
+            first=interval(left,mid,depth+1)
+            if first[0]<=0:return first
+            return min(first,interval(mid,right,depth+1))
+        lower,link=math.inf,''
+        for left,right in zip(np.linspace(0,1,steps+1)[:-1],np.linspace(0,1,steps+1)[1:]):
+            lower,link=min((lower,link),interval(float(left),float(right)))
+            if lower<=0:break
+        return {"clear":bool(lower>0),"lower_mm":round(max(0.,lower)*1000,1),
+                "margin_mm":0,"link":link,"steps":len(samples),"geometry":"urdf_visual_mesh"}

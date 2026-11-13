@@ -29,7 +29,7 @@ def view_check(base_camera, bounds_m, k):
     return result|dict(in_view=margin>=24,edge_margin_px=margin,pixel_bounds=[lo.tolist(),hi.tolist()])
 
 
-def assess_observer(frame, location, lift_rad, calibration, limits_deg):
+def assess_observer(frame, location, lift_rad, calibration, limits_deg, *, observer=None):
     result=dict(status='observer_unavailable',executable=False,tcp=None,joints_rad=None,
                 occlusion_checked=False,environment_checked=False,
                 message='尚未找到 D405 观察姿态')
@@ -55,12 +55,18 @@ def assess_observer(frame, location, lift_rad, calibration, limits_deg):
             raise ValueError('D405 手眼标定坐标系或相机身份不匹配')
         handeye=rigid(calibration['T_right_link26_from_D405_color'])
         model=ColumnModel()
+        if observer is not None:
+            rpy=np.asarray(observer['rpy_deg'],float)
+            z=float(observer['start_z_mm'])/1000
+            if (rpy.shape!=(3,) or not np.isfinite(rpy).all() or not np.isfinite(z)
+                    or not 0<=z<=1.5):
+                raise ValueError('D435 引导观察参数无效')
 
         def candidate(angles):
             wrist=model.wrist_transform(angles,lift_rad)
             base_camera=wrist@handeye
             view=view_check(base_camera,bounds,k)
-            if not view['in_view']:return None
+            if observer is None and not view['in_view']:return None
             path=model.check(q,angles,lift_rad)
             if not path['clear']:return None
             return result|dict(status='observer_candidate',joints_rad=np.asarray(angles).tolist(),
@@ -73,6 +79,37 @@ def assess_observer(frame, location, lift_rad, calibration, limits_deg):
                 message='有限候选中找到逆解和立柱路径检查通过的观察姿态；未执行。',
                 note='预测视野仅覆盖 D435 已见表面的中央 90% 范围，非完整电池。未检查遮挡、环境和自碰撞；升降及移动后必须重新确认同一目标。')
 
+        if observer is not None:
+            rotation=Rotation.from_euler('xyz',rpy,degrees=True).as_matrix()
+            mount=rotation@handeye[:3,3]
+            forward=rotation@handeye[:3,2]
+            if forward[0]<=.1:raise ValueError('D405 观察方向未朝向机器人前方')
+            # Distances are offline candidates along base X, not stop-and-capture motion steps.
+            current_x=model.wrist_transform(q,lift_rad)[0,3]
+            current_distance=target[0]-mount[0]-current_x
+            distances=(.30,.35,.40,.25,.45)
+            if .1<=current_distance<=.45:distances=(float(current_distance),)+distances
+            distances=sorted(distances,key=lambda d:abs(target[0]-d-mount[0]-current_x))
+            candidates=[]
+            for preferred in (True,False):
+                for distance in distances:
+                    height=z if preferred else target[2]-mount[2]-distance*forward[2]/forward[0]
+                    wrist_pos=np.array([target[0]-distance-mount[0],target[1]-mount[1],height])
+                    proposed=np.eye(4);proposed[:3,:3]=rotation;proposed[:3,3]=wrist_pos
+                    visible=view_check(proposed@handeye,bounds,k)['in_view']
+                    candidates.append(((not visible,not preferred,abs(wrist_pos[0]-current_x)),distance,wrist_pos))
+            # Predicted visibility ranks coarse candidates; it is not another execution gate.
+            for _,distance,wrist_pos in sorted(candidates,key=lambda item:item[0]):
+                try:
+                    angles=np.asarray(model.inverse_wrist(q,lift_rad,wrist_pos*1000,rpy,limits_deg))
+                    item=candidate(angles)
+                except ValueError:
+                    continue
+                if item is not None:
+                    return item|dict(kind='d435_guided',distance_base_x_mm=distance*1000,
+                        message='按本轮 D435 位置沿 X 选择 D405 观察区域；一次连续移动后重新观察。')
+            result['message']='本轮 D435 位置附近未找到逆解和 CAD 路径通过的观察区域'
+            return result
         current=candidate(q)
         if current:
             return current|dict(stationary_plan=dict(version=1,kind='stationary',joint_position_rad=q.tolist()))

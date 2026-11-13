@@ -1,17 +1,20 @@
 """Offline fixed-joint lift sweep against the CAD column; never motion permission."""
 import math
 import numpy as np
-from web.src.handeye_column import ColumnModel, MARGIN, NOMINAL_RAD_PER_M
+from web.src.handeye_column import ColumnModel, NOMINAL_RAD_PER_M
 
 
 def column_sweep(model, q, start, end):
     travel = abs(end-start)/NOMINAL_RAD_PER_M
     steps = max(1, math.ceil(travel/.005))
-    gap, link = min(model.pose(q, h)[0] for h in np.linspace(start, end, steps+1))
-    # Pure translation: distance can shrink by at most half the height sampling interval.
-    lower = gap-travel/(2*steps)
-    return dict(clear=bool(lower>MARGIN), lower_mm=round(max(0.,lower)*1000,1),
-                margin_mm=MARGIN*1000, samples=steps+1, link=link)
+    while True:
+        gap, link = min(model.pose(q, h)[0] for h in np.linspace(start, end, steps+1))
+        # Refine only unresolved CAD intervals, without a fixed clearance margin.
+        lower = gap-travel/(2*steps)
+        if lower>0 or gap<=0 or travel/(2*steps)<1e-8:break
+        steps*=2
+    return dict(clear=bool(lower>0), lower_mm=round(max(0.,lower)*1000,1),
+                margin_mm=0, samples=steps+1, link=link)
 
 
 def assess_lift(frame, target):

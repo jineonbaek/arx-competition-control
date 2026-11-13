@@ -50,6 +50,20 @@ class ProductionTests(unittest.TestCase):
         coarse['observer']['status']='fixed_observer_unavailable'
         self.assertFalse(preflight('execute_coarse_alignment',coarse,snapshot,1.))
 
+    def test_guided_observer_view_warning_is_not_an_extra_gate(self):
+        coarse=dict(executable=True,ik_checked=True,collision_checked=True,
+            collision_free=True,environment_collision_checked=True,
+            execution_review={'environment_clear':True},
+            lift={'fixed':True,'target_rad':5.52,
+                  'column_sweep':{'both_arms_column_checked':True,'status':'column_clear'}},
+            observer={'kind':'d435_guided','status':'fixed_observer_candidate','joints_rad':[0.]*6,
+                      'column_path':{'clear':True},'view':{'in_view':False}})
+        snapshot=dict(chassis_active=False,motion_interrupted=False,
+            arms={'left':{'fresh':True},'right':{'fresh':True}},body={'fresh':True},
+            capabilities={'lift':'','left:arm.joints':'','right:arm.joints':''})
+        self.assertTrue(review_plan('execute_coarse_alignment',coarse,environment_clear=True)['collision_free'])
+        self.assertTrue(preflight('execute_coarse_alignment',coarse,snapshot,1.))
+
     def test_factory_loads_policy_and_constructs_without_dispatch(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'policy.json';path.write_text(json.dumps(policy()))
