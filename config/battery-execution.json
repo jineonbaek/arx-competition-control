@@ -1,7 +1,7 @@
 {
   "clearance_mm": 50.0,
   "alignment_tolerance_deg": 10.0,
-  "j6_tolerance_deg": 5.0,
+  "j6_tolerance_deg": 6.0,
   "timing_limits": {
     "joint_speed_deg_s": [8.55, 8.55, 8.55, 8.55, 8.55, 8.55],
     "joint_acceleration_deg_s2": [18.0, 18.0, 18.0, 18.0, 18.0, 18.0],
