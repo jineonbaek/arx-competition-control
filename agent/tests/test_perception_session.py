@@ -36,6 +36,46 @@ class PerceptionTests(unittest.TestCase):
                 child.wait.assert_called_once_with(timeout=3)
                 self.assertIsNone(session.child)
 
+    def test_whole_battery_and_nested_part_use_one_local_target(self):
+        import sys,types
+        target=types.ModuleType('target');target.shape_view=lambda image:image
+        rows=[dict(candidate_id=4,bbox_xyxy=[2,2,8,6],score=.8),
+              dict(candidate_id=2,bbox_xyxy=[1,1,9,9],score=.718)]
+        whole=np.zeros((12,12),bool);whole[1:9,1:9]=True
+        part=np.zeros_like(whole);part[2:6,2:8]=True
+        models=Mock();models.segment.side_effect=[(part,.949),(whole,.970)]
+        with patch.dict(sys.modules,target=target),patch('agent.battery_observation.surface_location',
+                side_effect=[{'surface_base_mm':[620.,-140.,740.]},
+                             {'surface_base_mm':[605.,-143.,720.]}]):
+            chosen=local_choice(rows,{},models,None,np.array([632.,-132.,698.]))
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen[0]['candidate_id'],2)
+        np.testing.assert_array_equal(chosen[1],whole)
+
+    def test_overlapping_boxes_with_distinct_masks_still_require_qwen(self):
+        import sys,types
+        target=types.ModuleType('target');target.shape_view=lambda image:image
+        rows=[dict(candidate_id=1,bbox_xyxy=[0,0,10,10],score=.8),
+              dict(candidate_id=2,bbox_xyxy=[1,0,11,10],score=.75)]
+        left=np.zeros((12,12),bool);left[:10,:5]=True
+        right=np.zeros_like(left);right[:10,6:11]=True
+        models=Mock();models.segment.side_effect=[(left,.97),(right,.96)]
+        with patch.dict(sys.modules,target=target),patch('agent.battery_observation.surface_location',
+                side_effect=[{'surface_base_mm':[0.,0.,500.]},{'surface_base_mm':[0.,20.,500.]}]):
+            self.assertIsNone(local_choice(rows,{},models,None,np.array([0.,10.,500.])))
+
+    def test_nested_targets_at_different_depths_are_not_merged(self):
+        import sys,types
+        target=types.ModuleType('target');target.shape_view=lambda image:image
+        rows=[dict(candidate_id=1,bbox_xyxy=[0,0,10,10],score=.8),
+              dict(candidate_id=2,bbox_xyxy=[2,2,8,6],score=.75)]
+        whole=np.zeros((12,12),bool);whole[:10,:10]=True
+        part=np.zeros_like(whole);part[2:6,2:8]=True
+        models=Mock();models.segment.side_effect=[(whole,.97),(part,.96)]
+        with patch.dict(sys.modules,target=target),patch('agent.battery_observation.surface_location',
+                side_effect=[{'surface_base_mm':[0.,0.,500.]},{'surface_base_mm':[0.,0.,580.]}]):
+            self.assertIsNone(local_choice(rows,{},models,None,np.array([0.,0.,540.])))
+
     def test_projection_compensates_camera_movement_and_rejects_behind_camera(self):
         camera=np.eye(4);camera[0,3]=.1
         target=np.eye(4);target[2,3]=1.

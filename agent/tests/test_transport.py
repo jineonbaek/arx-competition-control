@@ -117,6 +117,19 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(message['reasoning_content'], 'protocol context')
             self.assertEqual(server.requests[0][1], '/chat/completions')
 
+    def test_visual_judge_can_disable_parallel_tool_calls(self):
+        from agent.model import QwenClient
+        call={'id':'visual_report','type':'function',
+              'function':{'name':'report_visual_result','arguments':'{"status":"not_found"}'}}
+        body={'choices':[{'message':{'role':'assistant','tool_calls':[call]},'finish_reason':'tool_calls'}]}
+        with Server(lambda p,b:response(body)) as server:
+            cfg=Config(profiles={'cloud':{'model':'fixture','base_url':server.url,'stream':False}})
+            reply=QwenClient(cfg).complete([], [{'type':'function','function':{'name':'report_visual_result'}}],
+                                           parallel_tool_calls=False)
+            payload=json.loads(server.requests[0][2])
+            self.assertFalse(payload['parallel_tool_calls'])
+            self.assertEqual(reply['tool_calls'][0]['function']['name'],'report_visual_result')
+
     def test_partial_stream_is_not_a_complete_model_reply(self):
         from agent.model import QwenClient
         wire = 'data: ' + json.dumps({'choices': [{'delta': {'content': 'done'}}]}) + '\n\n'

@@ -24,27 +24,33 @@ def local_choice(candidates,frame,models,image,target_mm=None):
     """Accept a distinct local candidate, otherwise leave semantic selection to Qwen."""
     from .battery_observation import surface_location
     from target import shape_view
-    kept=[]
-    for row in candidates:
-        if any(box_iou(row['bbox_xyxy'],old['bbox_xyxy'])>.5 for old in kept):continue
-        kept.append(row)
     ranked=[]
-    for row in kept:
+    for row in candidates:
         if row['score']<.30:continue
         mask,score=models.segment(shape_view(image),box=row['bbox_xyxy'])
         if score<.85:continue
         try:location=surface_location(frame,mask)
         except ValueError:continue
-        distance=(float(np.linalg.norm(np.asarray(location['surface_base_mm'])-target_mm))
+        surface=np.asarray(location['surface_base_mm'],float)
+        distance=(float(np.linalg.norm(surface-target_mm))
                   if target_mm is not None else 0.)
         if target_mm is not None and distance>120:continue
-        ranked.append((distance,row,mask,score))
+        ranked.append((distance,row,mask,score,surface))
+    unique=[]
+    # A nested mask at the same surface is one target; retain its most complete mask.
+    for item in sorted(ranked,key=lambda r:(int(r[2].sum()),r[1]['score']),reverse=True):
+        if any(box_iou(item[1]['bbox_xyxy'],old[1]['bbox_xyxy'])>0
+               and np.logical_and(item[2],old[2]).sum()>=.9*min(item[2].sum(),old[2].sum())
+               and np.linalg.norm(item[4]-old[4])<40 for old in unique):continue
+        unique.append(item)
+    ranked=unique
     if target_mm is not None:
         ranked.sort(key=lambda row:row[0])
         if len(ranked)>1 and ranked[1][0]-ranked[0][0]<40:return None
-    elif len(ranked)>1 and ranked[0][1]['score']-ranked[1][1]['score']<.10:
-        return None
-    return ranked[0][1:] if ranked else None
+    else:
+        ranked.sort(key=lambda row:row[1]['score'],reverse=True)
+        if len(ranked)>1 and ranked[0][1]['score']-ranked[1][1]['score']<.10:return None
+    return ranked[0][1:4] if ranked else None
 
 
 def projected_box(frame,state):
