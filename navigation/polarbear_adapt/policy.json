@@ -1,0 +1,15 @@
+{
+  "perception_blind_m": 0.35,
+  "range_metric": "horizontal from optical origin",
+  "mapping_height_optical_m": [
+    -0.18,
+    0.45
+  ],
+  "obstacle_height_optical_m": [
+    -0.2,
+    1.1
+  ],
+  "lio_blind_changed": false,
+  "obstacle_policy": "dual VoxelLayer scans, dual STVL marks and visibility decay",
+  "commands_enabled": false
+}

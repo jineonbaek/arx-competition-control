@@ -159,6 +159,9 @@ def replace_frames(value):
 
 nav = replace_frames(nav)
 (cfg / 'nav2_jazzy.yaml').write_text(yaml.safe_dump(nav, sort_keys=False))
+sensor_patch = root / 'scripts/patch_fastlio_sensor_mode.py'
+if sensor_patch.exists():
+    subprocess.run(['python3', str(sensor_patch)], check=True)
 manifest = {}
 for key, path in {'upstream': root / 'upstream', 'navigation': up,
                   'fast_lio': up / 'src/rm_localization/FAST_LIO',
@@ -167,6 +170,9 @@ for key, path in {'upstream': root / 'upstream', 'navigation': up,
                   'livox_sdk2': root / 'deps/Livox-SDK2'}.items():
     manifest[key] = {'commit': subprocess.check_output(
         ['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()}
+dual_patch = root / 'scripts/patch_fastlio_dual.py'
+if dual_patch.exists():
+    subprocess.run(['python3', str(dual_patch), str(src / 'FAST_LIO')], check=True)
 (root / 'reports/source-lock.json').write_text(json.dumps(manifest, indent=2) + '\n')
 patches = []
 for target, source in origins.items():

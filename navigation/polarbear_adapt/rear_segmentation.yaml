@@ -1,0 +1,22 @@
+/**:
+  ros__parameters:
+    gravity_aligned_frame: ''
+    ground_output_topic: /pb/rear/ground_raw
+    input_topic: /pb/rear/level_cloud
+    line_search_angle: 0.1
+    long_threshold: 1.0
+    max_dist_to_line: 0.035
+    max_fit_error: 0.025
+    max_long_height: 0.06
+    max_slope: 0.3
+    max_start_height: 0.1
+    min_slope: 0.0
+    n_bins: 120
+    n_segments: 60
+    n_threads: 2
+    obstacle_output_topic: /pb/rear/obstacle_raw
+    r_max: 20.0
+    r_min: 0.35
+    sensor_height: 0.228
+    use_sim_time: false
+    visualize: false

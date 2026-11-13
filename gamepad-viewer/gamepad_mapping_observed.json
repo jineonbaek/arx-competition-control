@@ -1,0 +1,28 @@
+{
+  "recorded_date": "2026-11-07",
+  "device": "BEITONG BTP-KP20 NS",
+  "interface": "Linux joydev",
+  "device_path": "/dev/input/by-id/usb-BEITONG_BTP-KP20_NS-joystick",
+  "index_base": 0,
+  "buttons": {"Y": 2, "B": 1, "A": 0, "X": 3, "RB": 6, "LB": 5, "LT": 7, "RT": 8, "M1": 13, "M2": 12, "L3": 12, "R3": 13},
+  "dpad": {
+    "up": {"axis": 5, "value": -32767},
+    "right": {"axis": 4, "value": 32767},
+    "down": {"axis": 5, "value": 32767},
+    "left": {"axis": 4, "value": -32767},
+    "released_value": 0
+  },
+  "sticks": {
+    "left_x": {"axis": 0, "left": -32767, "center": -16380, "right_observed": -260, "right_endpoint_verified": false},
+    "left_y": {"axis": 1, "up": 0, "center": 16379, "down": 32767},
+    "right_x": {"axis": 2, "left": -32767, "center": -16380, "right": 0},
+    "right_y": {"axis": 3, "up": 0, "center": 16379, "down": 32767}
+  },
+  "notes": [
+    "Physical labels were matched using the user's declared sequential presses.",
+    "Button values are 1 when pressed and 0 when released.",
+    "LT button 7 and RT button 8 were confirmed by the user.",
+    "Sequential physical tests confirmed M1 shares button 13 with R3, and M2 shares button 12 with L3 in the current configuration. Reprogrammability has not been tested.",
+    "These are observed joydev values in the current device mode; do not assume evdev or ROS uses the same scaling or indices."
+  ]
+}

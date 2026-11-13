@@ -60,3 +60,14 @@ logs/
 
 # Offline FoundationPose replay artifacts
 /foundationpose/runtime/
+
+# Local navigation recordings, CAD delivery and experimental build output
+/navigation/maps/
+/navigation/models/
+/navigation/staging/
+/navigation/build-tools/
+/navigation/lift2_mesh_delivery.tgz
+/navigation/**/build/
+/gamepad-viewer/**/build/
+/gamepad-viewer/*-backup.txt
+._*

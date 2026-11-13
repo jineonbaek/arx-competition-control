@@ -1,0 +1,39 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0
+    sensor_timeout: 0.20
+    two_d_mode: true
+    publish_tf: false  # Only the freshness gate may publish odom -> base_link.
+    publish_acceleration: false
+    print_diagnostics: true
+    use_control: false
+    use_sim_time: false
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+    odom0: /wheel/odometry
+    # x,y,z,roll,pitch,yaw,vx,vy,vz,vroll,vpitch,vyaw,ax,ay,az
+    # Omni platform: vy is measured; it must not be constrained to zero.
+    odom0_config: [false, false, false, false, false, false,
+                   true, true, false, false, false, true,
+                   false, false, false]
+    odom0_queue_size: 20
+    odom0_differential: false
+    odom0_relative: false
+    imu0: /fusion/imu/arm_yaw_rate
+    imu0_config: [false, false, false, false, false, false,
+                  false, false, false, false, false, true,
+                  false, false, false]
+    imu0_queue_size: 100
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: false
+    imu1: /fusion/imu/top_yaw_rate
+    imu1_config: [false, false, false, false, false, false,
+                  false, false, false, false, false, true,
+                  false, false, false]
+    imu1_queue_size: 100
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: false

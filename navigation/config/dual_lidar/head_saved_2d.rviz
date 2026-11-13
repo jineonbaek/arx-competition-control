@@ -1,0 +1,29 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+Visualization Manager:
+  Class: ''
+  Global Options:
+    Fixed Frame: top_lidar_odom
+    Background Color: 48; 48; 48
+    Frame Rate: 20
+  Displays:
+  - Class: rviz_default_plugins/Map
+    Name: Saved head 2D map
+    Enabled: true
+    Topic:
+      Value: /mapping/head_saved_grid
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 1
+    Alpha: 1.0
+    Draw Behind: false
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 35
+      X: 0.0
+      Y: 0.0
+Window Geometry:
+  Width: 1200
+  Height: 850

@@ -1,0 +1,35 @@
+schema_version: 1
+model: three_omni
+geometry_source: "Official ARX_Model LIFT/lift_urdf.zip XY/axes; actual wheel diameter 150mm supplied by operator"
+geometry_confirmed: false
+feedback_order_signs_confirmed: false
+feedback_units_confirmed: false
+# Candidate SDK scale is derived from installed official binary. Unit conversion
+# and motor/wheel reduction must be confirmed before setting the flags true.
+rad_per_sdk_unit: 1.0
+wheel_speed_std_rad_s: 0.10
+max_wheel_rad_s: 30.0
+can_interface: can5
+feedback_can_id: 1794  # 0x702, installed SDK unpackChassisFeedback()
+feedback_timeout_s: 0.20
+odom_frame: odom_wheel
+base_frame: base_link
+wheels:
+  - name: wheel_1_candidate
+    feedback_index: 0
+    feedback_sign: 1.0
+    radius_m: 0.075
+    center_xy_m: [-0.182349, 0.315838]
+    rolling_direction_xy: [0.8660254037844386, 0.5]
+  - name: wheel_2_candidate
+    feedback_index: 1
+    feedback_sign: 1.0
+    radius_m: 0.075
+    center_xy_m: [-0.182349, -0.315838]
+    rolling_direction_xy: [-0.8660254037844386, 0.5]
+  - name: wheel_3_candidate
+    feedback_index: 2
+    feedback_sign: 1.0
+    radius_m: 0.075
+    center_xy_m: [0.364699, 0.0]
+    rolling_direction_xy: [0.0, -1.0]

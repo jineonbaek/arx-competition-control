@@ -1,0 +1,27 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: arm_lidar_odom
+    Background Color: 30; 30; 30
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: 2D occupancy grid
+      Enabled: true
+      Topic:
+        Value: /mapping/grid
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+      Alpha: 0.8
+      Draw Behind: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 35
+Window Geometry:
+  Width: 1200
+  Height: 800

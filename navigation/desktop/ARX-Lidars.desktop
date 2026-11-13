@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=雷达开关
+Exec=/home/arx/arx-competition-control/navigation/desktop/lidar_switch.sh
+Path=/home/arx/arx-competition-control/navigation
+Terminal=false
+Icon=applications-science
+Categories=Science;Robotics;

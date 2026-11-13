@@ -1,0 +1,65 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: top_lidar_odom
+    Background Color: 30; 30; 30
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Head 3D point map
+      Enabled: true
+      Topic:
+        Value: /dual/top/map
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 2
+      Size (m): 0.03
+      Style: Points
+      Color Transformer: Intensity
+      Channel Name: intensity
+      Decay Time: 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Current scan
+      Enabled: true
+      Topic:
+        Value: /dual/top/cloud_registered
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 2
+      Size (m): 0.025
+      Style: Points
+      Color Transformer: FlatColor
+      Color: 0; 255; 120
+      Decay Time: 0
+    - Class: rviz_default_plugins/Path
+      Name: LIO trajectory
+      Enabled: true
+      Topic:
+        Value: /dual/top/path
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 2
+      Color: 255; 170; 0
+      Line Style: Lines
+      Line Width: 0.03
+    - Class: rviz_default_plugins/Map
+      Name: 2D projected grid
+      Enabled: false
+      Topic:
+        Value: /mapping/top_grid
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        Depth: 1
+      Alpha: 0.7
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Pitch: 0.7
+      Yaw: 0.7
+Window Geometry:
+  Width: 1200
+  Height: 800

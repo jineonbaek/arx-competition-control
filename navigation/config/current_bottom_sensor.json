@@ -1,0 +1,6 @@
+{
+  "configuration": "/home/arx/arx-competition-control/navigation/config/bottom_upright_20261105.json",
+  "mesh": "/home/arx/arx-competition-control/navigation/models/lift2s_bottom_upright_20261105/body_voxels.npz",
+  "mode": "single_bottom_upright",
+  "motion_commands_allowed": false
+}

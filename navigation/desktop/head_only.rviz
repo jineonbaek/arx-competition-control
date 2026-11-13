@@ -1,0 +1,27 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+Visualization Manager:
+  Class: ''
+  Global Options:
+    Fixed Frame: head_native
+    Frame Rate: 20
+  Displays:
+  - Class: rviz_default_plugins/PointCloud2
+    Name: 头部原始点云
+    Enabled: true
+    Topic:
+      Value: /diagnostics/head_points
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      Depth: 2
+    Size (m): 0.025
+    Color Transformer: FlatColor
+    Color: 60; 230; 135
+  Tools:
+  - Class: rviz_default_plugins/Interact
+  - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 6

@@ -1,0 +1,169 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+Visualization Manager:
+  Class: ''
+  Global Options:
+    Fixed Frame: preview_map
+    Background Color: 45; 45; 45
+    Frame Rate: 20
+  Displays:
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Current scan
+    Enabled: true
+    Topic:
+      Value: /single/cloud_registered
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      Depth: 2
+    Size (m): 0.025
+    Style: Points
+    Color Transformer: FlatColor
+    Color: 0; 255; 120
+    Decay Time: 0
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Ground
+    Enabled: false
+    Topic:
+      Value: /preview/ground
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      Depth: 2
+    Size (m): 0.025
+    Style: Points
+    Color Transformer: FlatColor
+    Color: 120; 120; 120
+    Decay Time: 0
+  - Class: rviz_default_plugins/PointCloud2
+    Name: Obstacles
+    Enabled: true
+    Topic:
+      Value: /preview/obstacles
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      Depth: 2
+    Size (m): 0.025
+    Style: Points
+    Color Transformer: FlatColor
+    Color: 255; 80; 0
+    Decay Time: 0
+  - Class: rviz_default_plugins/Map
+    Name: Live SLAM grid
+    Enabled: false
+    Topic:
+      Value: /preview/slam_map
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Alpha: 0.8
+    Color Scheme: map
+  - Class: rviz_default_plugins/Map
+    Name: LIO projected grid comparison
+    Enabled: false
+    Topic:
+      Value: /mapping/grid
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Alpha: 0.6
+    Color Scheme: map
+  - Class: rviz_default_plugins/Map
+    Name: Global costmap
+    Enabled: false
+    Topic:
+      Value: /global_costmap/costmap
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Alpha: 0.6
+    Color Scheme: costmap
+  - Class: rviz_default_plugins/Map
+    Name: Local costmap
+    Enabled: false
+    Topic:
+      Value: /local_costmap/costmap
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Alpha: 0.5
+    Color Scheme: costmap
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Live SLAM grid (compatible display)
+    Enabled: true
+    Topic:
+      Value: /preview/display/map
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Global costmap (compatible display)
+    Enabled: true
+    Topic:
+      Value: /preview/display/global
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Local costmap (compatible display)
+    Enabled: false
+    Topic:
+      Value: /preview/display/local
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: LIO projection (compatible display)
+    Enabled: false
+    Topic:
+      Value: /preview/display/projection
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/Polygon
+    Name: Actual CAD footprint
+    Enabled: true
+    Topic:
+      Value: /preview/footprint
+      Reliability Policy: Reliable
+      Durability Policy: Volatile
+      Depth: 2
+    Color: 255; 255; 0
+    Alpha: 1.0
+  - Class: rviz_default_plugins/Polygon
+    Name: Conservative planner footprint
+    Enabled: true
+    Topic:
+      Value: /global_costmap/published_footprint
+      Reliability Policy: Reliable
+      Durability Policy: Volatile
+      Depth: 2
+    Color: 255; 0; 255
+    Alpha: 1.0
+  - Class: rviz_default_plugins/Path
+    Name: Plan ONLY - no execution
+    Enabled: true
+    Topic:
+      Value: /preview/path
+      Reliability Policy: Reliable
+      Durability Policy: Volatile
+      Depth: 2
+    Color: 0; 80; 255
+    Line Style: Lines
+    Line Width: 0.04
+  Tools:
+  - Class: rviz_default_plugins/Interact
+  - Class: rviz_default_plugins/MoveCamera
+  - Class: rviz_default_plugins/Select
+  - Class: rviz_default_plugins/PublishPoint
+    Topic: /clicked_point
+    Single click: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 65
+      X: 0.0
+      Y: 0.0
+      Angle: -1.5707963267948966
+Window Geometry:
+  Width: 1400
+  Height: 900

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=建图一键启动
+Exec=/home/arx/arx-competition-control/navigation/desktop/start_navigation.sh mapping
+Path=/home/arx/arx-competition-control/navigation
+Terminal=true
+Icon=applications-science
+Categories=Science;Robotics;

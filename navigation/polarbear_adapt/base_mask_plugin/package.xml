@@ -1,0 +1,9 @@
+<package format="3">
+  <name>arx_base_mask_costmap</name><version>0.1.0</version>
+  <description>Native Voxel/Inflation layers with a competition chassis mask</description>
+  <maintainer email="arx@localhost.local">ARX</maintainer><license>MIT</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nav2_costmap_2d</depend><depend>pluginlib</depend>
+  <depend>ament_index_cpp</depend><depend>tf2_geometry_msgs</depend><depend>libgeos-dev</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

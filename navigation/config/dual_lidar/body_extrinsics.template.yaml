@@ -1,0 +1,12 @@
+# T_base_imu: p_base = R_base_imu * p_imu + xyz_m.
+# FAST-LIO odometry child is IMU, NOT the LiDAR optical origin.
+# Convert measured T_base_lidar using the documented MID360S internal offset.
+calibration_validated: false
+primary: top
+arm_lift_locked: false
+arm:
+  xyz_m: null
+  rpy_rad: null
+top:
+  xyz_m: null
+  rpy_rad: null

@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "wkt_file": "base_envelope.wkt",
+  "scope": "competition; base_link and three wheels; unpadded external CAD envelope",
+  "height": "unlimited",
+  "planning_copy_only": true
+}

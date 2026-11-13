@@ -1,0 +1,92 @@
+{
+  "mode": "XINPUT",
+  "vendor": 8380,
+  "product": 20776,
+  "axis_codes": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    16,
+    17
+  ],
+  "button_codes": [
+    304,
+    305,
+    307,
+    308,
+    310,
+    311,
+    314,
+    315,
+    316,
+    317,
+    318
+  ],
+  "centers": [
+    0,
+    0,
+    -32767,
+    0,
+    0,
+    -32767,
+    0,
+    0
+  ],
+  "low": [
+    -32767,
+    -32763,
+    -32767,
+    -31806,
+    -32698,
+    -32767,
+    -32767,
+    -32767
+  ],
+  "high": [
+    32729,
+    32603,
+    32767,
+    32331,
+    32265,
+    32767,
+    32767,
+    32767
+  ],
+  "logical": [
+    0,
+    1,
+    3,
+    4,
+    6,
+    7
+  ],
+  "triggers": {
+    "LT": 2,
+    "RT": 5
+  },
+  "buttons": {
+    "Y": 3,
+    "B": 1,
+    "A": 0,
+    "X": 2,
+    "LB": 4,
+    "RB": 5,
+    "BACK": 6,
+    "START": 7,
+    "HOME": 8,
+    "L3": 9,
+    "R3": 10,
+    "M1": 1,
+    "M2": 4
+  },
+  "recorded_date": "2026-11-07",
+  "source": "24 ordered physical operations; main recording and tail recording",
+  "lt_enable_threshold": 0.5,
+  "button_sources": {
+    "M1": "physical test: same as B (1)",
+    "M2": "physical test: same as LB (4)"
+  }
+}

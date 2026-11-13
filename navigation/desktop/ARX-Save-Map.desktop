@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=保存导航地图
+Comment=把当前二维地图、位姿图及可用的车位提示保存到新目录
+Exec=/home/arx/arx-competition-control/navigation/desktop/save_navigation_map.sh
+Path=/home/arx/arx-competition-control/navigation
+Terminal=true
+Icon=document-save
+Categories=Science;Robotics;

@@ -258,3 +258,12 @@ was changed. Note Python lift command scale differs from ROS2 raw-angle input.
 低位双向诊断完成：18.3→2→5→2rad，原速度/增益/力矩不变。PID4011现保持2rad目标，反馈约2.429rad；分析reports/low-bidirectional-diagnostic/analysis.json。已补足上下运动记录，但尚未应用拟合参数，连续性问题未解决。
 
 2026-11-12 D405 识别→FoundationPose→点云→水平抓取参考线整合：见 docs/grasp-integration.md。新增 /grasp-integration.html 二级预览页，复用 Agent 工具回执；TCP 待标定，不生成腕部执行目标。本阶段仅软件验证，未部署至运行中的 9983。
+
+源码同步范围（2026-11-13）
+--------------------------
+本次从车载独立工作区同步当前源码，保留已有 Git 历史。新增收录导航、双雷达、
+轮速与 IMU 融合、地图观察网页和手柄工具的源码、配置、测试及说明。
+navigation/maps、models、staging、build-tools、CAD 交付压缩包、构建目录及
+手柄启动器备份属于本机资产，不随 Git 同步；对应忽略规则已补充。
+现有 vision 目录中的三路相机与电池识别代码随已有历史保留。
+本次同步不执行任何设备启动、标定、CAN 操作或机器人运动，不代表新增实机验证。

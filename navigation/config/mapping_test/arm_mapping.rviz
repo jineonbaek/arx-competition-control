@@ -1,0 +1,46 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: lidar_odom
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Point cloud map
+      Enabled: true
+      Topic:
+        Value: /mapping_test/map
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 2
+      Size (m): 0.03
+      Style: Points
+      Color Transformer: Intensity
+      Channel Name: intensity
+      Decay Time: 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Current registered scan
+      Enabled: true
+      Topic:
+        Value: /mapping_test/cloud_registered
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        Depth: 2
+      Size (m): 0.02
+      Style: Points
+      Color Transformer: FlatColor
+      Color: 0; 255; 120
+      Decay Time: 0
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Pitch: 0.6
+      Yaw: 0.7
+Window Geometry:
+  Width: 1200
+  Height: 800

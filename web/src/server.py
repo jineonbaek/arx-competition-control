@@ -24,6 +24,7 @@ from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
 from tcp_calibration import TcpCalibration
 from grasp_integration import GraspIntegration
+from navigation_view import read_snapshot
 from battery_task import BatteryTask
 from agent.battery_production import workflow_factory
 
@@ -151,6 +152,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not client:
                     return self.json(403, {"message":"请先打开 TCP 标定页面"})
                 return self.json(200, tcp_calibration.state(client))
+            if path == "/api/navigation-view":
+                if not self.client():
+                    return self.json(403, {"message": "请先打开地图页面"})
+                data = read_snapshot()
+                task = battery_task.snapshot(self.client()) if battery_task else {"status": "unavailable", "phase": "idle"}
+                data["task"] = {key: task.get(key) for key in ("status", "phase", "mission_stage", "reason", "run_id", "recovery_required")}
+                return self.json(200, data)
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
             if path == '/api/arxgent':
@@ -187,7 +195,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html") and not self.client():
+            if path in ("/", "/map.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)

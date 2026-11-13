@@ -1,0 +1,174 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      always_send_full_costmap: true
+      footprint: '[[0.42, -0.25], [0.42, 0.255], [0.41500000000000004, 0.26], [0.335,
+        0.3], [0.145, 0.38], [0.13, 0.38], [-0.09, 0.29], [-0.105, 0.28], [-0.395,
+        0.075], [-0.4, 0.07], [-0.4, -0.07], [-0.395, -0.075], [-0.105, -0.28], [0.13,
+        -0.38], [0.15, -0.38], [0.34500000000000003, -0.29], [0.41500000000000004,
+        -0.255]]'
+      footprint_padding: 0.03
+      global_frame: map
+      inflation:
+        chassis_mask_file: /home/arx/arx-competition-control/navigation/config/base_envelope.wkt
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.779
+        plugin: arx_base_mask::InflationLayer
+      plugins:
+      - static
+      - stvl
+      - inflation
+      publish_frequency: 10.0
+      resolution: 0.05
+      robot_base_frame: base_link
+      rolling_window: false
+      static:
+        footprint_clearing_enabled: false
+        map_subscribe_transient_local: true
+        map_topic: /pb/map
+        plugin: nav2_costmap_2d::StaticLayer
+        subscribe_to_updates: true
+      stvl:
+        bottom_clear:
+          clear_after_reading: true
+          clearing: true
+          data_type: PointCloud2
+          decay_acceleration: 5.0
+          enabled: true
+          expected_update_rate: 0.0
+          horizontal_fov_angle: 4.799655442984406
+          marking: false
+          max_z: 8.0
+          min_z: 0.35
+          model_type: 1
+          observation_persistence: 0.0
+          obstacle_range: 8.0
+          sensor_frame: pb_nav_bottom_sensor
+          topic: /pb/bottom/nav_mark
+          vertical_fov_angle: 0.20943951023931956
+          vertical_fov_padding: 0.0
+        combination_method: 1
+        decay_model: 0
+        enabled: true
+        evidence_topics:
+        - /pb/bottom/stvl_evidence
+        - /pb/head/stvl_evidence
+        head_clear:
+          clear_after_reading: true
+          clearing: true
+          data_type: PointCloud2
+          decay_acceleration: 5.0
+          enabled: true
+          expected_update_rate: 0.0
+          horizontal_fov_angle: 6.283185307179586
+          marking: false
+          max_z: 8.0
+          min_z: 0.35
+          model_type: 1
+          observation_persistence: 0.0
+          obstacle_range: 8.0
+          sensor_frame: pb_nav_head_sensor
+          topic: /pb/head/nav_mark
+          vertical_fov_angle: 0.20943951023931956
+          vertical_fov_padding: 0.0
+        initial_history: ''
+        mapping_mode: false
+        mark_threshold: 0
+        observation_sources: bottom_clear head_clear
+        plugin: spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer
+        publish_voxel_map: true
+        track_unknown_space: true
+        transform_tolerance: 0.3
+        update_footprint_enabled: false
+        voxel_decay: 15.0
+        voxel_size: 0.05
+      track_unknown_space: true
+      transform_tolerance: 0.3
+      update_frequency: 10.0
+      use_sim_time: false
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      always_send_full_costmap: true
+      footprint: '[[0.42, -0.25], [0.42, 0.255], [0.41500000000000004, 0.26], [0.335,
+        0.3], [0.145, 0.38], [0.13, 0.38], [-0.09, 0.29], [-0.105, 0.28], [-0.395,
+        0.075], [-0.4, 0.07], [-0.4, -0.07], [-0.395, -0.075], [-0.105, -0.28], [0.13,
+        -0.38], [0.15, -0.38], [0.34500000000000003, -0.29], [0.41500000000000004,
+        -0.255]]'
+      footprint_padding: 0.03
+      global_frame: odom
+      height: 10
+      inflation:
+        chassis_mask_file: /home/arx/arx-competition-control/navigation/config/base_envelope.wkt
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.779
+        plugin: arx_base_mask::InflationLayer
+      plugins:
+      - voxel
+      - inflation
+      publish_frequency: 10.0
+      resolution: 0.05
+      robot_base_frame: base_link
+      rolling_window: true
+      track_unknown_space: false
+      transform_tolerance: 0.3
+      update_frequency: 20.0
+      use_sim_time: false
+      voxel:
+        bottom:
+          clearing: true
+          data_type: LaserScan
+          expected_update_rate: 0.5
+          inf_is_valid: false
+          marking: true
+          max_obstacle_height: 1.6
+          min_obstacle_height: 0.0
+          observation_persistence: 0.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.35
+          raytrace_max_range: 8.0
+          raytrace_min_range: 0.35
+          sensor_frame: bottom_livox
+          topic: /pb/scan
+        chassis_mask_file: /home/arx/arx-competition-control/navigation/config/base_envelope.wkt
+        enabled: true
+        footprint_clearing_enabled: false
+        head:
+          clearing: true
+          data_type: LaserScan
+          expected_update_rate: 0.0
+          inf_is_valid: false
+          marking: true
+          max_obstacle_height: 1.6
+          min_obstacle_height: 0.0
+          observation_persistence: 0.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.35
+          raytrace_max_range: 8.0
+          raytrace_min_range: 0.35
+          sensor_frame: rear_livox
+          topic: /pb/head/direct_scan
+        mark_threshold: 0
+        max_obstacle_height: 1.6
+        observation_sources: bottom head
+        origin_z: 0.0
+        plugin: arx_base_mask::VoxelLayer
+        publish_voxel_map: false
+        unknown_threshold: 15
+        z_resolution: 0.1
+        z_voxels: 16
+      width: 10
+planner_server:
+  ros__parameters:
+    GridBased:
+      allow_reverse_expansion: true
+      allow_unknown: false
+      lattice_filepath: /opt/ros/jazzy/share/nav2_smac_planner/sample_primitives/5cm_resolution/0.5m_turning_radius/omni/output.json
+      plugin: nav2_smac_planner::SmacPlannerLattice
+      smooth_path: false
+      tolerance: 0.05
+    costmap_update_timeout: 1.0
+    expected_planner_frequency: 2.0
+    planner_plugins:
+    - GridBased
+    use_sim_time: false

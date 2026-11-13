@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.16)
+project(arx_mppi_hardware_candidate)
+set(CMAKE_CXX_STANDARD 17)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(arm_control REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(tf2 REQUIRED)
+set(CONTROL_ROOT /home/arx/arx-competition-control)
+set(BODY_ROOT ${CONTROL_ROOT}/repos/LIFT/body/ROS2/src/ARX_LIFT_ros2/arx_lift_controller)
+# lift_controller_web.cpp / slow_lift_config.hpp / command_lease.hpp are snapshots
+# of the current controller, copied here during candidate preparation only.
+add_executable(lift_controller_mppi_candidate lift_controller_web.cpp)
+target_include_directories(lift_controller_mppi_candidate PRIVATE
+  ${BODY_ROOT}/lib/arx_hardware_interface/include ${BODY_ROOT}/lib/arx_lift_src/include)
+target_link_libraries(lift_controller_mppi_candidate ${BODY_ROOT}/lib/arx_lift_src/libarx_lift_src.so)
+ament_target_dependencies(lift_controller_mppi_candidate rclcpp arm_control sensor_msgs std_msgs std_srvs tf2)
+add_executable(test_chassis_candidate ../test_chassis_candidate.cpp)
+target_include_directories(test_chassis_candidate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+enable_testing()
+add_test(NAME chassis_candidate_behavior COMMAND test_chassis_candidate)

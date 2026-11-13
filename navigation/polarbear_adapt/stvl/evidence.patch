@@ -1,0 +1,191 @@
+--- a/spatio_temporal_voxel_layer/CMakeLists.txt
++++ b/spatio_temporal_voxel_layer/CMakeLists.txt
+@@ -90,6 +90,8 @@
+ add_library(${library_name} SHARED
+             src/spatio_temporal_voxel_layer.cpp
+             src/spatio_temporal_voxel_grid.cpp
++            src/effective_grid.cpp
++            src/fast_rays.cpp
+             src/measurement_buffer.cpp
+             src/frustum_models/depth_camera_frustum.cpp
+             src/frustum_models/three_dimensional_lidar_frustum.cpp
+--- a/spatio_temporal_voxel_layer/include/spatio_temporal_voxel_layer/spatio_temporal_voxel_grid.hpp
++++ b/spatio_temporal_voxel_layer/include/spatio_temporal_voxel_layer/spatio_temporal_voxel_grid.hpp
+@@ -42,6 +42,9 @@
+ 
+ // STL
+ #include <math.h>
++#include <deque>
++#include <array>
++extern "C" void free_history(void *);
+ #include <unordered_map>
+ #include <unordered_set>
+ #include <ctime>
+@@ -133,6 +136,11 @@
+     const bool & pub_voxels);
+   ~SpatioTemporalVoxelGrid(void);
+ 
++  void StartEvidence();
++  void LoadEvidence(const std::string &file);
++  void ApplyEvidence(const sensor_msgs::msg::PointCloud2 &cloud, size_t sensor,
++      std::unordered_set<occupany_cell> &cleared);
++  int64_t LastEvidence(size_t sensor) const {return _last_packet[sensor];}
+   // Core making and clearing functions
+   void Mark(const std::vector<observation::MeasurementReading> & marking_observations);
+   void operator()(const observation::MeasurementReading & obs) const;
+@@ -185,6 +193,20 @@
+   bool _pub_voxels;
+   std::unique_ptr<std::vector<geometry_msgs::msg::Point32>> _grid_points;
+   std::unordered_map<occupany_cell, uint> * _cost_map;
++  struct Observation {
++    double low=0, high=0;
++    int64_t last_hit=0, last_visible=0;
++    int trail_source=-1;
++    std::array<unsigned,2> consecutive{};
++    std::array<std::deque<std::pair<int64_t,bool>>,2> frames;
++  };
++  void Forget(const openvdb::Coord &k) const;
++  void RecordHit(const openvdb::Coord &k, double low, double high, int64_t ns);
++  std::unique_ptr<void, decltype(&free_history)> _ray_index{nullptr,free_history};
++  mutable std::unordered_map<openvdb::Coord,Observation> _observed;
++  std::unordered_map<openvdb::Coord,int64_t> _retired;
++  std::array<int64_t,2> _last_packet{{0,0}};
++  std::vector<int32_t> _crossed_keys;
+   boost::mutex _grid_lock;
+ };
+ 
+--- a/spatio_temporal_voxel_layer/include/spatio_temporal_voxel_layer/spatio_temporal_voxel_layer.hpp
++++ b/spatio_temporal_voxel_layer/include/spatio_temporal_voxel_layer/spatio_temporal_voxel_layer.hpp
+@@ -188,6 +188,10 @@
+   std::vector<geometry_msgs::msg::Point> _transformed_footprint;
+   std::vector<observation::MeasurementReading> _static_observations;
+   std::unique_ptr<volume_grid::SpatioTemporalVoxelGrid> _voxel_grid;
++  std::string _history_seed;
++  using EvidenceCloud = sensor_msgs::msg::PointCloud2;
++  std::vector<rclcpp::Subscription<EvidenceCloud>::SharedPtr> _evidence_subs;
++  std::deque<std::pair<size_t,EvidenceCloud::ConstSharedPtr>> _evidence;
+   boost::recursive_mutex _voxel_grid_lock;
+ 
+   std::string _topics_string;
+--- a/spatio_temporal_voxel_layer/src/spatio_temporal_voxel_grid.cpp
++++ b/spatio_temporal_voxel_layer/src/spatio_temporal_voxel_grid.cpp
+@@ -164,7 +164,14 @@
+     bool frustum_cycle = false;
+     bool cleared_point = false;
+ 
+-    const double time_since_marking = cur_time - cit_grid.getValue();
++    const auto meta=_observed.find(pt_index);
++    const double marked=meta==_observed.end() ? cit_grid.getValue() : meta->second.last_hit*1e-9;
++    const double time_since_marking = cur_time - marked;
++    // A geometric frustum can include cells behind an occluder. In evidence mode
++    // grant its acceleration only when a recent measured ray reached this cell.
++    const bool visible=!_ray_index || (meta!=_observed.end() && meta->second.last_visible>0 &&
++                                      cur_time-meta->second.last_visible*1e-9<=.25);
++
+     const double base_duration_to_decay = GetTemporalClearingDuration(
+       time_since_marking);
+ 
+@@ -173,7 +180,7 @@
+         continue;
+       }
+ 
+-      if (frustum_it->frustum->IsInside(pose_world) ) {
++      if (visible && frustum_it->frustum->IsInside(pose_world) ) {
+         frustum_cycle = true;
+ 
+         const double frustum_acceleration = GetFrustumAcceleration(
+@@ -191,7 +198,7 @@
+         } else {
+           const double updated_mark = cit_grid.getValue() -
+             frustum_acceleration;
+-          if (!this->MarkGridPoint(pt_index, updated_mark)) {
++          if (!_ray_index && !this->MarkGridPoint(pt_index, updated_mark)) {
+             std::cout << "Failed to update mark." << std::endl;
+           }
+           break;
+@@ -212,6 +219,7 @@
+ 
+     if (cleared_point)
+     {
++      if (_ray_index) _retired[pt_index]=_clock->now().nanoseconds();
+       cleared_cells.insert(occupany_cell(pose_world[0], pose_world[1]));
+     } else {
+       // if here, we can add to costmap and PC2
+@@ -384,6 +392,9 @@
+   // clear the voxel grid
+   try {
+     _grid->clear();
++    if (_ray_index) {
++      _observed.clear(); _retired.clear(); _last_packet={0,0}; StartEvidence();
++    }
+     if (this->IsGridEmpty()) {
+       return true;
+     }
+@@ -437,7 +448,8 @@
+   openvdb::DoubleGrid::Accessor accessor = _grid->getAccessor();
+ 
+   if (accessor.isValueOn(pt)) {
+-    accessor.setValueOff(pt, _background_value);
++    Forget(pt);
++  accessor.setValueOff(pt, _background_value);
+   }
+   return !accessor.isValueOn(pt);
+ }
+--- a/spatio_temporal_voxel_layer/src/spatio_temporal_voxel_layer.cpp
++++ b/spatio_temporal_voxel_layer/src/spatio_temporal_voxel_layer.cpp
+@@ -161,6 +161,25 @@
+     node->get_clock(), _voxel_size, static_cast<double>(default_value_), _decay_model,
+     _voxel_decay, _publish_voxels);
+ 
++  declareParameter("evidence_topics",rclcpp::ParameterValue(std::vector<std::string>{}));
++  auto topics=node->get_parameter(name_+".evidence_topics").as_string_array();
++  if (!topics.empty()) {
++    if (topics.size()!=2 || _mapping_mode)
++      throw std::runtime_error("STVL evidence requires bottom/head topics and navigation mode");
++    _voxel_grid->StartEvidence();
++    declareParameter("initial_history",rclcpp::ParameterValue(std::string("")));
++    _history_seed=node->get_parameter(name_+".initial_history").as_string();
++    for(size_t s=0;s<topics.size();++s) {
++      _evidence_subs.push_back(node->create_subscription<EvidenceCloud>(
++        topics[s],rclcpp::SensorDataQoS().keep_last(12),
++        [this,s](EvidenceCloud::ConstSharedPtr m){
++          if (m->header.frame_id!=_global_frame) return;
++          boost::recursive_mutex::scoped_lock lock(_voxel_grid_lock);
++          if (_evidence.size()>=64) _evidence.pop_front();
++          _evidence.emplace_back(s,std::move(m));
++        }));
++    }
++  }
+   matchSize();
+ 
+   RCLCPP_INFO(logger_, "%s created underlying voxel grid.", getName().c_str());
+@@ -773,6 +792,20 @@
+   if (_map_save_duration) {
+     should_save = node->now() - _last_map_save_time > *_map_save_duration;
+   }
++  if (!_evidence_subs.empty()) {
++    if (!_history_seed.empty() && node->now().nanoseconds()>0) {
++      _voxel_grid->LoadEvidence(_history_seed);
++      _history_seed.clear();
++    }
++    std::stable_sort(_evidence.begin(),_evidence.end(),[](const auto &a,const auto &b){
++      return rclcpp::Time(a.second->header.stamp)<rclcpp::Time(b.second->header.stamp);
++    });
++    for (const auto &sample:_evidence)
++      _voxel_grid->ApplyEvidence(*sample.second,sample.first,cleared_cells);
++    _evidence.clear();
++    const int64_t age=node->now().nanoseconds()-_voxel_grid->LastEvidence(0);
++    current_ = current_ && _voxel_grid->LastEvidence(0)>0 && age>=-25000000LL && age<=650000000LL;
++  }
+   if (!_mapping_mode) {
+     _voxel_grid->ClearFrustums(clearing_observations, cleared_cells);
+   } else if (should_save) {
+@@ -793,7 +826,7 @@
+   }
+ 
+   // mark observations
+-  _voxel_grid->Mark(marking_observations);
++  if (_evidence_subs.empty()) _voxel_grid->Mark(marking_observations);
+ 
+   // update the ROS Layered Costmap
+   UpdateROSCostmap(min_x, min_y, max_x, max_y, cleared_cells);

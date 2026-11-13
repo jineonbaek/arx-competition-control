@@ -1,0 +1,103 @@
+{
+  "enabled": true,
+  "mode": "fixed_front_rear",
+  "source": "user installation 2026-11-12; nominal, not precision calibrated",
+  "mesh": "models/lift2s_fixed_rear_20261112/body_voxels.npz",
+  "front_in_base": [
+    [
+      1.0,
+      0.0,
+      0.0,
+      0.18533
+    ],
+    [
+      0.0,
+      1.0,
+      0.0,
+      -3e-06
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.23
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "rear_in_base": [
+    [
+      0.0,
+      -1.0,
+      0.0,
+      -0.2832
+    ],
+    [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      0.228
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "rear_mount_m": [
+    -0.2832,
+    0,
+    0.181
+  ],
+  "rear_imu_m": [
+    -0.30649,
+    0.011,
+    0.18388000000000002
+  ],
+  "front_from_rear": [
+    [
+      0.0,
+      -1.0,
+      0.0,
+      -0.46853
+    ],
+    [
+      1.0,
+      0.0,
+      0.0,
+      3e-06
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      -0.0020000000000000018
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "optical_height_m": {
+    "bottom": 0.23,
+    "head": 0.228
+  },
+  "identity": {
+    "bottom": "192.168.1.3",
+    "head": "192.168.1.164"
+  },
+  "model_note": "Only upper_mid360_link relocated; mast and cameras retained; new brackets/cables not modeled"
+}

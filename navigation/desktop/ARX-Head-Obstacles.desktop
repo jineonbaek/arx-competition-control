@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=头部雷达避障开关
+Exec=/home/arx/arx-competition-control/navigation/desktop/head_obstacles.sh
+Terminal=false
+Icon=preferences-system
+Categories=Science;Robotics;

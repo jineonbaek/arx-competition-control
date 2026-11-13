@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ARX · 地图与任务</title>
+  <link rel="stylesheet" href="css/map.css">
+  <script type="module" src="js/map.js"></script>
+</head>
+<body>
+  <header><strong>ARX / 地图与任务</strong><a href="/">返回控制台</a></header>
+  <main>
+    <section class="map-panel">
+      <div class="toolbar"><h1>实时地图</h1><span id="connection" role="status">连接中</span></div>
+      <div class="viewport"><canvas id="map" aria-label="雷达地图、机器人位置和规划路径"></canvas><p id="empty">等待 /pb/map 地图数据</p></div>
+      <div class="legend"><span>深色 · 障碍</span><span>灰色 · 未知</span><span>蓝线 · 规划路径</span><span>橙色箭头 · 机器人</span></div>
+      <p id="map-info">地图坐标尚未就绪</p>
+      <p>地图使用导航坐标系；比赛场地图需完成现场配准后叠加。</p>
+    </section>
+    <aside>
+      <section><h2>定位</h2><strong id="pose-state">等待反馈</strong><p id="pose-value">—</p><p id="pose-age">—</p><p id="path-state">—</p></section>
+      <section><h2>当前任务</h2><strong id="task-state">等待反馈</strong><p id="phase">—</p><p id="mission"></p><p id="reason" role="status"></p><p id="run"></p><ol id="stages"></ol></section>
+    </aside>
+  </main>
+</body>
+</html>

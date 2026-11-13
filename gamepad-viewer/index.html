@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>鲲鹏 20 · 实时手柄</title><link rel="stylesheet" href="/style.css"></head>
+<body><main>
+<header><div class="brand"><span class="brandmark">◈</span><span>ARX <i>/</i> INPUT MONITOR</span></div><div id="status" class="status"><span></span><b>正在连接</b></div></header>
+<section class="heading"><div><p class="eyebrow">BEITONG KUNPENG 20</p><h1>每个动作，实时可见<span>。</span></h1><p class="subtitle">北通鲲鹏 20 <em>·</em> 2.4 GHz 接收器 <em>·</em> NUC 实时输入 <em>·</em> <strong id="device-mode">识别模式中</strong></p></div><div class="readonly"><span>↗</span> 输入监测<small>LT 使能 · 松开停车</small></div></section>
+<div class="layout"><section class="controller-panel"><div class="panel-top"><span><i class="live-dot"></i> 手柄视图</span><small>按下高亮 · 摇杆实时跟随</small></div>
+<svg class="controller" viewBox="0 0 920 600" role="img" aria-label="手柄实时输入视图">
+<defs><linearGradient id="shell" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f7faf8"/><stop offset="1" stop-color="#dce5e0"/></linearGradient><linearGradient id="inner" x2="0" y2="1"><stop stop-color="#e2eae5"/><stop offset="1" stop-color="#f1f5f2"/></linearGradient><filter id="shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#163829" flood-opacity=".13"/></filter></defs>
+<g class="trigger" data-control="LT"><rect x="207" y="24" width="122" height="48" rx="19"/><text x="268" y="45">LT <tspan>7</tspan></text></g>
+<g class="trigger" data-control="RT"><rect x="591" y="24" width="122" height="48" rx="19"/><text x="652" y="45">RT <tspan>8</tspan></text></g>
+<g class="trigger" data-control="LB"><rect x="182" y="79" width="159" height="39" rx="16"/><text x="261" y="99">LB <tspan>5</tspan></text></g>
+<g class="trigger" data-control="RB"><rect x="579" y="79" width="159" height="39" rx="16"/><text x="658" y="99">RB <tspan>6</tspan></text></g>
+<path d="M250 110 C207 108 177 136 156 195 L87 441 C68 514 127 554 178 505 L300 390 C334 363 367 370 402 377 L518 377 C553 370 586 363 620 390 L742 505 C793 554 852 514 833 441 L764 195 C743 136 713 108 670 110 Z" fill="url(#shell)" stroke="#c5d3ca" stroke-width="2" filter="url(#shadow)"/>
+<path d="M291 135 H629 Q668 135 690 175 L714 303 Q721 342 685 359 L590 389 Q565 397 541 375 H379 Q355 397 330 389 L235 359 Q199 342 206 303 L230 175 Q252 135 291 135" fill="url(#inner)" stroke="#d4dfd8"/>
+<text x="460" y="171" class="logo">BEITONG</text><text x="460" y="190" class="tiny">KUNPENG 20</text>
+<g class="button small-button" data-control="BACK"><rect x="388" y="220" width="40" height="27" rx="13"/><text x="408" y="234">−</text><text x="408" y="267" class="index">9</text></g>
+<g class="button small-button" data-control="START"><rect x="492" y="220" width="40" height="27" rx="13"/><text x="512" y="234">+</text><text x="512" y="267" class="index">10</text></g>
+<g class="button" data-control="HOME"><circle cx="460" cy="294" r="19"/><text x="460" y="295" font-size="17">⌂</text><text x="460" y="326" class="index">11</text></g>
+<g class="stick" id="left-stick"><circle cx="279" cy="231" r="61" class="stick-ring"/><path d="M224 231 H334 M279 176 V286" class="crosshair"/><g data-control="L3" class="button stick-cap" id="left-cap"><circle cx="279" cy="231" r="39"/><circle cx="279" cy="231" r="30" class="cap-inner"/><text x="279" y="232">L3</text></g><text x="279" y="316" class="stick-label">左摇杆 <tspan>0 / 1</tspan></text></g>
+<g class="stick" id="right-stick"><circle cx="568" cy="356" r="61" class="stick-ring"/><path d="M513 356 H623 M568 301 V411" class="crosshair"/><g data-control="R3" class="button stick-cap" id="right-cap"><circle cx="568" cy="356" r="39"/><circle cx="568" cy="356" r="30" class="cap-inner"/><text x="568" y="357">R3</text></g><text x="568" y="441" class="stick-label">右摇杆 <tspan>2 / 3</tspan></text></g>
+<g class="dpad"><circle cx="359" cy="366" r="57" fill="#d4ded7"/>
+<g class="button" data-dpad="up"><path d="M342 349 V321 H376 V349 L359 366 Z"/><text x="359" y="335">▲</text></g>
+<g class="button" data-dpad="right"><path d="M376 349 H404 V383 H376 L359 366 Z"/><text x="390" y="367">▶</text></g>
+<g class="button" data-dpad="down"><path d="M342 383 V411 H376 V383 L359 366 Z"/><text x="359" y="399">▼</text></g>
+<g class="button" data-dpad="left"><path d="M342 349 H314 V383 H342 L359 366 Z"/><text x="328" y="367">◀</text></g><circle cx="359" cy="366" r="13" fill="#55665b"/><text x="359" y="447" class="stick-label">十字键 <tspan>4 / 5</tspan></text></g>
+<g class="button face y" data-control="Y"><circle cx="667" cy="183" r="25"/><text x="667" y="184">Y</text><text x="667" y="148" class="index">2</text></g>
+<g class="button face b" data-control="B"><circle cx="714" cy="230" r="25"/><text x="714" y="231">B</text><text x="754" y="231" class="index">1</text></g>
+<g class="button face a" data-control="A"><circle cx="667" cy="277" r="25"/><text x="667" y="278">A</text><text x="667" y="315" class="index">0</text></g>
+<g class="button face x" data-control="X"><circle cx="620" cy="230" r="25"/><text x="620" y="231">X</text><text x="581" y="231" class="index">3</text></g>
+<g class="button back-button" data-control="M1"><rect x="181" y="420" width="73" height="36" rx="13"/><text x="217" y="439">M1</text><text x="217" y="477" class="index">同 R3 · 13</text></g>
+<g class="button back-button" data-control="M2"><rect x="669" y="420" width="73" height="36" rx="13"/><text x="705" y="439">M2</text><text x="705" y="477" class="index">同 L3 · 12</text></g>
+<text x="460" y="537" class="foot-label">M1 / M2 为背键，此处展开显示</text>
+</svg>
+<div class="panel-bottom"><span><i class="legend-dot"></i> 按下 / 激活</span><span>编号从 0 开始</span><span id="refresh">等待数据</span></div></section>
+<aside><section class="card"><p class="eyebrow">LIVE TELEMETRY</p><h2>摇杆与方向</h2><div id="axes"></div><div class="hint" id="profile-hint">自动识别 NS / XINPUT；未知模式报错并禁止底盘输出。</div></section>
+<section class="card event-card"><p class="eyebrow">LAST INPUT</p><h2 id="event-title">等待操作</h2><p id="event-detail">拨动摇杆或按下任意按键</p><div class="alias-note" id="alias-note">正在读取当前模式映射</div></section></aside></div>
+<section class="teleop-strip"><div><p class="eyebrow">CHASSIS CONTROL</p><h2>底盘目标 · SDK 原值</h2><p id="control-status">预览模式 · 尚未启用底盘输出</p></div><div class="command-values"><span>前后 X <b id="cmd-x">0.000</b></span><span>左右 Y <b id="cmd-y">0.000</b></span><span>自旋 Z <b id="cmd-z">0.000</b></span></div><small>右杆平移 · 左杆横向自旋<br>回中后按住 LT · 松开停车 · 满杆 2</small></section>
+<section class="mapping-strip"><div><p class="eyebrow">BUTTON MAP</p><h2>按键映射</h2></div><div id="button-map"></div></section>
+<footer><span>INPUT VIEWER <i>/</i> 鲲鹏 20</span><span>Linux joydev · 实测映射 <b>2026.11.07</b></span></footer>
+</main><script src="/app.js"></script></body></html>
