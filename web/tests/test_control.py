@@ -166,6 +166,42 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(args[3]["height"], 5.)
         self.assertIsNone(self.controller.chassis_owner)
 
+    def test_page_sequences_survive_refresh_and_do_not_share_counters(self):
+        move = dict(type="chassis", x=.05, y=0, omega=0)
+        first, refreshed = "a" * 32, "b" * 32
+        self.controller.submit(dict(move, sequence=1124, control_id=first), "A")
+        self.controller.submit(dict(type="chassis.stop", sequence=1125, control_id=first), "A")
+        self.controller.submit(dict(move, sequence=1, control_id=refreshed), "A")
+        calls = len(self.adapter.calls)
+        for page, sequence in [(first, 1124), (refreshed, 1)]:
+            with self.assertRaises(Rejected):
+                self.controller.submit(dict(move, sequence=sequence, control_id=page), "A")
+        self.assertEqual(len(self.adapter.calls), calls)
+        self.controller.submit(dict(move, sequence=1126, control_id=first), "A")
+        self.controller.submit(dict(move, sequence=2, control_id=refreshed), "A")
+        with self.assertRaises(Rejected):
+            self.controller.submit(dict(move, sequence=1, control_id=refreshed), "B")
+
+    def test_stale_brake_stops_without_rewinding_sequence(self):
+        move = dict(type="chassis", x=.05, y=0, omega=0)
+        for page in ({}, {"control_id": "a" * 32}):
+            self.controller.submit(dict(move, sequence=1124, **page), "A")
+            self.controller.submit(dict(type="chassis.stop", sequence=1, **page), "A")
+            self.assertEqual(self.adapter.calls[-1][1][:3], (0, 0, 0))
+            self.assertIsNone(self.controller.chassis_owner)
+            with self.assertRaises(Rejected):
+                self.controller.submit(dict(move, sequence=1124, **page), "A")
+
+    def test_page_id_and_sequence_validation_dispatches_nothing(self):
+        move = dict(type="chassis", x=.05, y=0, omega=0, sequence=1)
+        for invalid in [None, [], "", "a" * 33, "g" * 32]:
+            with self.assertRaises(Rejected):
+                self.controller.submit(dict(move, control_id=invalid), "A")
+        for sequence in [True, 0, -1, 1.5]:
+            with self.assertRaises(Rejected):
+                self.controller.submit(dict(type="chassis.stop", sequence=sequence), "A")
+        self.assertEqual(self.adapter.calls, [])
+
     def test_stop_wins_over_late_motion_and_other_clients(self):
         self.controller.submit({"type": "chassis.stop", "sequence": 2}, "A")
         with self.assertRaises(Rejected):

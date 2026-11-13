@@ -459,6 +459,14 @@ class Controller:
     def _submit(self, data, client):
         if not isinstance(data, dict):
             raise Rejected("指令必须是对象")
+        sequence_client = client
+        if data.get("type") in ("chassis", "chassis.stop") and "control_id" in data:
+            control_id = data["control_id"]
+            if (not isinstance(control_id, str) or len(control_id) != 32
+                    or any(c not in "0123456789abcdef" for c in control_id)):
+                raise Rejected("底盘页面控制 ID 无效")
+            sequence_client = (client, control_id)
+            data = {k: v for k, v in data.items() if k != "control_id"}
         schemas = {"arm.joints": {"type", "arm", "joints"}, "arm.tcp": {"type", "arm", "position_mm", "orientation_deg"},
                    "gripper": {"type", "arm", "position"}, "arm.stop": {"type", "arm"},
                    "arm.mode": {"type", "arm", "mode"},
@@ -533,11 +541,13 @@ class Controller:
             self.adapter.lift(v)
             return
         sequence = data.get("sequence")
-        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= self.base_sequences.get(client, 0):
+        previous_sequence = self.base_sequences.get(sequence_client, 0)
+        if (type(sequence) is not int or sequence <= 0
+                or (kind != "chassis.stop" and sequence <= previous_sequence)):
             raise Rejected("底盘指令序号已过期")
         if self.chassis_owner and self.chassis_owner != client and kind != "chassis.stop":
             raise Rejected("底盘正在由另一网页控制")
-        self.base_sequences[client] = sequence
+        self.base_sequences[sequence_client] = max(sequence, previous_sequence)
         if kind == "chassis.stop":
             self._stop_chassis("底盘停止", force=True)
             return

@@ -15,6 +15,7 @@ let keyBlocked = false;
 let heartbeat = null;
 let heartbeatBusy = false;
 let baseSequence = 0;
+const baseControlId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join('');
 let lastLogKey = '';
 let localLogId = 0;
 let toastTimer;
@@ -221,6 +222,7 @@ function render(force=false) {
   renderLogs();
 }
 async function command(data, quiet=false) {
+  if(data.type==='chassis' || data.type==='chassis.stop')data={...data,control_id:baseControlId};
   if(!quiet)localLog('发送请求：'+JSON.stringify(data));
   try {
     const response=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),keepalive:true});

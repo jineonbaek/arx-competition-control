@@ -178,6 +178,29 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(len(self.adapter.calls), 2)
 
 
+    def test_page_scoped_wasd_and_stale_brake_through_http(self):
+        _, response, _ = self.request("GET", "/")
+        headers = {"Content-Type": "application/json",
+                   "Cookie": response["Set-Cookie"].split(";")[0],
+                   "Origin": f"http://127.0.0.1:{self.port}"}
+        self.controller.config["execution_enabled"] = True
+        self.controller.update_body(5., [0.] * 4, 0., 0., 0.)
+
+        def post(data, request_headers=headers):
+            return self.request("POST", "/api/command", json.dumps(data), request_headers)[0]
+
+        move = dict(type="chassis", x=.05, y=0, omega=0, control_id="a" * 32, sequence=1124)
+        self.assertEqual(post(move), 200)
+        self.assertEqual(post(dict(type="chassis.stop", control_id="a" * 32, sequence=1)), 200)
+        self.assertEqual(self.adapter.calls[-1][1][:3], (0, 0, 0))
+        refreshed = dict(move, control_id="b" * 32, sequence=1)
+        self.assertEqual(post(refreshed), 200)
+        calls = len(self.adapter.calls)
+        self.assertEqual(post(refreshed), 400)
+        self.assertEqual(post(dict(move, control_id="invalid")), 400)
+        self.assertEqual(post(dict(move, sequence=1125), dict(headers, Origin="http://other")), 403)
+        self.assertEqual(len(self.adapter.calls), calls)
+
     def test_grasp_scene_routes_cameras_and_keeps_origin_guard(self):
         from unittest.mock import patch
         import grasp_preview
