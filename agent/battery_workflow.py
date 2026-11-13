@@ -12,7 +12,7 @@ def build_workflow(config,store,controller,token,*,policies,refinement_policy,
                    clearance_mm=50.):
     setup=load_pick_setup(timing_limits=timing_limits,alignment_tolerance_deg=alignment_tolerance_deg,
                           j6_tolerance_deg=j6_tolerance_deg)
-    backend=BatteryControllerBackend(controller,token,store,policies=policies,pick_setup=setup,
+    backend=BatteryControllerBackend(controller,token,store,policies=policies|{'refinement':refinement_policy},pick_setup=setup,
         preflight=preflight,cancelled=lambda:store.cancelled,timeout_s=timeout_s)
     tools=BatteryExecutionTools(config,store,observations=observations,backends=backend,
                                pick_setup=setup,refinement_policy=refinement_policy)

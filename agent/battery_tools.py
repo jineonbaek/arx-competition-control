@@ -17,7 +17,7 @@ from .grasp_path import plan_correction
 from web.src.handeye_column import ColumnModel
 from .grasp_geometry import ROOT
 
-EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick','execute_battery_approach','execute_pick','capture_grasp_scene','verify_hold'}
+EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick','execute_battery_approach','execute_pick','capture_grasp_scene','verify_hold','stow_for_carry'}
 
 
 class BatteryExecutionTools(WorkflowTools):
@@ -26,12 +26,14 @@ class BatteryExecutionTools(WorkflowTools):
     schemas.update(capture_grasp_scene=object_schema(),verify_hold=object_schema(),plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
                    execute_battery_approach=object_schema({'plan_id':TEXT},['plan_id']),
                    execute_pick=ToolRegistry.schemas['execute_pick'],
+                   stow_for_carry=object_schema({'plan_id':TEXT},['plan_id']),
                    execute_coarse_alignment=object_schema({'plan_id':TEXT},['plan_id']),
                    get_execution_status=ToolRegistry.schemas['get_execution_status'])
     descriptions={k:v for k,v in WorkflowTools.descriptions.items() if k in WORKFLOW_TOOLS}
     descriptions.update(capture_grasp_scene='Freeze D405 RGB-D without movement.',verify_hold='Confirm retention from fresh right-gripper feedback and the configured caught-battery range.',plan_battery_pick='Plan insertion along the battery approach axis from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
         execute_battery_approach='Execute a locally verified approach or bounded correction, then require a new D405 scene. Never closes the gripper.',
         execute_pick=ToolRegistry.descriptions['execute_pick'],
+        stow_for_carry='After confirmed grasp, keep the gripper closed and move the current right wrist by base X minus 200 mm, preserving Y/Z and orientation.',
         execute_coarse_alignment='Execute only the stored verified coarse plan. '
         'Wait for its existing receipt, then capture a new D405 observation. Never retry motion with a new call ID.',
         get_execution_status=ToolRegistry.descriptions['get_execution_status'])
@@ -68,6 +70,8 @@ class BatteryExecutionTools(WorkflowTools):
         self.store.save()
 
     def _operation(self,name,arguments,call_id,mission):
+        if name=='stow_for_carry' and arguments['plan_id']!=(mission.data.get('plan') or {}).get('plan_id'):
+            raise AgentError('plan_missing','抽出动作必须使用本轮夹取计划')
         if name in ('execute_battery_approach','execute_pick'):
             mission.require(('PICK_PLANNED',) if name=='execute_pick' else
                             ('PICK_APPROACH_PLANNED','PICK_CORRECTION_PLANNED'))

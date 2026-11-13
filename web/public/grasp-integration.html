@@ -15,7 +15,7 @@
 <section class="panel"><h2>FoundationPose · 本轮位姿结果</h2><img id="pose" class="pose-output" alt="本轮 FoundationPose CAD 与提手参考点叠加" hidden><p id="quality">等待位姿估计</p></section>
 <section class="panel"><div class="panel-heading"><h2>本轮点云与抓取参考路径</h2><button id="reset" class="button secondary">重置视角</button></div><div id="viewport"></div><p class="hint">显示本轮冻结观测的电池点云与 TCP 目标路径。相机画面实时更新，点云在工具完成新观测后更新。</p></section>
 <section class="panel candidates"><h2>抓取计划与工具结果</h2><p id="stamp"></p><dl id="metrics"></dl><p id="blockers">等待任务生成抓取计划</p><ol id="tool-results"></ol></section>
-<section class="panel"><h2>实机自动流程</h2><p>D435 粗定位 → 升降与预观察 → D405 精定位 → FoundationPose → 接近、视觉纠偏与夹取。</p>
+<section class="panel"><h2>实机自动流程</h2><p>D435 粗定位 → 升降与预观察 → D405 精定位 → FoundationPose → 接近、视觉纠偏与夹取 → 沿 X 后退 200 mm 抽出电池。</p>
 <div class="task-settings">
 <label>升降目标（rad）<input id="lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>达到向下取整值即成功，例如 6.6 → 6.0</small></label>
 <label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮 D435 引导</small></label>

@@ -135,6 +135,9 @@ class BatteryFlow:
                     self._call('verify_hold',{})
                     if self.store.state['mission']['stage']!='HOLD_CONFIRMED':
                         return self._finish('awaiting_hold_verification','Retention not confirmed')
+                    self._next('extract')
+                elif phase=='extract':
+                    self._call('stow_for_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})
                     return self._finish('completed')
                 else:raise AgentError('invalid_flow','Unknown fixed-flow phase')
             return self._finish('needs_attention','Fixed flow call budget exhausted')

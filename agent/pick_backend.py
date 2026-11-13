@@ -182,3 +182,15 @@ class ApproachExecutionBackend(_PreparedExecutionBackend):
         if receipt.get('new_observation_required') is not True or receipt.get('close_permitted') is not False:
             raise ValueError('Measured arrival and mandatory reobservation required')
         return dict(pose_reached=True,new_observation_required=True)
+
+
+class ExtractionExecutionBackend(_PreparedExecutionBackend):
+    operation='stow_for_carry'
+    stage_key='extract_stage'
+    terminal_stage='withdrawn'
+    running_stages=('withdrawing',)
+
+    @staticmethod
+    def _completed_data(receipt):
+        return dict(carry_ready=True,extracted=True,extraction_dx_mm=-200.,
+                    target_wrist_base_mm=receipt['target_wrist_base_mm'])

@@ -31,7 +31,7 @@ function cloud(g){
 }
 function image(id,src){const img=el(id);img.hidden=!src;if(src){if(img.getAttribute('src')!==src)img.src=src;}else img.removeAttribute('src');}
 const xyz=p=>p.map(v=>v.toFixed(1)).join(' / ')+' mm';
-const toolNames={observe_battery:'电池识别与深度定位',plan_coarse_alignment:'升降与预观察计划',execute_coarse_alignment:'升降与预观察执行',preview_battery_grasp:'FoundationPose 与点云',plan_battery_pick:'抓取路径规划',execute_battery_approach:'张开夹爪与接近',execute_pick:'插入与夹取',verify_hold:'夹持确认'};
+const toolNames={observe_battery:'电池识别与深度定位',plan_coarse_alignment:'升降与预观察计划',execute_coarse_alignment:'升降与预观察执行',preview_battery_grasp:'FoundationPose 与点云',plan_battery_pick:'抓取路径规划',execute_battery_approach:'张开夹爪与接近',execute_pick:'插入与夹取',verify_hold:'夹持确认',stow_for_carry:'沿 X 后退 200 mm 抽出电池'};
 function show(data){
  const head=data.observations?.d435,wrist=data.observations?.d405,coarse=data.coarse_alignment,plan=data.pick_plan,g=data.geometry;
  el('run-label').textContent=data.run_id||'等待任务';

@@ -32,6 +32,7 @@ class Tools:
             m['stage']='PICK_AT_PREGRASP';m['approach_plan']=m['plan'];m['plan']=None
         elif name=='execute_pick':m['stage']='PICK_EXECUTED'
         elif name=='verify_hold':m['stage']='HOLD_CONFIRMED';data={'hold_status':'confirmed'}
+        elif name=='stow_for_carry':m['stage']='CARRY_READY';data={'carry_ready':True}
         return dict(ok=True,data=data,error=None)
 
 def review(operation,plan):
@@ -51,13 +52,20 @@ class FlowTests(unittest.TestCase):
         names=self.tools.calls
         self.assertEqual(names.count('execute_battery_approach'),2)
         self.assertEqual(names.count('execute_pick'),1)
-        self.assertEqual(names[-1:],["verify_hold"])
+        self.assertEqual(names[-2:],["verify_hold","stow_for_carry"])
+        self.assertEqual(self.store.state['mission']['stage'],'CARRY_READY')
         self.assertNotIn('capture_grasp_scene',names)
         self.assertEqual(names.count('preview_battery_grasp'),3)
     def test_missing_verifier_does_not_claim_success(self):
         self.tools.available=lambda name:False
         out=self.flow().run()
         self.assertEqual(out['status'],'awaiting_hold_verification');self.assertFalse(out['grasp_confirmed'])
+
+    def test_extraction_failure_does_not_claim_the_flow_completed(self):
+        self.tools.fail='stow_for_carry'
+        result=self.flow().run()
+        self.assertEqual(result['status'],'needs_attention')
+        self.assertEqual(self.tools.calls[-2:],['verify_hold','stow_for_carry'])
 
     def test_correction_loop_is_not_stopped_by_the_initial_tool_call_budget(self):
         self.tools.corrections=25

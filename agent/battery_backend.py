@@ -12,16 +12,17 @@ from .battery_execution import prepare_step
 from .coarse_alignment import observer_search_geometry
 from .coarse_execution import CoarseAlignmentStep
 from .grasp_path import TimedJointPath
-from .pick_backend import CoarseExecutionBackend, ApproachExecutionBackend, PickExecutionBackend
+from .pick_backend import CoarseExecutionBackend, ApproachExecutionBackend, PickExecutionBackend, ExtractionExecutionBackend
+from .battery_extract import WristExtractionStep
 from .storage import atomic_json
 
-BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend)}
+BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend,ExtractionExecutionBackend)}
 
 class BatteryControllerBackend:
     def __init__(self,controller,token,store,*,policies,pick_setup,preflight,cancelled,timeout_s):
         if store.closed or not callable(preflight) or not callable(cancelled):
             raise ValueError('Open run and local preflight/cancellation required')
-        if set(timeout_s)!=set(BACKENDS) or any(type(t) not in (int,float) or not math.isfinite(t)
+        if set(timeout_s)!=set(BACKENDS)-{'stow_for_carry'} or any(type(t) not in (int,float) or not math.isfinite(t)
                                                or not 0<t<=3600 for t in timeout_s.values()):
             raise ValueError('Finite deadlines required for all execution stages')
         self.controller=controller;self.token=token;self.store=store
@@ -181,11 +182,14 @@ class BatteryControllerBackend:
                     saved=json.loads(journal.read_text())
                     if saved['receipt']['status'] not in ('completed','rejected'):
                         raise ValueError('Earlier execution requires recovery')
-                step=prepare_step(operation,arguments['plan'],self.controller,self.token,
-                    policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
+                if operation=='stow_for_carry':
+                    step=WristExtractionStep(self.controller,self.token,refinement=self.policies['refinement'])
+                else:
+                    step=prepare_step(operation,arguments['plan'],self.controller,self.token,
+                        policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
                 entry=BACKENDS[operation](step,request_id=request_id,arguments=arguments,journal=path,
                     cancelled=lambda:self.store.closed or self.store.cancelled or self.cancelled(),
-                    timeout_s=self.timeout_s[operation])
+                    timeout_s=self.timeout_s.get(operation,self.timeout_s['execute_pick']))
                 self.entries[request_id]=entry
                 return entry.invoke(operation,arguments,request_id)
             except (OSError,ValueError,KeyError,TypeError) as error:
