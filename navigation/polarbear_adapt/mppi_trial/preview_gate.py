@@ -6,7 +6,7 @@ from geometry_msgs.msg import TwistStamped
 from sdk_preview import convert
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
@@ -23,6 +23,7 @@ class PreviewGate(Node):
         self.output = self.create_publisher(TwistStamped, '/arx_mppi_trial/preview_velocity', 1)
         self.sdk_output = self.create_publisher(TwistStamped, '/arx_mppi_trial/sdk_preview', 1)
         self.status = self.create_publisher(String, '/arx_mppi_trial/preview_status', 1)
+        self.inputs_ready = self.create_publisher(Bool, '/arx_mppi_trial/inputs_ready', 1)
         for name, cls, topic, qos in (
             ('velocity', TwistStamped, '/arx_mppi_trial/raw_velocity', 10),
             ('odometry', Odometry, '/localization/odometry', qos_profile_sensor_data),
@@ -39,10 +40,12 @@ class PreviewGate(Node):
         if name not in self.inputs or ns > self.inputs[name][0]:
             self.inputs[name] = (ns, time.monotonic(), msg)
 
-    def blocked(self, now):
+    def blocked(self, now, require_velocity=True):
         wall = time.monotonic()
         for name, age, gap in (('velocity',.20,.15), ('odometry',.45,.25),
                                ('front',.65,.25), ('rear',.65,.25), ('costmap',.50,.35)):
+            if name == 'velocity' and not require_velocity:
+                continue
             ns, arrived, _ = self.inputs.get(name, (0,0,None))
             if not 0 <= (now-ns)/1e9 <= age or wall-arrived > gap:
                 return name + '_stale'
@@ -56,11 +59,13 @@ class PreviewGate(Node):
 
     def update(self):
         stamp = self.get_clock().now()
+        self.inputs_ready.publish(Bool(data=self.blocked(stamp.nanoseconds, require_velocity=False) is None))
         msg = TwistStamped()
         msg.header.stamp = stamp.to_msg()
         msg.header.frame_id = 'base_link'
         reason = self.blocked(stamp.nanoseconds)
         if reason is None:
+            msg.header = self.inputs['velocity'][2].header
             twist = self.inputs['velocity'][2].twist
             x,y,w = twist.linear.x,twist.linear.y,twist.angular.z
             if all(math.isfinite(v) for v in (x,y,w)):

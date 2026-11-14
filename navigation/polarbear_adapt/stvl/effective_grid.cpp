@@ -1,8 +1,23 @@
 // Source-stamped finite-ray votes for STVL's actual OpenVDB cells.
 #include "spatio_temporal_voxel_layer/spatio_temporal_voxel_grid.hpp"
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
+
+namespace obstacle_height {
+constexpr double minimum=.03, maximum=.40, epsilon=1e-7;
+bool contains(double z) {
+  return std::isfinite(z) && z>=minimum-epsilon && z<=maximum+epsilon;
+}
+bool clip(double &low,double &high) {
+  if (!std::isfinite(low) || !std::isfinite(high) || low>high ||
+      high<minimum-epsilon || low>maximum+epsilon) return false;
+  low=std::min(maximum,std::max(minimum,low));
+  high=std::min(maximum,std::max(minimum,high));
+  return true;
+}
+} // namespace obstacle_height
 
 extern "C" {
 void *new_history_size(double,double,double);
@@ -29,6 +44,9 @@ void SpatioTemporalVoxelGrid::Forget(const Key &k) const {
 }
 
 void SpatioTemporalVoxelGrid::RecordHit(const Key &k, double low, double high, int64_t ns) {
+  // This is also the seed/checkpoint entry point. An old high return must not
+  // bypass the current navigation gate when a session is restored.
+  if (!obstacle_height::clip(low,high)) return;
   if (_retired.count(k) && _retired.at(k) > ns) return;
   auto &cell = _observed[k];
   if (ns < cell.last_hit) return;
@@ -81,7 +99,7 @@ void SpatioTemporalVoxelGrid::ApplyEvidence(const sensor_msgs::msg::PointCloud2 
       if (_observed.count(k)) endpoints.insert(k);
     } else if (*type==2) {
       const double dist2=std::pow(*x-origin[0],2)+std::pow(*y-origin[1],2)+std::pow(*z-origin[2],2);
-      if(dist2>64. || *z<.03 || *z>1.35) continue;
+      if(dist2>64. || !obstacle_height::contains(*z)) continue;
       auto bounds=hits.emplace(k,std::make_pair(*z,*z)).first;
       bounds->second.first=std::min(bounds->second.first,double(*z));
       bounds->second.second=std::max(bounds->second.second,double(*z));

@@ -17,20 +17,24 @@ from sensor_msgs.msg import PointCloud2, PointField
 import yaml
 from tf2_ros import Buffer, TransformException, TransformListener
 from base_envelope import BaseEnvelope
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from rear_sector import rear_forward_points
 
 STREAMS = {
     "/fixed_dual/head/cloud_body": "/pb/rviz/rear_cloud_map",
     "/single/cloud_registered": "/pb/rviz/lio_cloud_map",
 }
 
-def filter_display_cloud(cloud,body_transform,envelope):
-    if envelope is None:return True
+def filter_display_cloud(cloud,body_transform,envelope,rear_sector=False):
+    if envelope is None and not rear_sector:return True
     xyz=coordinate_views(cloud,cloud.data,('x','y','z'))
     if not xyz:return False
     q,t=body_transform.rotation,body_transform.translation
     points=np.stack(xyz,axis=-1).reshape(-1,3)
     body=Rotation.from_quat([q.x,q.y,q.z,q.w]).apply(points)+[t.x,t.y,t.z]
-    keep=~envelope.mask(body)
+    keep=~envelope.mask(body) if envelope is not None else np.ones(len(points),bool)
+    if rear_sector:keep &= ~rear_forward_points(points)
     records=np.ndarray((cloud.height,cloud.width,cloud.point_step),dtype=np.uint8,
         buffer=cloud.data,strides=(cloud.row_step,cloud.point_step,1)).reshape(-1,cloud.point_step)
     cloud.data=array('B',records[keep].copy().tobytes())
@@ -112,7 +116,11 @@ class CloudDisplay(Node):
         topics = ("/pb/rviz/footprint", "/pb/rviz/padded_footprint")
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.footprints = []
-        for topic, points in zip(topics, footprint_polygons(config)):
+        polygons=list(footprint_polygons(config))
+        if self.envelope is not None:
+            topics=(*topics,"/pb/rviz/base_projection")
+            polygons.append(np.asarray(self.envelope.shape.exterior.coords)[:-1])
+        for topic, points in zip(topics, polygons):
             publisher = self.create_publisher(PolygonStamped, topic, qos)
             polygon = PolygonStamped()
             polygon.header.frame_id = "base_link"
@@ -142,12 +150,11 @@ class CloudDisplay(Node):
                     continue
                 try:
                     transform = self.transforms.lookup_transform("map", cloud.header.frame_id, stamp).transform
-                    body_transform=(self.transforms.lookup_transform('base_link',cloud.header.frame_id,stamp).transform
-                                    if self.envelope is not None else None)
+                    body_transform=self.transforms.lookup_transform('base_link',cloud.header.frame_id,stamp).transform if self.envelope is not None or source=='/fixed_dual/head/cloud_body' else None
                 except TransformException:
                     break
                 queue.popleft()
-                filtered=filter_display_cloud(cloud,body_transform,self.envelope)
+                filtered=filter_display_cloud(cloud,body_transform,self.envelope,rear_sector=(source=='/fixed_dual/head/cloud_body'))
                 if filtered and not cloud.width:
                     cloud.header.frame_id='map'
                 if filtered and (not cloud.width or project(cloud, transform)):

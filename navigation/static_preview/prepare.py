@@ -7,7 +7,7 @@ from ament_index_python.packages import get_package_share_directory
 root=Path(__file__).resolve().parents[1];out=root/'static_preview';out.mkdir(exist_ok=True)
 a=np.load(root/'models/lift2s_bottom_upright_20261105/body_voxels.npz');head=a['head']
 xy=np.vstack([a['rigid'],head])[:,:2];hull=xy[ConvexHull(xy).vertices];radius=math.ceil((np.linalg.norm(xy,axis=1).max()+.00684+.03)*1000)/1000
-(out/'footprint.json').write_text(json.dumps({'polygon_m':hull.tolist(),'covering_radius_m':radius,'padding_m':.03,'source':'delivered CAD voxel hull; nominal arm/lift pose','head_margin_for_collision_not_flex_tracking':True},indent=2))
+(out/'footprint.json').write_text(json.dumps({'polygon_m':hull.tolist(),'covering_radius_m':radius,'padding_m':0.,'source':'delivered CAD voxel hull; nominal arm/lift pose','head_margin_for_collision_not_flex_tracking':True},indent=2))
 seg={'n_threads':2,'r_min':.2,'r_max':20.,'n_bins':120,'n_segments':60,'max_dist_to_line':.035,'sensor_height':.23,'min_slope':0.,'max_slope':.3,'max_fit_error':.025,'long_threshold':1.,'max_long_height':.06,'max_start_height':.10,'line_search_angle':.1,'gravity_aligned_frame':'','visualize':False,'input_topic':'/preview/level_cloud','obstacle_output_topic':'/preview/obstacle_raw','ground_output_topic':'/preview/ground_raw'}
 # Inputs already sensor-centred gravity level; declared overrides are checked at runtime.
 (out/'segmentation.yaml').write_text(yaml.safe_dump({'/**':{'ros__parameters':seg}}))

@@ -110,6 +110,18 @@ Visualization Manager:
     Alpha: 1.0
     Draw Priority: 2
     Frame Locked: true
+  - Class: arx_waypoints/ForegroundPolygon
+    Name: "\u5E95\u76D8\u5B9E\u9645\u6295\u5F71\uFF08\u4E0D\u542B\u5916\u6269\uFF09"
+    Enabled: true
+    Topic:
+      Value: /pb/rviz/base_projection
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Color: 255; 255; 255
+    Alpha: 1.0
+    Draw Priority: 3
+    Frame Locked: true
   - Class: rviz_default_plugins/Path
     Name: Planned path
     Enabled: true

@@ -14,4 +14,16 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-rviz2 -d "$config"
+view_run=$(cat reports/active-polarbear-adapt.txt 2>/dev/null || true)
+while true; do
+    if rviz2 -d "$config"; then
+        if python3 "$PWD/desktop/close_navigation.py" "$view_run"; then
+            break
+        else
+            status=$?
+            [[ "$status" == 10 ]] || exit "$status"
+        fi
+    else
+        exit "$?"
+    fi
+done

@@ -22,7 +22,7 @@ if fixed_enabled(p.parent):
  displays.append({'Class':'rviz_default_plugins/PointCloud2','Name':'后雷达去畸变点云','Enabled':True,'Topic':topic('/pb/rviz/rear_cloud_map',best=True),'Size (m)':.025,'Style':'Points','Color Transformer':'FlatColor','Color':'0; 255; 0','Decay Time':0})
 for key,name,enabled in [('map','Map',True),('global','Global costmap',True),('local','Local costmap',False)]:
  displays.append({'Class':'rviz_default_plugins/MarkerArray','Name':name,'Enabled':enabled,'Topic':topic('/pb/display/'+key,True)})
-for priority,(name,t,col) in enumerate([('Actual CAD footprint','/pb/rviz/footprint','255; 255; 0'),('Padded CAD planner footprint','/pb/rviz/padded_footprint','255; 0; 255')],1):
+for priority,(name,t,col) in enumerate([('Actual CAD footprint','/pb/rviz/footprint','255; 255; 0'),('Padded CAD planner footprint','/pb/rviz/padded_footprint','255; 0; 255'),('底盘实际投影（不含外扩）','/pb/rviz/base_projection','255; 255; 255')],1):
  displays.append({'Class':'arx_waypoints/ForegroundPolygon','Name':name,'Enabled':True,'Topic':topic(t,transient=True),'Color':col,'Alpha':1.,'Draw Priority':priority,'Frame Locked':True})
 displays.append({'Class':'rviz_default_plugins/Path','Name':'Planned path','Enabled':True,'Topic':topic('/pb/path'),'Color':'0; 80; 255','Line Style':'Billboards','Line Width':.04,'Offset':{'X':0.,'Y':0.,'Z':.12}})
 displays.append({'Class':'rviz_default_plugins/Marker','Name':'First path issue (amber unknown / red obstacle)','Enabled':True,'Topic':topic('/pb/path_issue')})

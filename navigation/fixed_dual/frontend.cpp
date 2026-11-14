@@ -17,7 +17,7 @@ class Frontend:public rclcpp::Node{
  std::array<rclcpp::Subscription<Cloud>::SharedPtr,2> subs;
  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu;
  rclcpp::TimerBase::SharedPtr timer;
- int64_t imu_stamp=0,last_output=0;size_t frames=0;std::array<size_t,2> counts{};
+ int64_t imu_stamp=0,last_output=0;size_t frames=0,incomplete_windows=0;std::array<size_t,2> counts{};
  void fail(const std::string &reason){fault=reason;RCLCPP_ERROR(get_logger(),"%s",reason.c_str());}
  public:
  Frontend(std::string r,std::string o):Node("fixed_dual_frontend"),root(r),run(o){
@@ -31,7 +31,7 @@ class Frontend:public rclcpp::Node{
      auto t=now().nanoseconds();std::string state=fault.empty()?"ready":fault;
      for(int s=0;s<2;s++)if(windows.enabled[s]&&t-windows.latest[s]>500000000)state="waiting for enabled source "+std::to_string(s);
      if(t-imu_stamp>150000000)state="waiting for bottom IMU";
-     Json report={{"mode",state},{"fault",fault},{"frames",frames},{"bottom_points",counts[0]},{"rear_points",counts[1]},{"last_output_ns",last_output},{"enabled",windows.enabled},{"commands_sent",0}};
+     Json report={{"mode",state},{"fault",fault},{"frames",frames},{"skipped_incomplete_windows",incomplete_windows},{"bottom_points",counts[0]},{"rear_points",counts[1]},{"last_output_ns",last_output},{"enabled",windows.enabled},{"commands_sent",0}};
      std_msgs::msg::String m;m.data=report.dump();status->publish(m);std::ofstream(run+"/fixed-fusion.json")<<report.dump(2);drain();
    });
  }
@@ -59,7 +59,12 @@ class Frontend:public rclcpp::Node{
      if(window->start<=last_output){fail("fused clock regression");return;}
      if(now().nanoseconds()-window->end>500000000)continue;
      std::array<size_t,2> n{};for(auto &p:window->points)n[p.source]++;
-     for(int s=0;s<2;s++)if(windows.enabled[s]&&n[s]<30){fail("enabled source has too few points");return;}
+     if(!sufficient_sources(*window,windows.enabled)) {
+       ++incomplete_windows;
+       RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),5000,
+         "Dropped incomplete dual window: bottom=%zu rear=%zu; waiting for next complete window",n[0],n[1]);
+       continue;
+     }
      Cloud out;out.header.frame_id="bottom_livox";out.header.stamp=rclcpp::Time(window->start);out.timebase=window->start;out.lidar_id=0;
      for(auto &p:window->points){livox_ros_driver2::msg::CustomPoint q;q.x=p.x;q.y=p.y;q.z=p.z;q.reflectivity=p.reflectivity;q.tag=p.tag;q.line=p.line;q.offset_time=p.time-window->start;out.points.push_back(q);}
      out.point_num=out.points.size();pub->publish(out);frames++;last_output=window->start;for(int s=0;s<2;s++)counts[s]+=n[s];

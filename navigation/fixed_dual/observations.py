@@ -18,6 +18,9 @@ from std_msgs.msg import Header
 from scipy.spatial.transform import Rotation
 from tf2_ros import Buffer,TransformListener,TransformException
 from geometry import transforms,compensate
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from rear_sector import rear_forward_points
 
 class Observations(Node):
     def __init__(self):
@@ -55,7 +58,10 @@ class Observations(Node):
             if not pts:queue.popleft();continue
             times=np.array([int(p.offset_time) for p in pts],np.int64)+start
             end=int(times.max());xyz=np.array([(p.x,p.y,p.z) for p in pts],np.float64)
-            valid=np.isfinite(xyz).all(1);xyz=xyz[valid];times=times[valid]
+            valid=np.isfinite(xyz).all(1)
+            if s=='head':valid &= ~rear_forward_points(xyz)
+            xyz=xyz[valid];times=times[valid]
+            if not len(xyz):queue.popleft();continue
             intensity=np.array([p.reflectivity for p in pts],float)[valid]
             # At most 5ms pose interpolation intervals, preserving each point's offset.
             keys=np.unique(np.r_[start,(times//5_000_000)*5_000_000,end])
