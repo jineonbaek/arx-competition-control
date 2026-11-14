@@ -183,13 +183,16 @@ class BatteryControllerBackend:
                     if saved['receipt']['status'] not in ('completed','rejected'):
                         raise ValueError('Earlier execution requires recovery')
                 if operation=='stow_for_carry':
-                    step=WristExtractionStep(self.controller,self.token,refinement=self.policies['refinement'])
+                    step=WristExtractionStep(self.controller,self.token,refinement=self.policies['refinement'],
+                        arm_policy=self.policies['coarse']['arm_policy'])
                 else:
                     step=prepare_step(operation,arguments['plan'],self.controller,self.token,
                         policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
+                timeout=self.timeout_s.get(operation,self.timeout_s['execute_pick'])
+                if operation=='stow_for_carry':timeout+=self.policies['coarse']['arm_policy']['timeout_s']
                 entry=BACKENDS[operation](step,request_id=request_id,arguments=arguments,journal=path,
                     cancelled=lambda:self.store.closed or self.store.cancelled or self.cancelled(),
-                    timeout_s=self.timeout_s.get(operation,self.timeout_s['execute_pick']))
+                    timeout_s=timeout)
                 self.entries[request_id]=entry
                 return entry.invoke(operation,arguments,request_id)
             except (OSError,ValueError,KeyError,TypeError) as error:
