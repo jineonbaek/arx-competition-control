@@ -1,19 +1,62 @@
 const el = id => document.getElementById(id);
 const canvas = el('map');
 const ctx = canvas.getContext('2d');
-const phases = [
-  ['head', 'D435 搜索与粗定位'], ['coarse_plan', '粗调规划'],
-  ['coarse_execute', '升降与预观察'], ['wrist', 'D405 重新观察'],
-  ['preview', '位姿与抓取几何'], ['pick_plan', '抓取规划'],
-  ['approach_execute', '预抓接近 / 纠偏'], ['insert', '插入与夹取'],
-  ['verify_hold', '夹持核验'], ['extract', '抽出电池']
-];
-const statuses = {idle:'等待任务', starting:'启动中', running:'运行中', completed:'已完成',
-  cancelled:'已取消', needs_attention:'需要处理', awaiting_hold_verification:'等待夹持核验',
-  unavailable:'抓取后端未启用', failed:'执行失败'};
+const statuses = {idle:'等待比赛', running:'比赛运行中', recovering:'Qwen 分析与恢复中',
+  stopping:'正在停止并交还控制权', paused:'已停止，可检查后继续',
+  completed:'整场比赛完成', needs_attention:'任务中断，需要检查'};
 let latest = null;
 let connected = false;
 let received = 0;
+let taskBusy = false;
+
+function renderCompetition(task) {
+  task ||= {};
+  el('task-state').textContent=statuses[task.status] || '比赛总控未启用';
+  el('phase').textContent=(task.tasks || []).find(t=>t.id===task.phase)?.label || '—';
+  el('mission').textContent=task.control_owned?'控制权：整场任务管理':
+    task.manual_available===false?'控制权：其他任务正在使用':'控制权：9983 手动控制';
+  el('reason').textContent=task.reason || '';
+  el('run').textContent=task.run_id || '';
+  el('competition-start').disabled=taskBusy || !connected || !task.can_start || !el('environment-clear').checked;
+  el('competition-continue').disabled=taskBusy || !connected || !task.can_continue || !el('environment-clear').checked;
+  el('competition-stop').disabled=!task.control_owned && !['running','recovering','stopping'].includes(task.status);
+  el('stages').replaceChildren(...(task.tasks || []).map(t=>{
+    const li=document.createElement('li');
+    const label={completed:'完成',running:'执行中',stopped:'已停止',failed:'需要检查',pending:'待执行'};
+    li.textContent=`${t.label} · ${!t.connected?'能力未接入':label[t.status] || t.status}`;
+    if(t.status==='completed')li.className='done';
+    else if(t.id===task.phase){li.className='current';li.setAttribute('aria-current','step');}
+    return li;
+  }));
+  el('task-logs').replaceChildren(...(task.logs || []).slice(-20).map(item=>{
+    const li=document.createElement('li');
+    const events={start:'比赛开始',continue:'检查后继续',stop_requested:'请求停止',module_start:'开始子任务',
+      module_inspect:'核对原任务',module_completed:'子任务完成',recovery_analysis:'异常分析',
+      recovery_decision:'恢复决策',current_state_checked:'读取当前状态',competition_completed:'比赛完成',
+      competition_paused:'已停止',competition_needs_attention:'任务中断'};
+    li.textContent=`${new Date(item.time*1000).toLocaleTimeString('zh-CN',{hour12:false})} ${events[item.event] || item.event} ${item.detail}`;
+    return li;
+  }));
+}
+
+async function competitionAction(action) {
+  if(action!=='stop' && taskBusy)return;
+  const request_id=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
+  const data={action,request_id};
+  if(action!=='stop')Object.assign(data,{expected_epoch:latest?.competition?.command_epoch,
+    environment_clear:el('environment-clear').checked});
+  taskBusy=true;renderCompetition(latest?.competition);el('task-message').textContent='';
+  try {
+    const response=await fetch('/api/competition-task',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(10000)});
+    const task=await response.json();
+    if(!response.ok)throw new Error(task.message || '比赛操作未被接受');
+    if(latest)latest.competition=task;
+  } catch(error) {el('task-message').textContent=error.message+'；请查看当前状态，勿重复启动任务。';}
+  finally {taskBusy=false;renderCompetition(latest?.competition);}
+}
+for(const action of ['start','stop','continue'])el('competition-'+action).addEventListener('click',()=>competitionAction(action));
+el('environment-clear').addEventListener('change',()=>renderCompetition(latest?.competition));
 
 function draw() {
   const ratio = window.devicePixelRatio || 1;
@@ -60,23 +103,13 @@ function draw() {
 }
 
 function render(data) {
-  const pose = data.pose, grid = data.map, task = data.task || {};
+  const pose = data.pose, grid = data.map;
   el('map-info').textContent = grid ? `${grid.frame} · ${(grid.width*grid.resolution).toFixed(1)} × ${(grid.height*grid.resolution).toFixed(1)} m · 显示栅格 ${grid.resolution.toFixed(3)} m` : '地图坐标尚未就绪';
   el('pose-state').textContent = pose?.valid ? '定位反馈有效' : (data.error || '定位数据过期');
   el('pose-value').textContent = pose ? `X ${pose.x.toFixed(3)} m / Y ${pose.y.toFixed(3)} m / 朝向 ${(pose.yaw*180/Math.PI).toFixed(1)}°` : '等待 map → base_link 定位变换';
   el('pose-age').textContent = pose ? `反馈年龄 ${pose.age_s.toFixed(1)} 秒` : '尚无定位反馈';
   el('path-state').textContent = data.path ? `路径反馈 ${data.path.age_s.toFixed(1)} 秒前${data.path.age_s >= 5 ? '，已隐藏过期路径' : ''}` : '等待规划路径';
-  el('task-state').textContent = statuses[task.status] || task.status || '等待任务状态';
-  el('phase').textContent = phases.find(([key]) => key === task.phase)?.[1] || (task.phase === 'idle' ? '尚未开始' : task.phase) || '—';
-  el('mission').textContent = task.mission_stage && task.mission_stage !== 'IDLE' ? `任务状态机：${task.mission_stage}` : ''; 
-  el('reason').textContent = task.reason || (task.recovery_required ? '任务要求恢复处理' : '');
-  el('run').textContent = task.run_id || '';
-  el('stages').replaceChildren(...phases.map(([key, label]) => {
-    const li = document.createElement('li'); li.textContent = label;
-    // Re-observation loops mean earlier list entries are not necessarily completed.
-    if (key === task.phase) { li.className = 'current'; li.setAttribute('aria-current','step'); }
-    return li;
-  }));
+  renderCompetition(data.competition);
   draw();
 }
 
@@ -106,6 +139,8 @@ async function poll() {
     connected = false; el('connection').textContent = `连接中断 · ${error.message}`;
     el('pose-state').textContent = '定位反馈已过期';
     el('task-state').textContent = '连接中断，以下为最后收到的任务状态'; draw();
+    renderCompetition(latest?.competition);
+    el('task-state').textContent='连接中断，以下为最后收到的任务状态';
   } finally { setTimeout(poll, 1000); }
 }
 setInterval(() => {

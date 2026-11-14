@@ -150,13 +150,22 @@ class BatteryTask:
             self.requests[(client,request)]=copy.deepcopy(result)
             return result
 
-    def _start(self, client, expected_epoch, environment_clear, settings):
+    def start_owned(self, token, environment_clear):
+        """Competition-only entry; the parent retains ownership after this subtask."""
+        with self.lock:
+            if not self.controller.motion_valid(token):
+                raise Rejected('整场任务控制权无效')
+            return self._start('competition', None, environment_clear,
+                               copy.deepcopy(self.task_settings), token=token)
+
+    def _start(self, client, expected_epoch, environment_clear, settings, *, token=None):
         if self.active is not None:
             if self.active['status']=='running' or self.active['recovery_required']:
                 raise Rejected('已有自动任务或待恢复任务')
             if self.active['store'] is not None and not self.active['store'].closed:
                 self.active['store'].close()
-        token=self.controller.reserve_motion(expected_epoch)
+        owns_motion=token is None
+        if owns_motion:token=self.controller.reserve_motion(expected_epoch)
         store=None;depth_previous=None
         try:
             if self.depth_control is not None:
@@ -171,11 +180,12 @@ class BatteryTask:
         except Exception:
             if depth_previous is not None:self._restore_depth({'depth_previous':depth_previous})
             if store is not None:store.close()
-            if self.controller.motion_valid(token):self.controller.release_motion(token)
+            if owns_motion and self.controller.motion_valid(token):self.controller.release_motion(token)
             raise
         self.active={'client':client,'run_id':store.state['run_id'],'status':'running',
                      'reason':'','flow':None,'recovery_required':False,
-                     'store':store,'token':token,'worker':None,'depth_previous':depth_previous}
+                     'store':store,'token':token,'worker':None,'depth_previous':depth_previous,
+                     'owns_motion':owns_motion,'runner':flow}
         worker=threading.Thread(target=self._run,args=(self.active,flow),
                                 daemon=True,name='battery-fixed-flow')
         self.active['worker']=worker
@@ -199,6 +209,11 @@ class BatteryTask:
             state['flow']=copy.deepcopy(result)
             state['status']=str(result.get('status') or 'needs_attention')
             state['reason']=str(result.get('reason') or '')
+            if not state['owns_motion']:
+                state['store'].event('battery_subtask_finished',dict(status=state['status'],
+                    released_control=False,reason=state['reason']))
+                state['store'].close()
+                return
             try:self.controller.release_motion(state['token'])
             except Rejected:
                 state['recovery_required']=True

@@ -26,6 +26,8 @@ from tcp_calibration import TcpCalibration
 from grasp_integration import GraspIntegration
 from navigation_view import read_snapshot
 from battery_task import BatteryTask
+from competition_task import CompetitionTask
+from competition_modules import GraspModule, QwenRecovery
 from agent.battery_production import workflow_factory
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +42,7 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None):
     depth_control=depth_control or DepthControl()
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
@@ -81,6 +83,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/competition-task':
+                if not self.client():return self.json(403, {'message':'请先打开地图与任务页'})
+                if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
+                return self.json(200, competition_task.snapshot(self.client()))
             if path == "/api/battery-task/result":
                 if not self.client():return self.json(403,{"message":"请先打开控制台"})
                 if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
@@ -158,6 +164,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 data = read_snapshot()
                 task = battery_task.snapshot(self.client()) if battery_task else {"status": "unavailable", "phase": "idle"}
                 data["task"] = {key: task.get(key) for key in ("status", "phase", "mission_stage", "reason", "run_id", "recovery_required")}
+                data['competition'] = competition_task.snapshot(self.client()) if competition_task else None
                 return self.json(200, data)
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
@@ -202,7 +209,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -215,6 +222,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/competition-task':
+                    if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
+                    return self.json(202, competition_task.action(self.client(), strict_json(raw)))
                 if path == '/api/battery-task':
                     if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
                     return self.json(202,battery_task.action(self.client(),strict_json(raw)))
@@ -279,9 +289,12 @@ def main():
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,depth_control)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
+    competition_task=CompetitionTask(controller, WEB_ROOT.parent/'agent/competition-runs',
+        modules={'pick':GraspModule(battery_task)} if battery_task else {},
+        recovery=QwenRecovery(arxgent.config))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task))
+        battery_task=battery_task,competition_task=competition_task))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -296,6 +309,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        competition_task.close()
         foundation.close()
         vision.close()
         arxgent.close()
