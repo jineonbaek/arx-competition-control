@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 from test_control import Controller, FakeAdapter, configured, Rejected
 from competition_task import CompetitionTask, STAGES
-from competition_modules import GraspModule, QwenRecovery
+from competition_modules import GraspModule, CarryReceiptModule, QwenRecovery
 from battery_task import BatteryTask
 
 
@@ -107,7 +107,7 @@ class CompetitionTests(unittest.TestCase):
         module.status = 'running'
         self.action('start')
         deadline = time.monotonic()+2
-        while self.task.snapshot()['phase'] != 'navigate_place' and time.monotonic()<deadline: time.sleep(.01)
+        while not any(r[:2]==('start','navigate_place') for r in self.trace) and time.monotonic()<deadline: time.sleep(.01)
         self.action('stop')
         paused = self.wait('paused')
         self.assertEqual([t['status'] for t in paused['tasks'][:3]], ['completed']*3)
@@ -244,6 +244,19 @@ class CompetitionTests(unittest.TestCase):
 
 
 class RecoveryModelTests(unittest.TestCase):
+    def test_carry_is_same_run_receipt_only_and_never_sends_another_movement(self):
+        import types
+        battery=Mock();battery.lock=threading.RLock()
+        store=types.SimpleNamespace(state={'mission':{'stow_for_carry_evidence':{'carry_ready':True}}})
+        grasp=GraspModule(battery)
+        grasp.runs['competition-x:pick']=dict(store=store,flow={'status':'completed'},run_id='grasp-x')
+        carry=CarryReceiptModule(grasp)
+        self.assertEqual(carry.start({'run_id':'competition-x'})['status'],'completed')
+        self.assertEqual(carry.start({'run_id':'competition-other'})['status'],'failed')
+        store.state['mission'].clear()
+        self.assertEqual(carry.start({'run_id':'competition-x'})['status'],'failed')
+        battery.start_owned.assert_not_called()
+
     def test_qwen_is_only_a_registered_task_selector(self):
         advisor=QwenRecovery(Mock())
         advisor.client=Mock()

@@ -11,12 +11,14 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     public=Path(__file__).resolve().parents[1]/'public'
-    tasks=[dict(id=key,label=label,status='pending',connected=key=='pick') for key,label in (
+    tasks=[dict(id=key,label=label,status='pending',connected=key!='place') for key,label in (
         ('navigate_pick','导航到取物工作区并停稳'),('pick','抓取并抽出指定电池'),
         ('carry','进入运输姿态'),('navigate_place','携物通过障碍区并到柜前停稳'),
         ('place','红框 A 口插入、释放并稳定 3 秒'))]
     task=dict(status='idle',tasks=tasks,can_start=True,can_continue=False,
-              control_owned=False,command_epoch=12,logs=[],phase='navigate_pick')
+              control_owned=False,command_epoch=12,logs=[],phase='navigate_pick',
+              navigation=dict(route=dict(available=True,status='待开始 0/2'),registered=False,
+                handoff=dict(task=None,navigation_check=dict(reason='尚未产生到点交接'))))
     sent=[];errors=[]
     def route(request):
         url=request.request.url
@@ -30,8 +32,10 @@ def main():
             data=request.request.post_data_json;sent.append(data)
             assert data['action']=='start' and data['environment_clear'] is True
             assert data['expected_epoch']==12
-            task.update(status='needs_attention',reason='导航到取物工作区并停稳：能力未接入',
-                        can_continue=True,run_id='browser-fixture')
+            task.update(status='needs_attention',reason='红框 A 口插入、释放并稳定 3 秒：能力未接入',
+                        phase='place',can_continue=True,run_id='browser-fixture')
+            for item in tasks:
+                if item['id']!='place':item['status']='completed'
             return request.fulfill(status=202,json=task)
         target=(public/suffix).resolve()
         if target.is_relative_to(public.resolve()) and target.is_file():
@@ -47,7 +51,9 @@ def main():
         assert page.locator('#competition-start').is_disabled()
         page.locator('#environment-clear').check()
         page.locator('#competition-start').click()
-        page.get_by_text('导航到取物工作区并停稳：能力未接入',exact=True).wait_for()
+        page.get_by_text('红框 A 口插入、释放并稳定 3 秒：能力未接入',exact=True).wait_for()
+        assert '待开始' in page.locator('#navigation-state').inner_text()
+        assert '尚未产生到点交接' in page.locator('#navigation-handoff').inner_text()
         assert page.locator('#competition-continue').is_enabled()
         assert page.locator('#competition-stop').is_disabled()
         assert len(sent)==1 and not errors,(sent,errors)

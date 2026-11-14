@@ -42,6 +42,18 @@ class _MotionToken:
     pass
 
 
+class _CompetitionToken:
+    def __init__(self):
+        self.interrupted = False
+        self.navigation = False
+        self.nav_session = None
+        self.nav_client = _NavigationToken()
+
+
+class _NavigationToken:
+    pass
+
+
 @lru_cache(maxsize=2)
 def arm_model(side):
     return ColumnModel(side=side)
@@ -60,6 +72,7 @@ class Controller:
         self.serial = 0
         self.command_epoch = 0
         self.motion_owner = None
+        self.competition_owner = None
         self.motion_interrupted = False
         self.motion_trajectory = None
         self.models = {}
@@ -73,9 +86,69 @@ class Controller:
         self.chassis_message = None
         self.base_sequences = {}
 
-    def reserve_motion(self, expected_epoch):
+    def reserve_competition(self, expected_epoch):
+        with self.lock:
+            if (type(expected_epoch) is not int or expected_epoch != self.command_epoch
+                    or not self.config['execution_enabled'] or self.competition_owner is not None
+                    or self.motion_owner is not None or self.chassis_owner is not None):
+                raise Rejected('已有任务或控制状态已变化，不能开始整场比赛')
+            self.competition_owner = _CompetitionToken()
+            self.command_epoch += 1
+            return self.competition_owner
+
+    def competition_valid(self, token):
+        with self.lock:
+            return token is self.competition_owner and token is not None and not token.interrupted
+
+    def set_competition_navigation(self, token, enabled):
+        with self.lock:
+            if token is None or token is not self.competition_owner:
+                raise Rejected('整场任务控制权已失效')
+            if enabled and (token.interrupted or self.motion_owner is not None):
+                raise Rejected('当前作业尚未交还运动占用或已被停止')
+            token.navigation = bool(enabled)
+
+    def stop_competition_navigation(self, token):
+        with self.lock:
+            self.set_competition_navigation(token, False)
+            self._stop_chassis('整场任务请求停车')
+
+    def release_competition(self, token):
+        with self.lock:
+            if token is None or token is not self.competition_owner:
+                raise Rejected('整场任务控制权已失效')
+            if self.motion_owner is not None or self.chassis_owner is not None:
+                raise Rejected('运动占用尚未清理，不能归还手动控制')
+            self.competition_owner = None
+            self.command_epoch += 1
+
+    def submit_navigation(self, data, client):
+        """Called only by the existing loopback SDK channel; standalone behavior stays intact."""
+        return self.submit(data,self.navigation_client(data,client))
+
+    def is_navigation_client(self, client):
+        with self.lock:
+            return self.competition_owner is not None and self.competition_owner.nav_session == client
+
+    def navigation_client(self, data, client):
+        with self.lock:
+            if not isinstance(data, dict) or data.get('type') not in ('chassis.nav_sdk', 'chassis.stop'):
+                raise Rejected('导航通道仅接受底盘速度和停止')
+            owner = self.competition_owner
+            if owner is not None:
+                if data['type'] != 'chassis.stop' and (not owner.navigation or owner.interrupted):
+                    raise Rejected('导航等待当前作业交还控制权或整场已停止')
+                if owner.nav_session is None: owner.nav_session = client
+                if owner.nav_session != client: raise Rejected('已有导航调用者占用本轮控制权')
+                client = owner.nav_client
+            return client
+
+    def reserve_motion(self, expected_epoch, *, competition=None):
         """Reserve this controller only; the executor must also verify physical rest."""
         with self.lock:
+            if self.competition_owner is not None and not (
+                    competition is self.competition_owner and self.competition_valid(competition)):
+                raise Rejected('整场自动任务占用控制权')
             if (type(expected_epoch) is not int or expected_epoch != self.command_epoch
                     or not self.config["execution_enabled"]):
                 raise Rejected("控制权申请时指令状态已变化或真实控制未启用")
@@ -113,6 +186,19 @@ class Controller:
 
     def _check_motion_owner(self, kind, client):
         # Called under the same lock as dispatch, including after unlocked wrist IK.
+        owner = self.competition_owner
+        if isinstance(client,_NavigationToken) and (owner is None or client is not owner.nav_client):
+            raise Rejected('旧导航授权已失效')
+        if owner is not None and not (client is not None and client is self.motion_owner):
+            stops = ('arm.stop', 'lift.stop', 'chassis.stop')
+            if client is owner.nav_client:
+                if kind != 'chassis.stop' and (not owner.navigation or owner.interrupted):
+                    raise Rejected('当前阶段未授权导航运动')
+            elif kind in stops:
+                owner.interrupted = True
+                self.command_epoch += 1
+            else:
+                raise Rejected('整场自动任务占用控制权，手动运动暂不可用')
         if isinstance(client, _MotionToken) and client is not self.motion_owner:
             raise Rejected("旧任务控制权已失效")
         if self.motion_owner is None:
@@ -421,6 +507,7 @@ class Controller:
                                "angular": self.config["body"]["max_angular_rad_s"]},
                     "chassis_active": self.chassis_owner is not None,
                     "motion_reserved": self.motion_owner is not None,
+                    "competition_reserved": self.competition_owner is not None,
                     "motion_interrupted": self.motion_interrupted, "command_epoch": self.command_epoch,
                     "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
                     "logs": list(self.logs)}

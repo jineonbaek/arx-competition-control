@@ -14,6 +14,7 @@ def read_snapshot():
         elapsed = max(0, time.monotonic() - data.pop("updated"))
         if elapsed > 3:
             data["error"] = "地图观察服务数据已过期"
+            if data.get('route'):data['route']['available']=False
         if data.get("pose"):
             data["pose"]["age_s"] += elapsed
             data["pose"]["valid"] = data["pose"]["valid"] and elapsed <= 3 and data["pose"]["age_s"] <= 2
@@ -117,11 +118,15 @@ def main():
     import rclpy
     rclpy.init()
     node = rclpy.create_node('arx_web_map_observer')
+    from navigation_route import RouteRelay
+    route = RouteRelay(STATE_FILE.parent)
+    route.attach(node)
     view = NavigationView()
     view.attach(node)
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     def publish():
         data = view.snapshot()
+        data['route'] = route.snapshot()
         if data['map']:
             cells = data['map'].pop('cells')
             runs = []

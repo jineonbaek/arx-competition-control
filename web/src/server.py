@@ -24,10 +24,12 @@ from ros_adapter import RosAdapter
 from arxgent import ArxgentChat, ChatError, strict_json
 from tcp_calibration import TcpCalibration
 from grasp_integration import GraspIntegration
-from navigation_view import read_snapshot
+from navigation_view import read_snapshot, STATE_FILE
+from navigation_route import RouteMailbox
+from navigation_session import NavigationSession
 from battery_task import BatteryTask
 from competition_task import CompetitionTask
-from competition_modules import GraspModule, QwenRecovery
+from competition_modules import GraspModule, CarryReceiptModule, QwenRecovery
 from agent.battery_production import workflow_factory
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
@@ -262,6 +264,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
                 if isinstance(data,dict) and data.get("type")=="chassis.nav_sdk" and self.client_address[0] not in ("127.0.0.1","::1"):
                     raise Rejected("导航 SDK 入口仅接受本机执行器")
+                if isinstance(data,dict) and (data.get('type')=='chassis.nav_sdk' or
+                        data.get('type')=='chassis.stop' and self.client_address[0] in ('127.0.0.1','::1')
+                        and controller.is_navigation_client(self.client())):
+                    return self.json(200,steps.manual_submit(data,controller.navigation_client(data,self.client())))
                 return self.json(200, steps.manual_submit(data, self.client()))
             except ChatError as error:
                 return self.json(error.status, {'ok': False, 'message': error.message})
@@ -289,9 +295,13 @@ def main():
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,depth_control)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
+    navigation=NavigationSession(controller,RouteMailbox(STATE_FILE.parent,read_snapshot))
+    modules={'navigate_pick':navigation.stage('point_1'),'navigate_place':navigation.stage('point_2')}
+    if battery_task:
+        grasp=GraspModule(battery_task)
+        modules.update(pick=grasp,carry=CarryReceiptModule(grasp))
     competition_task=CompetitionTask(controller, WEB_ROOT.parent/'agent/competition-runs',
-        modules={'pick':GraspModule(battery_task)} if battery_task else {},
-        recovery=QwenRecovery(arxgent.config))
+        modules=modules,navigation=navigation,recovery=QwenRecovery(arxgent.config))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
         battery_task=battery_task,competition_task=competition_task))

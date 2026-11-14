@@ -50,3 +50,15 @@ test('start stop continue use task endpoint; stop remains callable while another
   assert.equal(Object.hasOwn(p.sent[1].data,'expected_epoch'),false);
   assert.equal(new Set(p.sent.map(x=>x.data.request_id)).size,3);
 });
+
+test('navigation progress and handoff waits are displayed without adding motion controls',()=>{
+  const p=page();
+  vm.runInContext(`renderCompetition({status:'running',control_owned:true,tasks:[],navigation:{registered:true,
+    route:{available:true,status:'执行中 1/5',drive_status:'waiting_for_replan'},
+    handoff:{task:{point_id:'point_1',status:'resume_pending'},navigation_check:{reason:'等待实测停稳'}}}})`,p.context);
+  assert.match(p.node('navigation-state').textContent,/执行中 1\/5/);
+  assert.match(p.node('navigation-handoff').textContent,/point_1.*resume_pending.*等待实测停稳/);
+  assert.equal(p.sent.length,0);
+  vm.runInContext(`renderCompetition({tasks:[],navigation:{route:{available:false,status:'旧进度'},error:'导航离线'}})`,p.context);
+  assert.match(p.node('navigation-state').textContent,/导航离线/);
+});

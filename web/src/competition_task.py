@@ -25,10 +25,11 @@ class Interrupted(Exception):
 
 
 class CompetitionTask:
-    def __init__(self, controller, root, *, modules=None, recovery=None):
+    def __init__(self, controller, root, *, modules=None, recovery=None, navigation=None):
         self.controller, self.root = controller, Path(root)
         self.modules = dict(modules or {})
         self.recovery = recovery
+        self.navigation = navigation
         self.lock = threading.RLock()
         self.active = None
         self.requests = {}
@@ -48,19 +49,19 @@ class CompetitionTask:
         with self.lock:
             s = self.active
             robot = self.controller.snapshot()
-            manual_available = not robot['motion_reserved'] and not robot['chassis_active']
+            manual_available = not robot['motion_reserved'] and not robot['chassis_active'] and not robot['competition_reserved']
             view = dict(status=s['status'] if s else 'idle',
                 run_id=s['run_id'] if s else None,
                 phase=STAGES[s['index']][0] if s and s['index'] < len(STAGES) else 'idle',
                 reason=s['reason'] if s else '',
                 command_epoch=robot['command_epoch'],
-                control_owned=bool(s and s['token'] is not None),
+                control_owned=bool(s and s['competition_token'] is not None),
                 manual_available=manual_available,
                 can_start=manual_available and robot['execution_enabled'] and
-                    (not s or (s['status'] not in ACTIVE and s['token'] is None and not s['worker'].is_alive())),
+                    (not s or (s['status'] not in ACTIVE and s['competition_token'] is None and not s['worker'].is_alive())),
                 can_continue=bool(s and s['status'] in ('paused', 'needs_attention')
                     and manual_available and robot['execution_enabled']
-                    and s['token'] is None and not s['worker'].is_alive()),
+                    and s['competition_token'] is None and not s['worker'].is_alive()),
                 tasks=[], logs=copy.deepcopy(s['logs'][-50:]) if s else [],
                 target='无人机指定左上角电池 → 电池柜红框 A 口')
             for key, label in STAGES:
@@ -68,6 +69,7 @@ class CompetitionTask:
                 view['tasks'].append(dict(id=key, label=label, connected=key in self.modules,
                     status=record.get('status', 'pending'), request_id=record.get('request_id'),
                     reason=record.get('reason', '')))
+            if self.navigation:view['navigation']=self.navigation.snapshot()
             return view
 
     def _save(self, s, event, detail=''):
@@ -104,13 +106,13 @@ class CompetitionTask:
                 if s['worker'].is_alive():
                     s['status'] = 'stopping'
                     threading.Thread(target=self._stop_module, args=(s,), daemon=True).start()
-                elif s['token'] is not None:
+                elif s['competition_token'] is not None:
                     self._finish(s, 'paused', '操作员停止')
                 self._save(s, 'stop_requested')
             else:
                 if type(data['expected_epoch']) is not int or data['environment_clear'] is not True:
                     raise ValueError('沿用既有作业区确认后才能开始或继续')
-                if self.active and (self.active['worker'].is_alive() or self.active['token'] is not None):
+                if self.active and (self.active['worker'].is_alive() or self.active['competition_token'] is not None):
                     raise Rejected('已有比赛任务或待清理控制权')
                 if action == 'continue':
                     s = self.active
@@ -121,10 +123,10 @@ class CompetitionTask:
                     directory = self.root / run_id
                     directory.mkdir(parents=True, mode=0o700)
                     s = dict(run_id=run_id, directory=directory, index=0, records={}, logs=[],
-                        current=None, halt_lock=threading.Lock(), token=None,
+                        current=None, halt_lock=threading.Lock(), token=None, competition_token=None,
                         worker=threading.Thread(), reason='', status='idle')
-                token = self.controller.reserve_motion(data['expected_epoch'])
-                s.update(token=token, cancel=threading.Event(), status='running', reason='', current=None)
+                lease = self.controller.reserve_competition(data['expected_epoch'])
+                s.update(token=None, competition_token=lease, cancel=threading.Event(), status='running', reason='', current=None)
                 self.active = s
                 worker = threading.Thread(target=self._run, args=(s,), daemon=True, name='competition-task')
                 s['worker'] = worker
@@ -133,8 +135,8 @@ class CompetitionTask:
                     worker.start()
                 except Exception:
                     s['status'] = 'needs_attention'
-                    self.controller.release_motion(token)
-                    s['token'] = None
+                    self.controller.release_competition(lease)
+                    s['competition_token'] = None
                     raise
             result = self.snapshot(client)
             self.requests[(client, request)] = (copy.deepcopy(data), copy.deepcopy(result))
@@ -143,15 +145,29 @@ class CompetitionTask:
     def _context(self, s, stage, record):
         return dict(run_id=s['run_id'], stage=stage, request_id=record['request_id'],
             token=s['token'], cancelled=s['cancel'], controller=self.controller,
-            environment_clear=True)
+            environment_clear=True, competition_token=s['competition_token'])
 
     def _check(self, s, *, reading=False):
         if s['cancel'].is_set():
             raise Interrupted('操作员停止')
-        if not self.controller.motion_valid(s['token']):
+        if not self.controller.competition_valid(s['competition_token']):
+            if not reading:raise Interrupted('整场任务已被停止或控制权失效')
+        if self.navigation:self.navigation.check()
+        if s['token'] is not None and not self.controller.motion_valid(s['token']):
             if reading and self.controller.motion_owner is s['token']:
                 return
             raise Interrupted('任务控制权被人工停止或已失效')
+
+    def _mode(self, s, navigation):
+        if navigation:
+            if s['token'] is not None:
+                self.controller.release_motion(s['token']);s['token']=None
+            self.controller.set_competition_navigation(s['competition_token'],True)
+        else:
+            self.controller.set_competition_navigation(s['competition_token'],False)
+            if s['token'] is None:
+                s['token']=self.controller.reserve_motion(self.controller.snapshot()['command_epoch'],
+                    competition=s['competition_token'])
 
     def _wait(self, s, function):
         """Cancellation can discard a slow model reply; it never executes tools itself."""
@@ -169,6 +185,7 @@ class CompetitionTask:
         return value
 
     def _execute(self, s, stage, module, record):
+        self._mode(s,getattr(module,'navigation',False))
         context = self._context(s, stage, record)
         with self.lock:
             self._check(s)
@@ -187,6 +204,7 @@ class CompetitionTask:
             elif result.get('status') != 'running':
                 raise ValueError(result.get('reason') or '原任务状态无法核实，不能重复启动')
         else:
+            if self.navigation and self.navigation.active:self.navigation.before_work(context,stage)
             result = module.start(context)
         while True:
             if not isinstance(result, dict):
@@ -268,6 +286,9 @@ class CompetitionTask:
                     s['status'] = 'running'
                     self._save(s, 'module_completed', stage)
             self._check(s)
+            if self.navigation and self.navigation.active:
+                self._mode(s,True)
+                self.navigation.complete_route(self._context(s,'place',s['records']['place']))
         except Interrupted as error:
             status, reason = 'paused', str(error)
         except Exception as error:
@@ -305,9 +326,18 @@ class CompetitionTask:
                     if not stopped: raise Rejected(s['reason'])
                     self.controller.release_motion(s['token'])
                     s['token'] = None
-                    self.controller.log('整场任务已退出，控制权已返还 9983')
                 except Exception as error:
+                    stopped=False
                     s.update(status='needs_attention', reason='控制权待清理：' + str(error)[:300])
+            if stopped and self.navigation and self.navigation.active:
+                try:self.navigation.stop(self._context(s,'stop',dict(request_id=s['run_id']+':stop')))
+                except Exception as error:
+                    stopped=False;s.update(status='needs_attention',reason='导航控制权待清理：'+str(error)[:300])
+            if stopped and s['competition_token'] is not None:
+                try:
+                    self.controller.release_competition(s['competition_token']);s['competition_token']=None
+                    self.controller.log('整场任务已退出，控制权已返还 9983')
+                except Exception as error:s.update(status='needs_attention',reason='控制权待清理：'+str(error)[:300])
             self._save(s, 'competition_' + s['status'], s['reason'])
 
     def close(self):
