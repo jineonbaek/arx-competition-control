@@ -1,0 +1,169 @@
+[
+  {
+    "bbox_xyxy": [
+      278,
+      1,
+      637,
+      283
+    ],
+    "score": 0.43791529536247253,
+    "label": "drone",
+    "candidate_id": 1,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9182400703430176
+  },
+  {
+    "bbox_xyxy": [
+      278,
+      30,
+      411,
+      161
+    ],
+    "score": 0.38962113857269287,
+    "label": "a re battery pack a rectangular battery case",
+    "candidate_id": 2,
+    "source": "saved_dino",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9730932712554932
+  },
+  {
+    "bbox_xyxy": [
+      101,
+      340,
+      138,
+      370
+    ],
+    "score": 0.3681148886680603,
+    "label": "a removable drone battery pack",
+    "candidate_id": 3,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9082971215248108
+  },
+  {
+    "bbox_xyxy": [
+      188,
+      37,
+      279,
+      97
+    ],
+    "score": 0.3427940607070923,
+    "label": "a rectangular battery case",
+    "candidate_id": 4,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9633918404579163
+  },
+  {
+    "bbox_xyxy": [
+      97,
+      335,
+      142,
+      375
+    ],
+    "score": 0.31781691312789917,
+    "label": "a removable drone battery pack",
+    "candidate_id": 5,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8708114624023438
+  },
+  {
+    "bbox_xyxy": [
+      282,
+      31,
+      398,
+      90
+    ],
+    "score": 0.30001237988471985,
+    "label": "pack a rectangular battery case a battery",
+    "candidate_id": 6,
+    "source": "saved_dino",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9559201002120972
+  },
+  {
+    "bbox_xyxy": [
+      91,
+      331,
+      150,
+      382
+    ],
+    "score": 0.24462950229644775,
+    "label": "a removable drone battery pack",
+    "candidate_id": 7,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.7893775701522827
+  },
+  {
+    "bbox_xyxy": [
+      280,
+      82,
+      410,
+      160
+    ],
+    "score": 0.22621813416481018,
+    "label": "a rectangular battery case",
+    "candidate_id": 8,
+    "source": "saved_dino",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9678255915641785
+  },
+  {
+    "bbox_xyxy": [
+      277,
+      1,
+      637,
+      360
+    ],
+    "score": 0.2109086960554123,
+    "label": "drone",
+    "candidate_id": 9,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8664292097091675
+  },
+  {
+    "bbox_xyxy": [
+      561,
+      70,
+      595,
+      103
+    ],
+    "score": 0.20348045229911804,
+    "label": "battery",
+    "candidate_id": 10,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.92545086145401
+  },
+  {
+    "bbox_xyxy": [
+      260,
+      114,
+      282,
+      156
+    ],
+    "score": 0.20171234011650085,
+    "label": "a",
+    "candidate_id": 11,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8771004676818848
+  },
+  {
+    "candidate_id": -3,
+    "bbox_xyxy": [
+      278,
+      30,
+      411,
+      161
+    ],
+    "score": null,
+    "source": "manual_battery_probe",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9730932712554932
+  }
+]

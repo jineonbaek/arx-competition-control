@@ -1,0 +1,133 @@
+[
+  {
+    "name": "head_2025",
+    "run": "run-20261114T122512Z-47ca13b0",
+    "call": "fixed_0",
+    "truth_box": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 1,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "e6bd09d9ce4197bc8495eb58a290c9bd04b05eb343f8133d82e96a7a145415b1"
+  },
+  {
+    "name": "head_2027",
+    "run": "run-20261114T122715Z-fc8c74c9",
+    "call": "fixed_0",
+    "truth_box": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 1,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "5e5e2364570e0c7013648815a519bedb229c05f3fc50d8c6e93813e8381c0996"
+  },
+  {
+    "name": "head_2030",
+    "run": "run-20261114T123009Z-d385a2e4",
+    "call": "fixed_0",
+    "truth_box": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 1,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "8583d555cc846d5b14887fa571984dbef364e6bc64c36936a3aed3f131915e52"
+  },
+  {
+    "name": "head_203035",
+    "run": "run-20261114T123035Z-73c29386",
+    "call": "fixed_0",
+    "truth_box": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 3,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "50fbc9600f4b6a1b5c76110db8ece69a3ea0d9a61dea5bd567a868ea7245b4c9"
+  },
+  {
+    "name": "head_2031",
+    "run": "run-20261114T123130Z-22907676",
+    "call": "fixed_0",
+    "truth_box": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 4,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "6f3990b705303c23e41f5faac734053c58992924e13bbdaa04e9e2700b5d2260"
+  },
+  {
+    "name": "wrist_2032",
+    "run": "run-20261114T123130Z-22907676",
+    "call": "fixed_3",
+    "truth_box": [
+      278,
+      30,
+      411,
+      161
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 2,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "bfdd94391c09bcd346841230bebef8271d66a448b341132f122f3c4c51450a28"
+  },
+  {
+    "name": "wrist_203252",
+    "run": "run-20261114T123130Z-22907676",
+    "call": "fixed_7",
+    "truth_box": [
+      242,
+      54,
+      445,
+      344
+    ],
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 1,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "7d5f90e0650c29b249ad90f124ca7137d96b0642236f74832f4f3ed3407a478c"
+  },
+  {
+    "name": "head_2151_absent",
+    "run": "run-20261114T135124Z-0a11945f",
+    "call": "fixed_0",
+    "truth_box": null,
+    "original_selected": {
+      "status": "selected",
+      "candidate_id": 1,
+      "reason": "local_candidate"
+    },
+    "source_rgb_sha256": "2cf51d95db77e54440602cfba43e9ea8b8ae5bc27e60837014f10808f8229755"
+  }
+]

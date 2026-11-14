@@ -1,0 +1,222 @@
+{
+  "name": "head_2031",
+  "run": "run-20261114T123130Z-22907676",
+  "call": "fixed_0",
+  "truth_box": [
+    501,
+    0,
+    621,
+    104
+  ],
+  "original_selected": {
+    "status": "selected",
+    "candidate_id": 4,
+    "reason": "local_candidate"
+  },
+  "source_rgb_sha256": "6f3990b705303c23e41f5faac734053c58992924e13bbdaa04e9e2700b5d2260",
+  "candidates": [
+    {
+      "bbox_xyxy": [
+        293,
+        211,
+        583,
+        441
+      ],
+      "score": 0.4036722183227539,
+      "label": "a rectangular battery case",
+      "candidate_id": 1,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9448090195655823,
+      "cnos_full": 0.12122377008199692,
+      "cnos_end_half": 0.13607417047023773,
+      "cnos_combined": 0.13607417047023773
+    },
+    {
+      "bbox_xyxy": [
+        501,
+        0,
+        621,
+        104
+      ],
+      "score": 0.33602356910705566,
+      "label": "battery pack a rectangular battery case a battery",
+      "candidate_id": 4,
+      "source": "saved_dino",
+      "annotation": "battery_visible_part",
+      "sam_score": 0.9678804278373718,
+      "cnos_full": 0.1656377762556076,
+      "cnos_end_half": 0.30527356266975403,
+      "cnos_combined": 0.30527356266975403
+    },
+    {
+      "bbox_xyxy": [
+        587,
+        303,
+        618,
+        329
+      ],
+      "score": 0.2853674590587616,
+      "label": "a battery",
+      "candidate_id": 6,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9190912842750549,
+      "cnos_full": 0.23418302834033966,
+      "cnos_end_half": 0.28488558530807495,
+      "cnos_combined": 0.28488558530807495
+    },
+    {
+      "bbox_xyxy": [
+        149,
+        19,
+        636,
+        469
+      ],
+      "score": 0.2563735842704773,
+      "label": "drone",
+      "candidate_id": 7,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.8757145404815674,
+      "cnos_full": 0.12768740952014923,
+      "cnos_end_half": 0.14927339553833008,
+      "cnos_combined": 0.14927339553833008
+    },
+    {
+      "bbox_xyxy": [
+        555,
+        214,
+        587,
+        240
+      ],
+      "score": 0.21549499034881592,
+      "label": "a battery",
+      "candidate_id": 9,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9263008236885071,
+      "cnos_full": 0.19608445465564728,
+      "cnos_end_half": 0.21575073897838593,
+      "cnos_combined": 0.21575073897838593
+    },
+    {
+      "bbox_xyxy": [
+        24,
+        8,
+        636,
+        476
+      ],
+      "score": 0.20347046852111816,
+      "label": "drone",
+      "candidate_id": 11,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.2645902633666992,
+      "cnos_full": 0.16023285686969757,
+      "cnos_end_half": 0.1678420752286911,
+      "cnos_combined": 0.1678420752286911
+    },
+    {
+      "bbox_xyxy": [
+        582,
+        298,
+        623,
+        334
+      ],
+      "score": 0.2003004401922226,
+      "label": "a",
+      "candidate_id": 12,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.8234466910362244,
+      "cnos_full": 0.18514886498451233,
+      "cnos_end_half": 0.21241112053394318,
+      "cnos_combined": 0.21241112053394318
+    },
+    {
+      "candidate_id": -3,
+      "bbox_xyxy": [
+        501,
+        0,
+        621,
+        104
+      ],
+      "score": null,
+      "source": "manual_battery_probe",
+      "annotation": "battery_visible_part",
+      "sam_score": 0.9678804278373718,
+      "cnos_full": 0.1656377762556076,
+      "cnos_end_half": 0.30527356266975403,
+      "cnos_combined": 0.30527356266975403
+    },
+    {
+      "candidate_id": -1,
+      "bbox_xyxy": [
+        0,
+        320,
+        180,
+        480
+      ],
+      "score": null,
+      "source": "manual_gripper_negative",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9777383804321289,
+      "cnos_full": 0.12134766578674316,
+      "cnos_end_half": 0.19299034774303436,
+      "cnos_combined": 0.19299034774303436
+    },
+    {
+      "candidate_id": -2,
+      "bbox_xyxy": [
+        530,
+        300,
+        640,
+        480
+      ],
+      "score": null,
+      "source": "manual_gripper_negative",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9051257967948914,
+      "cnos_full": 0.19353459775447845,
+      "cnos_end_half": 0.23478813469409943,
+      "cnos_combined": 0.23478813469409943
+    }
+  ],
+  "rankings": {
+    "cnos_full": [
+      6,
+      9,
+      12,
+      4,
+      11,
+      7,
+      1
+    ],
+    "cnos_end_half": [
+      4,
+      6,
+      9,
+      12,
+      11,
+      7,
+      1
+    ],
+    "cnos_combined": [
+      4,
+      6,
+      9,
+      12,
+      11,
+      7,
+      1
+    ]
+  },
+  "top_labels": {
+    "cnos_full": "non_battery_or_mixed",
+    "cnos_end_half": "battery_visible_part",
+    "cnos_combined": "battery_visible_part"
+  },
+  "battery_in_original_candidates": true,
+  "warm_matching_seconds": 0.23057503400013957
+}

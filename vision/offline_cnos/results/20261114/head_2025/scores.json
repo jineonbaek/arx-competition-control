@@ -1,0 +1,142 @@
+{
+  "name": "head_2025",
+  "run": "run-20261114T122512Z-47ca13b0",
+  "call": "fixed_0",
+  "truth_box": [
+    501,
+    0,
+    621,
+    104
+  ],
+  "original_selected": {
+    "status": "selected",
+    "candidate_id": 1,
+    "reason": "local_candidate"
+  },
+  "source_rgb_sha256": "e6bd09d9ce4197bc8495eb58a290c9bd04b05eb343f8133d82e96a7a145415b1",
+  "candidates": [
+    {
+      "bbox_xyxy": [
+        84,
+        0,
+        209,
+        81
+      ],
+      "score": 0.546772301197052,
+      "label": "a rectangular battery case",
+      "candidate_id": 1,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9686230421066284,
+      "cnos_full": 0.30638858675956726,
+      "cnos_end_half": 0.4327123761177063,
+      "cnos_combined": 0.4327123761177063
+    },
+    {
+      "bbox_xyxy": [
+        144,
+        18,
+        193,
+        61
+      ],
+      "score": 0.4121481478214264,
+      "label": "a battery",
+      "candidate_id": 3,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9326999187469482,
+      "cnos_full": 0.3239462971687317,
+      "cnos_end_half": 0.4411340355873108,
+      "cnos_combined": 0.4411340355873108
+    },
+    {
+      "bbox_xyxy": [
+        221,
+        2,
+        302,
+        104
+      ],
+      "score": 0.2161538451910019,
+      "label": "rectangular a battery",
+      "candidate_id": 7,
+      "source": "saved_dino",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.9689697027206421,
+      "cnos_full": 0.1989610493183136,
+      "cnos_end_half": 0.28190895915031433,
+      "cnos_combined": 0.28190895915031433
+    },
+    {
+      "candidate_id": -3,
+      "bbox_xyxy": [
+        501,
+        0,
+        621,
+        104
+      ],
+      "score": null,
+      "source": "manual_battery_probe",
+      "annotation": "battery_visible_part",
+      "sam_score": 0.5438265800476074,
+      "cnos_full": 0.26198288798332214,
+      "cnos_end_half": 0.360308974981308,
+      "cnos_combined": 0.360308974981308
+    },
+    {
+      "candidate_id": -1,
+      "bbox_xyxy": [
+        0,
+        320,
+        180,
+        480
+      ],
+      "score": null,
+      "source": "manual_gripper_negative",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.8465256094932556,
+      "cnos_full": 0.16562514007091522,
+      "cnos_end_half": 0.2554912269115448,
+      "cnos_combined": 0.2554912269115448
+    },
+    {
+      "candidate_id": -2,
+      "bbox_xyxy": [
+        530,
+        300,
+        640,
+        480
+      ],
+      "score": null,
+      "source": "manual_gripper_negative",
+      "annotation": "non_battery_or_mixed",
+      "sam_score": 0.8391625881195068,
+      "cnos_full": 0.13405801355838776,
+      "cnos_end_half": 0.17805235087871552,
+      "cnos_combined": 0.17805235087871552
+    }
+  ],
+  "rankings": {
+    "cnos_full": [
+      3,
+      1,
+      7
+    ],
+    "cnos_end_half": [
+      3,
+      1,
+      7
+    ],
+    "cnos_combined": [
+      3,
+      1,
+      7
+    ]
+  },
+  "top_labels": {
+    "cnos_full": "non_battery_or_mixed",
+    "cnos_end_half": "non_battery_or_mixed",
+    "cnos_combined": "non_battery_or_mixed"
+  },
+  "battery_in_original_candidates": false,
+  "warm_matching_seconds": 0.22280485400006
+}

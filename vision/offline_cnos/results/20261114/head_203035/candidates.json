@@ -1,0 +1,111 @@
+[
+  {
+    "bbox_xyxy": [
+      292,
+      211,
+      585,
+      441
+    ],
+    "score": 0.44807398319244385,
+    "label": "a rectangular battery case",
+    "candidate_id": 1,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9381157755851746
+  },
+  {
+    "bbox_xyxy": [
+      501,
+      0,
+      620,
+      104
+    ],
+    "score": 0.35590416193008423,
+    "label": "a re battery pack a rectangular battery case a battery",
+    "candidate_id": 3,
+    "source": "saved_dino",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9736103415489197
+  },
+  {
+    "bbox_xyxy": [
+      555,
+      214,
+      587,
+      240
+    ],
+    "score": 0.23427410423755646,
+    "label": "a battery",
+    "candidate_id": 6,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9302850365638733
+  },
+  {
+    "bbox_xyxy": [
+      291,
+      211,
+      327,
+      329
+    ],
+    "score": 0.21706245839595795,
+    "label": "a battery",
+    "candidate_id": 8,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9206488728523254
+  },
+  {
+    "bbox_xyxy": [
+      149,
+      21,
+      637,
+      464
+    ],
+    "score": 0.20576375722885132,
+    "label": "drone",
+    "candidate_id": 9,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9077796936035156
+  },
+  {
+    "candidate_id": -3,
+    "bbox_xyxy": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "score": null,
+    "source": "manual_battery_probe",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9723687767982483
+  },
+  {
+    "candidate_id": -1,
+    "bbox_xyxy": [
+      0,
+      320,
+      180,
+      480
+    ],
+    "score": null,
+    "source": "manual_gripper_negative",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9834387898445129
+  },
+  {
+    "candidate_id": -2,
+    "bbox_xyxy": [
+      530,
+      300,
+      640,
+      480
+    ],
+    "score": null,
+    "source": "manual_gripper_negative",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8239898681640625
+  }
+]

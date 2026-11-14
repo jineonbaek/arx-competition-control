@@ -1,0 +1,19 @@
+{
+  "path": "/home/arx/arx-competition-control/web/cad/gripper-v2/battery-print.stl",
+  "sha256": "2891406c4185318ccefde7276e288fb3dc70de96585650be036db6df83b53720",
+  "bounds_mm": [
+    [
+      -46.04999923706055,
+      -37.5,
+      0.0
+    ],
+    [
+      36.29999923706055,
+      37.5,
+      195.27999877929688
+    ]
+  ],
+  "views": 42,
+  "material": "uniform gray",
+  "end_half": "CAD clipped at object Z >= max_Z/2; synthetic partial-object ablation, not a drone occlusion simulation"
+}

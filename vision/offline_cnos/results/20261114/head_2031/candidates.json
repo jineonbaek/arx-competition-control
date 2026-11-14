@@ -1,0 +1,139 @@
+[
+  {
+    "bbox_xyxy": [
+      293,
+      211,
+      583,
+      441
+    ],
+    "score": 0.4036722183227539,
+    "label": "a rectangular battery case",
+    "candidate_id": 1,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9448090195655823
+  },
+  {
+    "bbox_xyxy": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "score": 0.33602356910705566,
+    "label": "battery pack a rectangular battery case a battery",
+    "candidate_id": 4,
+    "source": "saved_dino",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9678804278373718
+  },
+  {
+    "bbox_xyxy": [
+      587,
+      303,
+      618,
+      329
+    ],
+    "score": 0.2853674590587616,
+    "label": "a battery",
+    "candidate_id": 6,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9190912842750549
+  },
+  {
+    "bbox_xyxy": [
+      149,
+      19,
+      636,
+      469
+    ],
+    "score": 0.2563735842704773,
+    "label": "drone",
+    "candidate_id": 7,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8757145404815674
+  },
+  {
+    "bbox_xyxy": [
+      555,
+      214,
+      587,
+      240
+    ],
+    "score": 0.21549499034881592,
+    "label": "a battery",
+    "candidate_id": 9,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9263008236885071
+  },
+  {
+    "bbox_xyxy": [
+      24,
+      8,
+      636,
+      476
+    ],
+    "score": 0.20347046852111816,
+    "label": "drone",
+    "candidate_id": 11,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.2645902633666992
+  },
+  {
+    "bbox_xyxy": [
+      582,
+      298,
+      623,
+      334
+    ],
+    "score": 0.2003004401922226,
+    "label": "a",
+    "candidate_id": 12,
+    "source": "saved_dino",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.8234466910362244
+  },
+  {
+    "candidate_id": -3,
+    "bbox_xyxy": [
+      501,
+      0,
+      621,
+      104
+    ],
+    "score": null,
+    "source": "manual_battery_probe",
+    "annotation": "battery_visible_part",
+    "sam_score": 0.9678804278373718
+  },
+  {
+    "candidate_id": -1,
+    "bbox_xyxy": [
+      0,
+      320,
+      180,
+      480
+    ],
+    "score": null,
+    "source": "manual_gripper_negative",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9777383804321289
+  },
+  {
+    "candidate_id": -2,
+    "bbox_xyxy": [
+      530,
+      300,
+      640,
+      480
+    ],
+    "score": null,
+    "source": "manual_gripper_negative",
+    "annotation": "non_battery_or_mixed",
+    "sam_score": 0.9051257967948914
+  }
+]
