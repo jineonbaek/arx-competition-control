@@ -1,3 +1,5 @@
+> 当前红色标记为电池仓矩形窗口，使用 [水平入仓预览](cabinet-insertion-preview.md)。本文旧地面下降放置方案不适用，保持禁用。
+
 # 自动放置：一个红圈的左侧
 
 工作树：`/home/arx/arx-place-integration`，分支`codex/automatic-placement`，基于当前主线ec911f6。
