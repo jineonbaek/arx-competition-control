@@ -54,7 +54,7 @@
       "stall_s": 2.0,
       "max_age_s": 0.3
     },
-    "gripper_target": -0.4,
+    "gripper_target": 0,
     "gripper_policy": {
       "tolerance": [0.05],
       "max_speed": [0.2],
