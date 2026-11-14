@@ -1,4 +1,4 @@
-"""PolarBear architecture, Jazzy plugins, measured LIFT geometry; no controllers."""
+"""PolarBear architecture, Jazzy plugins, measured LIFT geometry and Omni MPPI."""
 import json,os,math
 from pathlib import Path
 import yaml
@@ -33,7 +33,7 @@ mask_config=root/'config/base_envelope.json'
 if mask_config.exists() and json.loads(mask_config.read_text()).get('enabled',False):
  infl.update(plugin='arx_base_mask::InflationLayer',chassis_mask_file=str(root/'config/base_envelope.wkt'))
  voxel.update(plugin='arx_base_mask::VoxelLayer',chassis_mask_file=str(root/'config/base_envelope.wkt'))
-base={'use_sim_time':sim,'global_frame':'odom','robot_base_frame':'base_link','transform_tolerance':.3,'update_frequency':5.,'publish_frequency':2.,'resolution':.05,'track_unknown_space':True,'always_send_full_costmap':True,'footprint':json.dumps(foot['polygon_m']),'footprint_padding':.03}
+base={'use_sim_time':sim,'global_frame':'odom','robot_base_frame':'base_link','transform_tolerance':.3,'update_frequency':5.,'publish_frequency':2.,'resolution':.05,'track_unknown_space':True,'always_send_full_costmap':True,'footprint':json.dumps(foot['polygon_m']),'footprint_padding':float(foot['padding_m'])}
 local=dict(base,rolling_window=True,track_unknown_space=False,width=10,height=10,plugins=['voxel','inflation'],voxel=voxel,inflation=infl)
 globalc=dict(base,global_frame='map',rolling_window=False,plugins=['static','stvl','inflation'],static={'plugin':'nav2_costmap_2d::StaticLayer','map_topic':'/pb/map','map_subscribe_transient_local':True,'subscribe_to_updates':True,'footprint_clearing_enabled':False},stvl=stvl,inflation=infl)
 dual_mode = not sim or os.getenv('ARX_EXPERIMENTAL_CLEAR')!='1'
@@ -51,7 +51,7 @@ if dual_mode:
   voxel[sensor]=dict(source,topic='/pb/scan' if sensor=='bottom' else ('/pb/head/direct_scan' if enabled(root) else '/pb/head/nav_scan'),sensor_frame='bottom_livox' if sensor=='bottom' else ('rear_livox' if enabled(root) else 'pb_nav_head_scan'),expected_update_rate=rate)
   stvl[sensor+'_mark']=dict(mark_template,topic=topic,sensor_frame=frame,expected_update_rate=rate)
   stvl[sensor+'_clear']=dict(clear_template,topic=topic,sensor_frame=frame,min_z=blind,max_z=8.,
-                             horizontal_fov_angle=math.radians(275 if sensor=='bottom' else 360),
+                             horizontal_fov_angle=math.radians(275 if sensor=='bottom' else (290 if enabled(root) else 360)),
                              vertical_fov_angle=math.radians(12),decay_acceleration=5.)
  # STVL owns the live global occupancy. Native clear buffers supply the
  # frustums; source-stamped packets carry actual marks and finite rays together.
@@ -65,7 +65,8 @@ primitives = Path(get_package_share_directory('nav2_smac_planner')) / 'sample_pr
 if not primitives.is_file():
  raise RuntimeError(f'Missing omni motion primitives: {primitives}')
 planner={'use_sim_time':sim,'expected_planner_frequency':2.,'costmap_update_timeout':1.,'planner_plugins':['GridBased'],'GridBased':{'plugin':'nav2_smac_planner::SmacPlannerLattice','tolerance':.05,'allow_unknown':False,'allow_reverse_expansion':True,'smooth_path':False,'lattice_filepath':str(primitives)}}
-(out/'nav2.yaml').write_text(yaml.safe_dump(json.loads(json.dumps({'global_costmap':{'global_costmap':{'ros__parameters':globalc}},'local_costmap':{'local_costmap':{'ros__parameters':local}},'planner_server':{'ros__parameters':planner}}))))
+from mppi_trial.mppi_parameters import controller_parameters
+(out/'nav2.yaml').write_text(yaml.safe_dump(json.loads(json.dumps({'global_costmap':{'global_costmap':{'ros__parameters':globalc}},'local_costmap':{'local_costmap':{'ros__parameters':local}},'planner_server':{'ros__parameters':planner},'controller_server':{'ros__parameters':controller_parameters(sim)}}))))
 slam=yaml.safe_load((Path(get_package_share_directory('slam_toolbox'))/'config/mapper_params_online_async.yaml').read_text())['slam_toolbox']['ros__parameters'];slam.update(use_sim_time=sim,odom_frame='odom',map_frame='map',base_frame='base_link',scan_topic='/pb/mapping_scan',resolution=.05,map_update_interval=2.,check_min_dist_and_heading_precisely=True,minimum_travel_distance=.05,minimum_travel_heading=.05,minimum_time_interval=.5,min_laser_range=blind,max_laser_range=8.,enable_interactive_mode=False,min_pass_through=2)
 if graph:=os.getenv('ARX_RESUME_GRAPH'):
  prefix=Path(graph)

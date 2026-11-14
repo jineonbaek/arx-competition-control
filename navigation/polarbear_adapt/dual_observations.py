@@ -38,6 +38,8 @@ class Observations(Node):
     def __init__(self, sensors_only=False):
         super().__init__('pb_nav_observations' if sensors_only else 'pb_dual_observations')
         self.sensors_only=sensors_only
+        cfg=Path(__file__).resolve().parents[1]/'config/fixed_dual.json'
+        self.fixed=cfg.exists() and json.loads(cfg.read_text()).get('enabled',False)
         self.stvl=sensors_only and os.getenv("ARX_STVL_EVIDENCE")=="1"
         self.evidence={}
         self.live_alignment=None
@@ -112,8 +114,9 @@ class Observations(Node):
             tr.child_frame_id = f'pb_nav_{s}_{suffix}'
             tr.transform.translation.x, tr.transform.translation.y = map(float, origin[:2])
             tr.transform.translation.z = float(z)
-            tr.transform.rotation.z = math.sin(yaw/2)
-            tr.transform.rotation.w = math.cos(yaw/2)
+            heading=yaw+math.pi if self.fixed and s=='head' and suffix=='sensor' else yaw
+            tr.transform.rotation.z = math.sin(heading/2)
+            tr.transform.rotation.w = math.cos(heading/2)
             transforms.append(tr)
         self.tf.sendTransform(transforms)
 

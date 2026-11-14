@@ -3,6 +3,8 @@ Panels:
   Name: Displays
 - Class: arx_waypoints/MappingPanel
   Name: "\u5EFA\u56FE\u64CD\u4F5C"
+- Class: arx_waypoints/Panel
+  Name: "\u591A\u70B9\u5BFC\u822A"
 Visualization Manager:
   Class: ''
   Global Options:
@@ -110,6 +112,18 @@ Visualization Manager:
     Alpha: 1.0
     Draw Priority: 2
     Frame Locked: true
+  - Class: arx_waypoints/ForegroundPolygon
+    Name: "\u5E95\u76D8\u5B9E\u9645\u6295\u5F71\uFF08\u4E0D\u542B\u5916\u6269\uFF09"
+    Enabled: true
+    Topic:
+      Value: /pb/rviz/base_projection
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Color: 255; 255; 255
+    Alpha: 1.0
+    Draw Priority: 3
+    Frame Locked: true
   - Class: rviz_default_plugins/Path
     Name: Planned path
     Enabled: true
@@ -133,6 +147,14 @@ Visualization Manager:
       Reliability Policy: Reliable
       Durability Policy: Volatile
       Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: "\u6709\u5E8F\u822A\u70B9"
+    Enabled: true
+    Topic:
+      Value: /pb/waypoints/markers
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
   Tools:
   - Class: rviz_default_plugins/Interact
   - Class: rviz_default_plugins/MoveCamera
@@ -142,6 +164,7 @@ Visualization Manager:
   - Class: rviz_default_plugins/PublishPoint
     Topic: /clicked_point
     Single click: true
+  - Class: arx_waypoints/Add
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho

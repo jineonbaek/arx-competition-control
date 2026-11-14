@@ -1,4 +1,4 @@
-"""PolarBear mapping/costmap/planner adaptation. No motion-producing nodes."""
+"""PolarBear mapping/costmaps/planning, with selectable guarded path tracking."""
 import os,sys
 from pathlib import Path
 from launch import LaunchDescription
@@ -10,6 +10,11 @@ from launch_ros.actions import Node
 def generate_launch_description():
  if os.getenv('ARX_REPLAY','0')=='1' and os.getenv('ROS_DOMAIN_ID')!='199':raise RuntimeError('Replay requires domain199')
  d=Path(__file__).resolve().parent;sim=os.getenv('ARX_REPLAY','0')=='1';blind=float(os.getenv('ARX_BLIND','.35'));nodes=[]
+ import json
+ selection=d.parent/'config/path_controller.json'
+ controller=os.getenv('ARX_PATH_CONTROLLER') or (json.loads(selection.read_text()).get('mode','legacy') if selection.exists() else 'legacy')
+ if controller not in ('legacy','mppi'):raise ValueError('Unknown path controller '+controller)
+ mppi=controller=='mppi'
  sys.path.insert(0,str(d.parent/'fixed_dual'))
  from geometry import enabled
  dual=enabled(d.parent)
@@ -56,17 +61,26 @@ def generate_launch_description():
  else:
   localization_nodes=['slam_toolbox']
   nodes.append(Node(package='slam_toolbox',executable='async_slam_toolbox_node',name='slam_toolbox',parameters=[str(d/'slam.yaml')],remappings=[('map','/pb/reference_map'),('map_metadata','/pb/map_metadata')],output='screen'))
+ nodes.append(py('chassis_pose.py'))
  nodes.append(py('live_static_map.py'))
+ local_controller=(Node(package='nav2_controller',executable='controller_server',name='controller_server',parameters=[str(d/'nav2.yaml')],remappings=[('cmd_vel','/pb/mppi/raw_velocity')],output='screen') if mppi else
+  Node(package='nav2_costmap_2d',executable='nav2_costmap_2d',name='local_costmap',namespace='local_costmap',parameters=[str(d/'nav2.yaml')],output='screen'))
  nodes.extend([
-  Node(package='nav2_costmap_2d',executable='nav2_costmap_2d',name='local_costmap',namespace='local_costmap',parameters=[str(d/'nav2.yaml')],output='screen'),
+  local_controller,
   Node(package='nav2_planner',executable='planner_server',name='planner_server',parameters=[str(d/'nav2.yaml')],output='screen'),py('plan_only.py'),py('grid_display.py')])
+ if mppi:
+  args=[sys.executable,str(d/'mppi_trial/preview_gate.py'),'--ros-args','-r','__node:=pb_mppi_command_gate','-p',f'use_sim_time:={str(sim).lower()}']
+  for suffix in ('raw_velocity','preview_velocity','sdk_preview','preview_status','inputs_ready'):
+   args.extend(['-r',f'/arx_mppi_trial/{suffix}:=/pb/mppi/{suffix}'])
+  args.extend(['-r','/arx_mppi_trial/local_costmap/costmap:=/local_costmap/costmap'])
+  nodes.append(ExecuteProcess(cmd=args,output='screen'))
  if sim:nodes.append(py('replay_tf.py'))
  if not sim or os.getenv('ARX_EXPERIMENTAL_CLEAR')!='1':
   nodes.append(py('dual_observations.py',{'ARX_FAST_SENSOR_NODE':'1','ARX_STVL_EVIDENCE':'1'}))
  required=list(nodes)
  if not sim and not dual:nodes.append(py("stationary_head.py"))
- if not sim and os.getenv("ROS_DOMAIN_ID")=="192" and os.getenv("ARX_EXTERNAL_GOAL_DRIVER")!="1" and os.getenv("ARX_DESKTOP_MODE")!="mapping":nodes.append(py("goal_drive.py"))
- manager=Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='pb_lifecycle',parameters=[{'use_sim_time':sim,'autostart':not sim,'node_names':localization_nodes+['/local_costmap/local_costmap','planner_server'],'bond_timeout':0.0}],output='screen')
+ if not sim and os.getenv("ROS_DOMAIN_ID")=="192" and os.getenv("ARX_EXTERNAL_GOAL_DRIVER")!="1" and os.getenv("ARX_DESKTOP_MODE")!="mapping":nodes.append(py("mppi_goal_drive.py" if mppi else "goal_drive.py"))
+ manager=Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='pb_lifecycle',parameters=[{'use_sim_time':sim,'autostart':not sim,'node_names':localization_nodes+['controller_server' if mppi else '/local_costmap/local_costmap','planner_server'],'bond_timeout':0.0}],output='screen')
  nodes.append(TimerAction(period=2.,actions=[manager]) if dual_grid else manager)
  for n in required:nodes.append(RegisterEventHandler(OnProcessExit(target_action=n,on_exit=[EmitEvent(event=Shutdown(reason='PolarBear preview component exited'))])))
  return LaunchDescription(nodes)

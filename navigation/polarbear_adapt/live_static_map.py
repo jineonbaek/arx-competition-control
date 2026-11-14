@@ -8,7 +8,7 @@ import math
 import numpy as np
 import shapely
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped,PoseArray
 from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
@@ -22,6 +22,8 @@ from chassis_projection import RigidProjection
 from base_envelope import BaseEnvelope
 from clear_votes import FrameVotes
 from head_visibility import evidence
+from chassis_pose_policy import SnapshotLease
+from chassis_pose import valid_pose,planar as pose_planar
 
 
 def bottom_crossings(xy, origin, rays, hits, floor_z, res):
@@ -64,6 +66,8 @@ class OnlineMap(Node):
         self.projection=RigidProjection(shapely.from_wkt(path.read_text()))
         self.envelope=BaseEnvelope.load()
         if self.envelope is not None:self.projection=self.envelope.projection
+        self.pose_snapshot=None
+        self.pose_lease=SnapshotLease()
         self.normal=None
         self.temporary=()
         self.projection_pose=None
@@ -80,6 +84,7 @@ class OnlineMap(Node):
         for source in ('head','bottom'):
             self.create_subscription(PointCloud2,'/pb/'+source+'_observations',
                                      lambda msg,s=source:self.observe(s,msg),qos_profile_sensor_data)
+        self.create_subscription(PoseArray,'/pb/chassis_pose',self.snapshot,qos)
         self.tf=Buffer()
         self.listener=TransformListener(self.tf,self)
         self.grid=None
@@ -133,6 +138,8 @@ class OnlineMap(Node):
         if msg.header.frame_id!='map':return
         ns=self.get_clock().now().nanoseconds
         self.hold_stamp=ns
+        self.pose_snapshot=None
+        self.pose_lease.withdraw(ns)
         if self.saved_map:self.awaiting_amcl=ns
         self.projection_pose=None
         if self.normal is not None:
@@ -151,27 +158,24 @@ class OnlineMap(Node):
         if not np.isfinite(values).all() or abs(np.linalg.norm(values[2:])-1)>.01:return None
         return (t.x,t.y,math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z)))
 
+    def snapshot(self,msg):
+        if (msg.header.frame_id=='map' and len(msg.poses)==2 and
+            all(valid_pose(p) for p in msg.poses) and
+            self.pose_lease.offer(Time.from_msg(msg.header.stamp).nanoseconds,self.get_clock().now().nanoseconds)):
+            self.pose_snapshot=msg
+        else:
+            self.pose_snapshot=None;self.pose_lease.withdraw()
+        self.refresh_projection()
+
     def fresh_pose(self):
-        if self.awaiting_amcl is not None:return None
-        try:
-            body=self.tf.lookup_transform('map','base_link',Time())
-            stamp=Time.from_msg(body.header.stamp)
-            age=(self.get_clock().now()-stamp).nanoseconds
-            if not -100_000_000<=age<=650_000_000:return None
-            alignment=self.planar(self.tf.lookup_transform('map','odom',stamp).transform)
-        except TransformException:return None
-        pose=self.planar(body.transform)
-        if alignment is None or pose is None:return None
-        old=self.map_alignment
-        self.map_alignment=alignment
-        if old is not None:
-            dx,dy,dyaw=np.subtract(alignment,old)
-            if math.hypot(dx,dy)>.18 or abs(math.atan2(math.sin(dyaw),math.cos(dyaw)))>.13:
-                self.hold_stamp=stamp.nanoseconds
-        if self.hold_stamp is not None:
-            if stamp.nanoseconds<=self.hold_stamp:return None
-            self.hold_stamp=None
-        return pose
+        # The authority alone checks alignment/relocalization and recovery. No
+        # independent latest-TF lookup with a different sample in this consumer.
+        m=self.pose_snapshot
+        if m is None or m.header.frame_id!='map' or len(m.poses)!=2:return None
+        if not self.pose_lease.usable(self.get_clock().now().nanoseconds):
+            self.pose_snapshot=None;return None
+        if not all(valid_pose(p) for p in m.poses):return None
+        return pose_planar(m.poses[0])
 
     def refresh_projection(self, force=False):
         if self.normal is None:return

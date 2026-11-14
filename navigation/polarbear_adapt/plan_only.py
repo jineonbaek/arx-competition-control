@@ -129,7 +129,9 @@ class Planner(Node):
         yaw=math.atan2(math.sin(goal[2]-start[2]),math.cos(goal[2]-start[2]))
         forward=delta@[math.cos(start[2]),math.sin(start[2])]
         lateral=delta@[-math.sin(start[2]),math.cos(start[2])]
-        if not ((abs(forward)<.035 and abs(lateral)<=.38 and abs(yaw)<.09)
+        short_translation = (np.linalg.norm(delta)<=.38
+                             or (abs(forward)<.035 and abs(lateral)<=.38))
+        if not ((short_translation and abs(yaw)<.09)
                 or np.linalg.norm(delta)<.035):
             return False
         steps=max(1,math.ceil((np.linalg.norm(delta)+grid.radius*abs(yaw))/.025))

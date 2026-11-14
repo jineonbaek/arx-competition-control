@@ -24,8 +24,10 @@ def generate_launch_description():
  for mode in (['body','map'] if dual else ['filter','body','map']):
   nodes.append(ExecuteProcess(cmd=[sys.executable,str(root/'single_bottom/runtime.py'),mode,'--config',str(cfg),'--mesh',str(mesh),'--run',str(run)],output='screen'))
  if dual:
-  for name,source in [('input_filter.py',''),('observations.py','bottom'),('observations.py','head')]:
-   nodes.append(ExecuteProcess(cmd=[sys.executable,str(root/'fixed_dual'/name)],additional_env={'ARX_DESKEW_SOURCE':source,'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1'},output='screen'))
+  for name,source in [('input_filter.py','bottom'),('input_filter.py','head'),('observations.py','bottom'),('observations.py','head')]:
+   nodes.append(ExecuteProcess(cmd=[sys.executable,str(root/'fixed_dual'/name)],additional_env={'ARX_INPUT_FILTER_SOURCE':source if name=='input_filter.py' else '',
+   'ARX_DESKEW_SOURCE':source if name=='observations.py' else '',
+   'OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1'},output='screen'))
   nodes.append(ExecuteProcess(cmd=[str(root/'fixed_dual/build/frontend'),str(root),str(run)],output='screen'))
  required=list(nodes)
  lio=Node(package='fast_lio',executable='fastlio_mapping',name='bottom_upright_lio',namespace='single',parameters=[params],output='screen',remappings=[('/tf','/single/private_lio_tf'),('/cloud_registered','/single/cloud_registered'),('/cloud_registered_body','/single/cloud_body'),('/cloud_effected','/single/cloud_effected'),('/Laser_map','/single/map_raw'),('/Odometry','/single/odometry_raw'),('/path','/single/path_raw')])

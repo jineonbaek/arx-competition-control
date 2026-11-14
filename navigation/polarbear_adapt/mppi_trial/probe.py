@@ -14,6 +14,7 @@ from lifecycle_msgs.srv import GetState
 from rclpy.action import ActionClient
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformException, TransformListener
+from std_msgs.msg import Bool
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--smac', action='store_true')
@@ -32,6 +33,15 @@ lifecycle = node.create_client(GetState, '/arx_mppi_trial/controller_server/get_
 topic = '/arx_mppi_trial/raw_velocity'
 rows = []
 handle = None
+input_ready_since = None
+input_ready_at = 0.
+
+def readiness(message):
+    global input_ready_since, input_ready_at
+    input_ready_at = time.monotonic()
+    input_ready_since = (input_ready_since or input_ready_at) if message.data else None
+
+node.create_subscription(Bool, '/arx_mppi_trial/inputs_ready', readiness, 1)
 
 def record(message):
     twist = message.twist if isinstance(message, TwistStamped) else message
@@ -76,6 +86,10 @@ try:
     else:
         raise RuntimeError('Preview controller and robot TF did not become ready')
     assert pump(lambda: bool(dict(node.get_topic_names_and_types()).get(topic)), 5.)
+    if not pump(lambda: input_ready_since is not None
+                and time.monotonic()-input_ready_since >= .5
+                and time.monotonic()-input_ready_at < .15, 12.):
+        raise RuntimeError('MPPI sensor/costmap inputs did not become stable')
     kind = dict(node.get_topic_names_and_types())[topic]
     assert len(kind) == 1 and kind[0] in ('geometry_msgs/msg/Twist','geometry_msgs/msg/TwistStamped'), kind
     node.create_subscription(TwistStamped if kind[0].endswith('TwistStamped') else Twist, topic, record, 20)

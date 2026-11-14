@@ -29,11 +29,11 @@ class Waypoints:
             self.route.add(msg)
         self.show()
 
-    def show(self):
+    def show(self, phase=None):
         r = self.route
         label = {'draft':'待开始','running':'执行中','completed':'全部到达并停稳',
                  'cancelled':'已取消','manual_override':'已由单点目标接管'}.get(r.state,r.state)
-        self.status.publish(String(data=f'{label}  {r.index}/{len(r.points)}'))
+        self.status.publish(String(data=f'{phase or label}  {r.index}/{len(r.points)}'))
         markers = [Marker(action=Marker.DELETEALL)]
         for i, point in enumerate(r.points):
             m = Marker()

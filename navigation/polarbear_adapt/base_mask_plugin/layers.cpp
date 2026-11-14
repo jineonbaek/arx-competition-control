@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <mutex>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <nav2_costmap_2d/inflation_layer.hpp>
 #include <nav2_costmap_2d/voxel_layer.hpp>
@@ -13,26 +15,47 @@ namespace arx_base_mask {
 class Mask {
   std::unique_ptr<Geometry> geometry_;
   Window window_;
+  std::mutex mutex_;
+  std::optional<Pose> latest_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subscription_;
+  std::string frame_;
+  double floor_=-1.,last_now_=-1.;
+  void withdraw() {if(latest_)floor_=std::max(floor_,latest_->stamp);latest_.reset();}
  public:
-  void initialize(rclcpp_lifecycle::LifecycleNode::SharedPtr node,const std::string& name) {
+  void initialize(rclcpp_lifecycle::LifecycleNode::SharedPtr node,const std::string& name,const std::string& frame) {
+    frame_=frame;
     const auto parameter=name+".chassis_mask_file";
     const auto file=ament_index_cpp::get_package_share_directory("arx_base_mask_costmap")+"/base_envelope.wkt";
     if(!node->has_parameter(parameter))node->declare_parameter(parameter,file);
     std::ifstream input(node->get_parameter(parameter).as_string());
     if(!input)throw std::runtime_error("Cannot read chassis envelope");
     geometry_=std::make_unique<Geometry>(std::string(std::istreambuf_iterator<char>(input),{}));
+    if(frame_!="map" && frame_!="odom")throw std::runtime_error("Unsupported chassis mask frame");
+    subscription_=node->create_subscription<geometry_msgs::msg::PoseArray>("/pb/chassis_pose",
+      rclcpp::QoS(1).transient_local(),[this](geometry_msgs::msg::PoseArray::ConstSharedPtr m){snapshot(*m);});
+  }
+  void snapshot(const geometry_msgs::msg::PoseArray& m) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if(m.header.frame_id!="map" || m.poses.size()!=2){withdraw();return;}
+    const double stamp=rclcpp::Time(m.header.stamp).seconds();
+    if(stamp<=floor_){withdraw();return;}
+    for(const auto& p:m.poses){
+      const auto& q=p.orientation;const auto& t=p.position;
+      const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+      if(!std::isfinite(t.x)||!std::isfinite(t.y)||!std::isfinite(t.z)||
+         !std::isfinite(norm)||std::abs(norm-1.)>=.02){withdraw();return;}
+    }
+    const auto& p=m.poses[frame_=="map" ? 0 : 1];
+    latest_=Pose{p.position.x,p.position.y,tf2::getYaw(p.orientation),
+                  rclcpp::Time(m.header.stamp).seconds()};
   }
   void update(nav2_costmap_2d::LayeredCostmap* layered,tf2_ros::Buffer* tf,
               const rclcpp::Clock::SharedPtr& clock,bool enabled) {
     std::optional<Pose> pose;
-    if(enabled)try {
-      const auto t=tf->lookupTransform(layered->getGlobalFrameID(),"base_link",tf2::TimePointZero);
-      const auto& q=t.transform.rotation;
-      const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
-      if(std::isfinite(norm)&&std::abs(norm-1.)<.02)
-        pose=Pose{t.transform.translation.x,t.transform.translation.y,tf2::getYaw(q),
-                  rclcpp::Time(t.header.stamp,clock->get_clock_type()).seconds()};
-    }catch(const tf2::TransformException&){}
+    {std::lock_guard<std::mutex> lock(mutex_);
+      const double now=clock->now().seconds();
+      if((last_now_>=0 && now<last_now_) || (latest_ && !latest_->fresh(now)))withdraw();
+      last_now_=now;if(enabled)pose=latest_;}
     window_.update(pose,clock->now().seconds());
     RCLCPP_INFO_THROTTLE(rclcpp::get_logger("chassis_mask_diagnostic"),*clock,5000,
       "frame=%s valid=%d age=%.6f x=%.3f y=%.3f",layered->getGlobalFrameID().c_str(),
@@ -61,7 +84,7 @@ class InflationLayer : public nav2_costmap_2d::InflationLayer {
   Mask mask_;
  public:
   void onInitialize() override {
-    nav2_costmap_2d::InflationLayer::onInitialize();mask_.initialize(node_.lock(),name_);
+    nav2_costmap_2d::InflationLayer::onInitialize();mask_.initialize(node_.lock(),name_,layered_costmap_->getGlobalFrameID());
   }
   void updateBounds(double x,double y,double yaw,double* a,double* b,double* c,double* d) override {
     mask_.update(layered_costmap_,tf_,clock_,enabled_);
@@ -81,7 +104,7 @@ class VoxelLayer : public nav2_costmap_2d::VoxelLayer {
   Mask mask_;
  public:
   void onInitialize() override {
-    nav2_costmap_2d::VoxelLayer::onInitialize();mask_.initialize(node_.lock(),name_);
+    nav2_costmap_2d::VoxelLayer::onInitialize();mask_.initialize(node_.lock(),name_,layered_costmap_->getGlobalFrameID());
   }
   void updateBounds(double x,double y,double yaw,double* a,double* b,double* c,double* d) override {
     nav2_costmap_2d::VoxelLayer::updateBounds(x,y,yaw,a,b,c,d);
