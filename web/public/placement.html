@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>自动放置 · ARX</title><link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/grasp.css"><link rel="stylesheet" href="css/grasp-integration.css"><script type="module" src="js/placement.js"></script></head>
+<body><header class="topbar"><div class="brand"><span class="brand-mark">A</span><strong>自动放置 · 圈内左侧</strong></div><a class="button secondary" href="/">返回控制台</a></header>
+<main><div class="page-heading"><div><h1>自动放置实时结果</h1><p>一个红圈，预留两块电池的位置，本轮放在机器人正对区域时的左侧。</p></div><span id="run-label" class="mode-badge">等待任务</span></div>
+<p id="status" role="status">正在读取后端状态…</p>
+<div class="grasp-grid">
+<section class="panel"><h2>D435 · 实时画面</h2><img id="d435-live" alt="D435实时画面" hidden><p id="d435-live-status">等待相机</p></section>
+<section class="panel"><h2>D405 · 实时画面</h2><img id="d405-live" alt="D405实时画面" hidden><p id="d405-live-status">等待相机</p></section>
+</div><div class="grasp-grid">
+<section class="panel"><h2>D435 · 红圈与左侧落点</h2><img id="d435-result" alt="本轮D435红圈与完整电池底面" hidden><p id="d435-result-status">等待本轮识别</p><button id="preview-d435" class="button secondary">识别红圈，不运动</button></section>
+<section class="panel"><h2>D405 · 近距离复核</h2><img id="d405-result" alt="本轮D405红圈与完整电池底面" hidden><p id="d405-result-status">等待本轮识别</p><button id="preview-d405" class="button secondary">复核红圈，不运动</button></section>
+</div>
+<section class="panel"><h2>放置目标与容差</h2><p id="target">等待配对深度，不用像素坐标代替三维落点。</p><p id="tolerance">水平位置最多30 mm、朝向8°；按圈边界收紧。下降高度仍为3 mm。</p><p>绿框是电池完整底面；红圈不足以容纳两块电池或左侧已有占位时停止规划。</p></section>
+<section class="panel"><h2>自动放置流程</h2><p>持物核验 → D435定位 → 预放位 → D405复核 → 低速下降 → 松爪 → 撤回 → 新画面确认电池稳定。</p><ol id="phases"></ol>
+<label><input type="checkbox" id="holding-confirmed"> 已确认右夹爪仍可靠夹持本轮抓取的电池</label><br><label><input type="checkbox" id="environment-clear"> 已确认放置与撤回通路无人无障碍，现场有人守急停</label>
+<div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机放置</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">当前默认仅预览</span></div>
+<h3>实时执行日志</h3><ol id="execution-log" aria-live="polite"><li>等待任务启动。</li></ol></section>
+</main></body></html>

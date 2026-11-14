@@ -1,0 +1,23 @@
+{
+  "execution_enabled": false,
+  "placement_geometry_verified": false,
+  "asset_root": "/home/arx/arx-competition-control",
+  "grasp_policy": "/home/arx/arx-competition-control/config/battery-execution.json",
+  "geometry": {
+    "battery_size_m": [
+      0.08235,
+      0.075,
+      0.19528
+    ],
+    "edge_margin_mm": 10,
+    "gap_mm": 20,
+    "xy_tolerance_mm": 30,
+    "z_tolerance_mm": 3,
+    "yaw_tolerance_deg": 8,
+    "max_frame_age_s": 2,
+    "max_plane_tilt_deg": 10,
+    "plane_residual_mm": 5,
+    "ring_residual_mm": 10
+  },
+  "execution_observation_max_age_s": 120
+}

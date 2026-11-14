@@ -26,6 +26,8 @@ from tcp_calibration import TcpCalibration
 from grasp_integration import GraspIntegration
 from navigation_view import read_snapshot
 from battery_task import BatteryTask
+from placement_preview import PlacementPreview
+from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from competition_modules import GraspModule, QwenRecovery
 from agent.battery_production import workflow_factory
@@ -42,8 +44,9 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None):
     depth_control=depth_control or DepthControl()
+    placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
@@ -83,6 +86,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/placement-preview':
+                if not self.client():return self.json(403,{'message':'请先打开自动放置页面'})
+                return self.json(200,placement_preview.latest)
+            if path == '/api/placement-task':
+                if not self.client():return self.json(403, {'message':'请先打开自动放置页面'})
+                if placement_task is None:return self.json(200, {'status':'idle','execution_enabled':False,'available':False,'reason':'仅预览，未配置放置执行后端'})
+                return self.json(200, placement_task.snapshot(self.client()))
             if path == '/api/competition-task':
                 if not self.client():return self.json(403, {'message':'请先打开地图与任务页'})
                 if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
@@ -202,14 +212,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/map.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html") and not self.client():
+            if path in ("/", "/map.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html", "/placement.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -222,6 +232,12 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/placement-preview':
+                    if placement_task is not None and placement_task.snapshot(self.client()).get('status')=='running':raise ValueError('执行期间不能另开红圈采样')
+                    return self.json(200,placement_preview.action(strict_json(raw)))
+                if path == '/api/placement-task':
+                    if placement_task is None:return self.json(503,{'message':'放置执行后端未启用'})
+                    return self.json(202,placement_task.action(self.client(),strict_json(raw)))
                 if path == '/api/competition-task':
                     if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
                     return self.json(202, competition_task.action(self.client(), strict_json(raw)))
@@ -279,6 +295,7 @@ def main():
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9983)
     parser.add_argument("--battery-policy", help="explicit fixed-flow execution policy")
+    parser.add_argument("--placement-policy",help="explicit local placement policy; default preview only")
     args = parser.parse_args()
     config = json.loads((WEB_ROOT / "config/control.json").read_text())
     adapter = RosAdapter(config)
@@ -288,13 +305,15 @@ def main():
     grasp_integration = GraspIntegration.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,depth_control)
+    placement_preview=PlacementPreview(controller,depth_control)
+    placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     competition_task=CompetitionTask(controller, WEB_ROOT.parent/'agent/competition-runs',
         modules={'pick':GraspModule(battery_task)} if battery_task else {},
         recovery=QwenRecovery(arxgent.config))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task,competition_task=competition_task))
+        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -309,6 +328,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        if placement_task is not None:placement_task.close()
         competition_task.close()
         foundation.close()
         vision.close()
