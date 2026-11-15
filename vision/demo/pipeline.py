@@ -180,7 +180,10 @@ def capture(camera, console, output):
 class QwenJudge:
     def __init__(self, env):
         load_private_env(env)
-        self.client=QwenClient(Config())
+        config=Config()
+        config.profiles["cloud"]["enable_thinking"]=False
+        config.max_output_tokens=512
+        self.client=QwenClient(config)
         self.records=[]
 
     def ask(self, text, images, properties, required):
@@ -210,6 +213,7 @@ class QwenJudge:
 
     def select(self,image,reference,candidates,task,coarse=False):
         properties={"status":{"type":"string","enum":["selected","not_found","ambiguous"]},
+                    "confidence":{"type":"number","minimum":0,"maximum":1},
                     "reason":{"type":"string"}}
         if coarse:
             properties["coordinate_space"]={"type":"string","enum":["normalized_1000"]}
@@ -221,10 +225,13 @@ class QwenJudge:
         else:
             properties["candidate_id"]={"type":"integer"}
             instruction="Select one listed candidate_id matching the reference object and task. Do not invent another ID."
+        instruction+=(" Return a concise decision, confidence from 0 to 1, and one short reason. "
+                      "Confidence is diagnostic only; do not use it as an acceptance gate.")
+        required=["status","reason","confidence","coordinate_space"] if coarse else ["status","reason","confidence"]
         return self.ask(instruction+" Task: "+task+" CURRENT size="+str(image.size)+
                         " Candidates="+json.dumps(candidates),
                         [("REFERENCE object only",reference),("CURRENT scene",overlay_candidates(image,candidates))],
-                        properties,["status","reason","coordinate_space"] if coarse else ["status","reason"])
+                        properties,required)
 
     def review(self,image,reference,overlay,geometry,task):
         return self.ask("Check whether the green segmented region matches the REFERENCE object and task. Reject masks leaking into table/chair/rack/background. Geometry is only diagnostic, not evidence of safe grasp. Task="+task+" Geometry="+json.dumps(geometry),

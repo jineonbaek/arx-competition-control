@@ -40,9 +40,10 @@ class PipelineTests(unittest.TestCase):
 
     def test_candidate_selection_segments_then_reviews(self):
         models=Models(self.candidates)
-        judge=Judge({"status":"selected","candidate_id":1})
+        judge=Judge({"status":"selected","candidate_id":1,"confidence":.82,"reason":"fixture"})
         result=self.run_frame(models,judge)
         self.assertEqual(result["status"],"perception_accepted")
+        self.assertEqual(result["selection"]["confidence"],.82)
         self.assertEqual(models.prompt,{"box":[8,8,32,32]})
         self.assertEqual(judge.modes,[False])
         self.assertTrue((self.output/"mask.png").exists())
@@ -169,18 +170,30 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(result["robot_geometry_ready"])
         self.assertFalse(mask_geometry(mask,np.zeros((60,80),np.uint16),meta)["metric_valid"])
 
+    def test_qwen_visual_judge_uses_short_non_thinking_profile(self):
+        from unittest.mock import patch
+        with patch("pipeline.load_private_env"),patch("pipeline.QwenClient") as client:
+            QwenJudge(Path("unused"))
+        config=client.call_args.args[0]
+        self.assertFalse(config.profiles["cloud"]["enable_thinking"])
+        self.assertEqual(config.max_output_tokens,512)
+
     def test_plain_visual_reply_gets_one_bounded_repair(self):
         from unittest.mock import Mock
         judge=QwenJudge.__new__(QwenJudge)
         judge.records=[]
         judge.client=Mock()
         report={'role':'assistant','content':'','tool_calls':[{'function':{
-            'name':'report_visual_result','arguments':'{"status":"not_found","reason":"empty","coordinate_space":"normalized_1000"}'}}]}
+            'name':'report_visual_result','arguments':'{"status":"not_found","reason":"empty","confidence":0.8,"coordinate_space":"normalized_1000"}'}}]}
         plain={'role':'assistant','content':'No object'}
         judge.client.complete.side_effect=[plain,report]
         result=judge.select(self.image,self.image,[],"test",coarse=True)
         self.assertEqual(result["status"],"not_found")
+        self.assertEqual(result["confidence"],.8)
         self.assertEqual(judge.client.complete.call_count,2)
+        schema=judge.client.complete.call_args_list[0].args[1][0]["function"]["parameters"]
+        self.assertIn("confidence",schema["required"])
+        self.assertEqual(schema["properties"]["confidence"],{"type":"number","minimum":0,"maximum":1})
         judge.client.complete.side_effect=[plain,plain]
         with self.assertRaises(ValueError):
             judge.select(self.image,self.image,[],"test",coarse=True)
