@@ -18,7 +18,7 @@ class RetreatTests(unittest.TestCase):
             submit=lambda command,token:self.commands.append((command,token)) or {'ok':True})
         self.step=ChassisRetreatStep(self.controller,'owned')
 
-    def test_reuses_navigation_transport_and_odom_heading_then_existing_stop_window(self):
+    def test_stops_after_200mm_without_forward_correction_then_uses_existing_stop_window(self):
         with patch('navigation.polarbear_adapt.chassis_command.build_opener') as http:
             self.step.start();http.assert_not_called()
         self.assertEqual(self.commands,[])
@@ -29,9 +29,9 @@ class RetreatTests(unittest.TestCase):
         self.assertEqual(token,'owned');self.assertEqual(command['type'],'chassis.nav_sdk')
         self.assertLess(command['x'],0.);self.assertAlmostEqual(command['y'],0.)
         self.assertEqual(command['omega'],0.)
-        self.odom=self.step.target.copy();self.now+=.1
+        self.odom[1]=2.79;self.now+=.1
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.assertEqual(self.commands[-1][0]['type'],'chassis.stop')
+        self.assertEqual(self.commands[-1][0]['type'],'chassis.end_output')
         self.assertFalse(self.step.done)
         for _ in range(12):
             self.now+=.1
@@ -39,6 +39,7 @@ class RetreatTests(unittest.TestCase):
         self.assertEqual(receipt['status'],'chassis_stopped')
         self.reader.close.assert_called_once()
         self.assertEqual(len(self.commands),2)
+        self.assertFalse(any(c['type']=='chassis.nav_sdk' and c['x']>0 for c,_ in self.commands))
 
     def test_no_motion_until_first_pose_and_cancel_uses_existing_stop(self):
         self.reader.read.side_effect=lambda:None
@@ -46,29 +47,25 @@ class RetreatTests(unittest.TestCase):
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
         self.assertEqual(self.commands,[])
         self.step.cancel()
-        self.assertEqual(self.commands[0][0],{'type':'chassis.stop','sequence':1})
+        self.assertEqual(self.commands[0][0]['type'],'chassis.end_output')
         self.reader.close.assert_called_once()
 
-    def test_drift_after_arrival_resumes_tracking_and_restarts_stop_window(self):
+    def test_over_400mm_fails_after_stopping_without_forward_correction(self):
         self.step.start();self.step.poll()
-        self.odom=self.step.target.copy();self.now+=.1
+        self.odom[1]=2.59;self.now+=.1
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.odom[0]+=.06;self.now+=.1
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.assertEqual(self.commands[-1][0]['type'],'chassis.nav_sdk')
-        self.odom=self.step.target.copy();self.now+=.1
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        for _ in range(12):
-            self.now+=.1
-            receipt=self.step.poll()
-        self.assertEqual(receipt['status'],'chassis_stopped')
+        with self.assertRaisesRegex(ValueError,'chassis_retreat_out_of_range'):
+            for _ in range(12):
+                self.now+=.1
+                self.step.poll()
+        self.assertFalse(any(c['type']=='chassis.nav_sdk' and c['x']>0 for c,_ in self.commands))
 
     def test_existing_pose_failure_is_not_hidden_and_cancel_stops(self):
         self.step.start();self.step.poll()
         self.reader.read.side_effect=ValueError('motion_pose_stale_or_invalid')
         with self.assertRaisesRegex(ValueError,'motion_pose_stale_or_invalid'):self.step.poll()
         self.step.cancel()
-        self.assertEqual(self.commands[-1][0]['type'],'chassis.stop')
+        self.assertEqual(self.commands[-1][0]['type'],'chassis.end_output')
         self.reader.close.assert_called_once()
 
     def test_real_controller_keeps_task_owner_and_arm_lift_while_using_native_transport(self):

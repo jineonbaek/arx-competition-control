@@ -120,23 +120,31 @@ class ChassisRetreatStep:
         dt=tick-self.last
         if dt<PERIOD:return dict(status='backing_chassis')
         self.last=tick
-        command,arrived=tracking_command(self.route,odom,self.target,self.previous,dt)
-        if self.stop is not None and arrived:
+        start=self.route[0]
+        retreat=float((start[:2]-odom[:2])@np.array([np.cos(start[2]),np.sin(start[2])]))
+        if self.stop is not None:
             if self.stop.add(source,odom):
+                if not .200 < retreat < .400:
+                    raise ValueError(f'chassis_retreat_out_of_range distance={retreat:.3f}m')
                 self.done=True;self.close()
                 return dict(status='chassis_stopped')
-        else:
-            self.stop=None
-            self.reader.check_motion(command,source)
-            self.transport.send(command);self.previous=command
-            if arrived:self.stop=StopWindow(after=self.reader.now())
+            return dict(status='backing_chassis')
+        if retreat > .200:
+            self.transport.end_output()
+            self.stop=StopWindow(after=self.reader.now())
+            return dict(status='backing_chassis')
+        command,arrived=tracking_command(self.route,odom,self.target,self.previous,dt)
+        if arrived:command=self.previous
+        self.reader.check_motion(command,source)
+        self.transport.send(command);self.previous=command
         return dict(status='backing_chassis')
 
     def close(self):
+        if self.transport is not None:self.transport.end_output()
         if self.reader is not None:
             self.reader.close();self.reader=None
 
     def cancel(self):
         try:
-            if self.transport is not None:self.transport.send((0.,0.,0.))
+            if self.transport is not None:self.transport.end_output()
         finally:self.close()
