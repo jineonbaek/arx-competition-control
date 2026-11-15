@@ -34,6 +34,9 @@ int main() {
   assert(next==target);
   assert(limits.valid_gripper(0) && limits.valid_gripper(-3.14));
   assert(!limits.valid_gripper(.001) && !limits.valid_gripper(-3.141));
+  assert(gripper_hold_target(limits,-6.305,0)==0);
+  assert(gripper_hold_target(limits,0,-3.14)==-3.14);
+  assert(gripper_hold_target(limits,-6.305,NAN)==-3.14);
   target.assign(6,0);
   for(int mode=0;mode<4;++mode) assert(limits.valid(target,-1,actual,mode));
   assert(!limits.valid(target,-1,actual,4));assert(!limits.valid(target,.1,actual,5));
