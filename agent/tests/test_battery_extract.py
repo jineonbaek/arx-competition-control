@@ -1,4 +1,4 @@
-"""Extraction uses the manual wrist interface; all feedback and commands are inert."""
+"""Chassis-only extraction and transport return; all commands are inert."""
 import unittest
 import tempfile
 import time
@@ -41,34 +41,29 @@ class ExtractionTests(unittest.TestCase):
             result=self.step.poll()
         return result
 
-    def test_one_wrist_command_subtracts_155_mm_then_chassis_stops_before_return(self):
+    def test_chassis_starts_without_wrist_motion_or_ik_and_stops_before_return(self):
         self.assertEqual(self.commands,[])
-        self.assertEqual(self.step.start()['status'],'withdrawing')
-        command=self.commands[0]
-        self.assertEqual(command['type'],'arm.wrist')
-        np.testing.assert_allclose(command['position_mm'],[295.,-150.,700.])
-        np.testing.assert_allclose(command['orientation_deg'],[-85.,1.,2.])
-        self.pose[:3,3]+=[-.155,.017,-.017]
-        self.pose[:3,:3]=self.pose[:3,:3]@Rotation.from_euler('x',4.9,degrees=True).as_matrix()
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.controller.models['right'].wrist_transform=Mock(side_effect=AssertionError('No wrist solve'))
+        self.assertEqual(self.step.start()['status'],'backing_chassis')
         self.retreat.start.assert_called_once()
-        self.assertEqual(len(self.commands),1)
+        self.assertEqual(self.commands,[])
         self.retreat.poll.return_value={'status':'backing_chassis'}
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.assertEqual(len(self.commands),1)
+        self.assertEqual(self.commands,[])
         self.retreat.poll.return_value={'status':'chassis_stopped'}
         self.assertEqual(self.step.poll()['status'],'returning')
-        self.assertEqual(self.commands[1],dict(type='arm.joints',arm='right',joints=[0.,0.,0.,0.,0.,-90.]))
+        self.assertEqual(self.commands[0],dict(type='arm.joints',arm='right',joints=[0.,0.,0.,0.,0.,-90.]))
         self.assertEqual(self.finish_return()['status'],'carry_ready')
         self.assertEqual(self.step.poll()['status'],'carry_ready')
-        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.joints'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.joints'])
         with self.assertRaises(ValueError):self.step.start()
 
-    def test_outside_existing_tolerance_waits_and_cancel_never_opens_gripper(self):
-        self.step.start();self.pose[0,3]-=.135
-        self.assertEqual(self.step.poll()['status'],'withdrawing')
+    def test_cancel_before_chassis_completion_never_opens_gripper(self):
+        self.retreat.poll.return_value={'status':'backing_chassis'}
+        self.step.start()
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
         self.assertTrue(self.step.cancel()['stop_required'])
-        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_feedback_loss_stops_without_claiming_extraction(self):
         self.step.start()
@@ -78,8 +73,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertNotEqual(result['status'],'withdrawn')
 
     def test_return_waits_for_all_six_joint_errors_and_existing_settling(self):
-        self.step.start();self.pose[0,3]-=.155
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.step.start()
         self.assertEqual(self.step.poll()['status'],'returning')
         self.joints=np.radians([0.,0.,0.,0.,0.,-87.9])
         self.now+=.1
@@ -90,14 +84,14 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(self.finish_return()['status'],'carry_ready')
 
     def test_cancel_during_return_stops_without_opening_or_lift_commands(self):
-        self.step.start();self.pose[0,3]-=.155;self.step.poll();self.step.poll()
+        self.step.start();self.step.poll()
         receipt=self.step.cancel()
         self.assertTrue(receipt['stop_required'])
         self.assertEqual(self.step.poll()['status'],'cancelled')
-        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.joints','arm.stop'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.joints','arm.stop'])
 
     def test_rejected_return_never_reports_carry_ready(self):
-        self.step.start();self.pose[0,3]-=.155;self.step.poll()
+        self.step.start()
         def submit(command,token):
             self.commands.append(command)
             return {'ok':command['type']!='arm.joints'}
@@ -107,18 +101,18 @@ class ExtractionTests(unittest.TestCase):
         self.assertNotEqual(receipt['status'],'carry_ready')
 
     def test_cancel_while_chassis_moves_brakes_and_never_starts_return(self):
-        self.step.start();self.pose[0,3]-=.155;self.step.poll()
         self.retreat.poll.return_value={'status':'backing_chassis'}
+        self.step.start()
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
         self.step.cancel();self.retreat.cancel.assert_called_once()
-        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_chassis_failure_stops_without_returning_arm(self):
-        self.step.start();self.pose[0,3]-=.155;self.step.poll()
+        self.step.start()
         self.retreat.poll.side_effect=ValueError('motion_pose_stale_or_invalid')
         self.assertTrue(self.step.poll()['stop_required'])
         self.retreat.cancel.assert_called_once()
-        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_real_controller_joint_command_keeps_measured_gripper_and_lift(self):
         from web.tests.test_control import Controller,FakeAdapter,configured
@@ -149,17 +143,19 @@ class ExtractionTests(unittest.TestCase):
             try:
                 store.state['mission'].update(stage='HOLD_CONFIRMED',plan={'plan_id':'held','arm':'right'})
                 tools=BatteryExecutionTools(Config(motion_enabled=True),store,backends=backend)
+                self.retreat.poll.return_value={'status':'backing_chassis'}
                 tools.execute('stow_for_carry',{'plan_id':'held'},'extract')
                 for _ in range(100):
-                    if self.commands:break
+                    if self.retreat.start.called:break
                     time.sleep(.01)
-                self.assertEqual(len(self.commands),1)
-                self.pose[:3,3]=np.array(self.commands[0]['position_mm'])/1000
+                self.retreat.start.assert_called_once()
+                self.assertEqual(self.commands,[])
+                self.retreat.poll.return_value={'status':'chassis_stopped'}
                 request=store.state['run_id']+':extract'
                 for _ in range(100):
-                    if len(self.commands)==2:break
+                    if len(self.commands)==1:break
                     time.sleep(.01)
-                self.assertEqual(len(self.commands),2)
+                self.assertEqual(len(self.commands),1)
                 self.assertFalse(backend.entries[request].wait(.03))
                 self.assertNotEqual(store.state['mission']['stage'],'CARRY_READY')
                 self.joints=np.radians([.5,-.5,.2,-.2,.1,-89.])
@@ -170,10 +166,10 @@ class ExtractionTests(unittest.TestCase):
                 self.assertTrue(result['ok'],result)
                 self.assertEqual(store.state['mission']['stage'],'CARRY_READY')
                 tools.execute('stow_for_carry',{'plan_id':'held'},'extract')
-                self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.joints'])
+                self.assertEqual([c['type'] for c in self.commands],['arm.joints'])
                 self.assertEqual(backend.status('stow_for_carry',request)['data']['target_transport_joints_deg'],[0.,0.,0.,0.,0.,-90.])
-                self.assertEqual(backend.status('stow_for_carry',request)['data']['extraction_dx_mm'],-155.)
-                self.assertEqual(backend.status('stow_for_carry',request)['data']['chassis_retreat_mm'],100.)
+                self.assertEqual(backend.status('stow_for_carry',request)['data']['extraction_dx_mm'],0.)
+                self.assertEqual(backend.status('stow_for_carry',request)['data']['chassis_retreat_mm'],200.)
             finally:backend.cancel_and_wait(1.);store.close()
 
     def test_tool_does_not_extract_before_hold_confirmation(self):

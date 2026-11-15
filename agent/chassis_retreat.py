@@ -77,7 +77,7 @@ class _PoseReader:
             if self.node.require_bottom_mark and not self.node.bottom_mark_stamp:return None
             if self.node.require_dual_origin and self.node.dual_origin_health is None:return None
             self.node.target=sample[0].copy()
-            self.node.target[:2]-=.100*np.array([np.cos(sample[0][2]),np.sin(sample[0][2])])
+            self.node.target[:2]-=.200*np.array([np.cos(sample[0][2]),np.sin(sample[0][2])])
         self.node.checked()
         if self.previous_pose is not None and sample[2]>self.previous_pose[1]:
             self.measured=self.body_delta(self.previous_pose[0],sample[1])/(sample[2]-self.previous_pose[1])
@@ -115,7 +115,7 @@ class ChassisRetreatStep:
         _,odom,source=sample;tick=self.controller.clock()
         if self.target is None:
             self.target=odom.copy()
-            self.target[:2]-=.100*np.array([np.cos(odom[2]),np.sin(odom[2])])
+            self.target[:2]-=.200*np.array([np.cos(odom[2]),np.sin(odom[2])])
             self.route=np.asarray([odom.copy(),self.target.copy()]);self.last=tick-PERIOD
         dt=tick-self.last
         if dt<PERIOD:return dict(status='backing_chassis')

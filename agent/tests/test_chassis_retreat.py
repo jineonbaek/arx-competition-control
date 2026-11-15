@@ -23,7 +23,7 @@ class RetreatTests(unittest.TestCase):
             self.step.start();http.assert_not_called()
         self.assertEqual(self.commands,[])
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        np.testing.assert_allclose(self.step.target,[2.,2.9,np.pi/2])
+        np.testing.assert_allclose(self.step.target,[2.,2.8,np.pi/2])
         command,token=self.commands[0]
         self.reader.check_motion.assert_called_once()
         self.assertEqual(token,'owned');self.assertEqual(command['type'],'chassis.nav_sdk')

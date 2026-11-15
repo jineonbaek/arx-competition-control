@@ -33,7 +33,7 @@ class BatteryExecutionTools(WorkflowTools):
     descriptions.update(capture_grasp_scene='Freeze D405 RGB-D without movement.',verify_hold='Confirm retention from fresh right-gripper feedback and the configured caught-battery range.',plan_battery_pick='Plan insertion along the battery approach axis from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
         execute_battery_approach='Execute a locally verified approach or bounded correction, then require a new D405 scene. Never closes the gripper.',
         execute_pick=ToolRegistry.descriptions['execute_pick'],
-        stow_for_carry='After confirmed grasp, keep the gripper closed and lift unchanged; move the right wrist by base X minus 155 mm, reverse the chassis 100 mm and stop, then return right J1-J5 to 0 degrees and J6 to -90 degrees.',
+        stow_for_carry='After confirmed grasp, keep the gripper closed, arm joints and lift unchanged; reverse the chassis 200 mm and stop, then return right J1-J5 to 0 degrees and J6 to -90 degrees.',
         execute_coarse_alignment='Execute only the stored verified coarse plan. '
         'Wait for its existing receipt, then capture a new D405 observation. Never retry motion with a new call ID.',
         get_execution_status=ToolRegistry.descriptions['get_execution_status'])
