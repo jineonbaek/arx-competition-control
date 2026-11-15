@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <thread>
 using Clock=std::chrono::steady_clock;
 constexpr auto ROOT="/home/arx/arx-competition-control";
@@ -87,6 +88,9 @@ int main(int argc,char** argv) {
   bool joint_active=false;
   int current_mode=2;
   std::vector<double> reference(6,0),goal(6,0);
+  double gripper_target=std::numeric_limits<double>::quiet_NaN();
+  double held_gripper_feedback=gripper_target;
+  double held_gripper_target=gripper_target;
   auto last_step=Clock::now();
   auto seconds=[](){return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();};
   const std::string driver_instance=std::to_string(getpid())+"-"+std::to_string(Clock::now().time_since_epoch().count());
@@ -103,8 +107,11 @@ int main(int argc,char** argv) {
   auto hold=[&](){
     auto p=arm->getJointPositons();
     if(p.size()!=7 || !std::all_of(p.begin(),p.end(),[](double v){return std::isfinite(v);})) return false;
+    held_gripper_feedback=p[6];
+    held_gripper_target=gripper_hold_target(limits,p[6],gripper_target);
+    gripper_target=held_gripper_target;
     joint_active=false;reference.assign(p.begin(),p.begin()+6);goal=reference;
-    arm->setJointPositions(reference);arm->setCatch(p[6]);arm->setArmStatus(5);current_mode=5;return true;
+    arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;return true;
   };
   auto stop_reference=[&](const std::string& reason){
     ++command_epoch;
@@ -112,6 +119,9 @@ int main(int argc,char** argv) {
     joint_active=false;
     bool held=healthy && monitor.fresh() && hold();
     if(!held){arm->setArmStatus(2);current_mode=2;}
+    else RCLCPP_INFO(node->get_logger(),
+      "%s stop hold (%s): gripper feedback %.6f, target %.6f",side.c_str(),reason.c_str(),
+      held_gripper_feedback,held_gripper_target);
     publish_trajectory();return held;
   };
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr trajectory_sub;
@@ -137,8 +147,9 @@ int main(int argc,char** argv) {
           auto actual=arm->getJointPositons();
           trajectory->start(request,actual,seconds());started=true;
           ++command_epoch;
+          gripper_target=gripper_hold_target(limits,actual[6],gripper_target);
           joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
-          arm->setJointPositions(reference);arm->setCatch(actual[6]);arm->setArmStatus(5);current_mode=5;
+          arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;
         } else throw std::invalid_argument("Unsupported trajectory command");
       } catch(const std::exception& error){
         reason=error.what();if(started)stop_reference("dispatch_failed");
@@ -173,6 +184,7 @@ int main(int argc,char** argv) {
         ++command_epoch;
         if(kind=="gripper") {
           // Gripper commands preserve the arm goal; 0 is a valid close target.
+          gripper_target=msg->gripper;
           if(current_mode!=5) {joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
           arm->setCatch(msg->gripper);arm->setArmStatus(5);current_mode=5;
         } else if(kind=="arm.joints" || kind=="arm.joints.auto") {
@@ -180,7 +192,9 @@ int main(int argc,char** argv) {
           if(kind=="arm.joints")active_speed.fill(speed);
           reference.assign(actual.begin(),actual.begin()+6);goal=target;joint_active=true;last_step=Clock::now();
           arm->setJointPositions(reference);arm->setArmStatus(5);current_mode=5;
-        } else {joint_active=false;arm->setArmStatus(msg->mode);current_mode=msg->mode;}
+        } else {joint_active=false;
+          gripper_target=std::numeric_limits<double>::quiet_NaN();
+          arm->setArmStatus(msg->mode);current_mode=msg->mode;}
       }
       std_msgs::msg::String ack;
       ack.data=nlohmann::json{{"request_id",id},{"ok",reason.empty()},{"message",reason.empty()?"Driver accepted target":reason}}.dump();ack_pub->publish(ack);

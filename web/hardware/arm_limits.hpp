@@ -41,6 +41,10 @@ struct ArmLimits {
     return next;
   }
 };
+inline double gripper_hold_target(const ArmLimits& limits,double measured,double commanded) {
+  if(limits.valid_gripper(commanded))return commanded;
+  return std::clamp(measured,limits.gripper[0],limits.gripper[1]);
+}
 inline int arm_feedback_index(unsigned id, unsigned dlc, unsigned first, bool local) {
   if (local) return -1;
   if (dlc>=6 && (id==1 || id==2 || id==4)) return id==4?2:id-1;
