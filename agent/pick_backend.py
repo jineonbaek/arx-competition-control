@@ -188,10 +188,10 @@ class ExtractionExecutionBackend(_PreparedExecutionBackend):
     operation='stow_for_carry'
     stage_key='extract_stage'
     terminal_stage='carry_ready'
-    running_stages=('withdrawing','returning')
+    running_stages=('withdrawing','backing_chassis','returning')
 
     @staticmethod
     def _completed_data(receipt):
-        return dict(carry_ready=True,extracted=True,extraction_dx_mm=-200.,
+        return dict(carry_ready=True,extracted=True,extraction_dx_mm=-155.,chassis_retreat_mm=100.,
                     target_wrist_base_mm=receipt['target_wrist_base_mm'],
                     target_transport_joints_deg=receipt['target_transport_joints_deg'])

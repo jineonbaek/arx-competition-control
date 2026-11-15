@@ -2,6 +2,7 @@
 import numpy as np
 from scipy.spatial.transform import Rotation
 from .motion_feedback import ArrivalMonitor
+from .chassis_retreat import ChassisRetreatStep
 
 
 class WristExtractionStep:
@@ -12,6 +13,7 @@ class WristExtractionStep:
         self.arm_policy=dict(arm_policy)
         self.carry_joints_deg=[0.,0.,0.,0.,0.,-90.]
         self.return_monitor=None
+        self.retreat=None
         self.target=None;self.started=False;self.failure=None;self.stop_request=None
 
     def _receipt(self,status):
@@ -36,7 +38,7 @@ class WristExtractionStep:
         if self.started or self.failure:raise ValueError('Extraction cannot be replayed')
         self.started=True
         try:
-            self.target=self._pose().copy();self.target[0,3]-=.200
+            self.target=self._pose().copy();self.target[0,3]-=.155
             command=dict(type='arm.wrist',arm='right',frame='base_link',
                 position_mm=(self.target[:3,3]*1000).tolist(),
                 orientation_deg=Rotation.from_matrix(self.target[:3,:3]).as_euler('xyz',degrees=True).tolist())
@@ -55,11 +57,17 @@ class WristExtractionStep:
                     self.controller.clock(),ready=True)
                 if result['stop_required']:return self.cancel(result['status'])
                 return self._receipt('carry_ready' if result['arrived'] else 'returning')
-            actual=self._pose()
-            position=np.abs(actual[:3,3]-self.target[:3,3])*1000
-            angle=np.degrees(Rotation.from_matrix(self.target[:3,:3].T@actual[:3,:3]).magnitude())
-            arrived=np.all(position<=self.position_tolerance) and angle<=self.orientation_tolerance
-            if not arrived:return self._receipt('withdrawing')
+            if self.retreat is None:
+                actual=self._pose()
+                position=np.abs(actual[:3,3]-self.target[:3,3])*1000
+                angle=np.degrees(Rotation.from_matrix(self.target[:3,:3].T@actual[:3,:3]).magnitude())
+                arrived=np.all(position<=self.position_tolerance) and angle<=self.orientation_tolerance
+                if not arrived:return self._receipt('withdrawing')
+                self.retreat=ChassisRetreatStep(self.controller,self.token)
+                self.retreat.start()
+                return self._receipt('backing_chassis')
+            self._snapshot()
+            if self.retreat.poll()['status']!='chassis_stopped':return self._receipt('backing_chassis')
             self.return_monitor=ArrivalMonitor(np.radians(self.carry_joints_deg),
                 started_at=self.controller.clock(),**self.arm_policy)
             command=dict(type='arm.joints',arm='right',joints=self.carry_joints_deg[:])
@@ -71,6 +79,9 @@ class WristExtractionStep:
     def cancel(self,reason='cancelled'):
         if self.failure is None:
             self.failure=reason
+            if self.retreat is not None:
+                try:self.retreat.cancel()
+                except Exception:self.stop_request='failed'
             if self.started:
                 self.controller.interrupt_motion(self.token)
                 self.stop_request='failed'

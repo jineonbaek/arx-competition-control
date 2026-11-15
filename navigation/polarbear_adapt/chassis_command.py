@@ -10,10 +10,12 @@ class WebChassis:
     native_sdk = False
     origin = 'http://127.0.0.1:9983'
 
-    def __init__(self):
-        self.client = build_opener(ProxyHandler({}), HTTPCookieProcessor(CookieJar()))
-        with self.client.open(self.origin + '/', timeout=.2):
-            pass
+    def __init__(self, submit=None):
+        self.submit = submit
+        if submit is None:
+            self.client = build_opener(ProxyHandler({}), HTTPCookieProcessor(CookieJar()))
+            with self.client.open(self.origin + '/', timeout=.2):
+                pass
         self.sequence = 0
 
     def send(self, velocity):
@@ -25,11 +27,15 @@ class WebChassis:
         self.sequence += 1
         payload = dict(type='chassis.nav_sdk' if self.sdk_units and self.native_sdk else 'chassis', x=x, y=y, omega=yaw) if any(velocity) else dict(type='chassis.stop')
         payload['sequence'] = self.sequence
-        request = Request(self.origin + '/api/command', json.dumps(payload).encode(),
-                          {'Origin': self.origin, 'Content-Type': 'application/json'})
-        with self.client.open(request, timeout=.18) as reply:
-            if not json.load(reply).get('ok'):
-                raise RuntimeError('控制台拒绝了底盘指令')
+        if self.submit is not None:
+            result = self.submit(payload)
+        else:
+            request = Request(self.origin + '/api/command', json.dumps(payload).encode(),
+                              {'Origin': self.origin, 'Content-Type': 'application/json'})
+            with self.client.open(request, timeout=.18) as reply:
+                result = json.load(reply)
+        if not result.get('ok'):
+            raise RuntimeError('控制台拒绝了底盘指令')
 
 
 def follow_velocity(forward, left, yaw_error):
