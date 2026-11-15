@@ -1,8 +1,12 @@
 """Chassis-only extraction and transport return; all commands are inert."""
 import unittest
+import json
 import tempfile
 import time
 from types import SimpleNamespace
+from pathlib import Path
+from web.src.handeye_column import ColumnModel
+from agent.grasp_path import TimedJointPath
 from unittest.mock import Mock,patch
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -22,28 +26,33 @@ class ExtractionTests(unittest.TestCase):
         self.joints=np.radians([10.,20.,30.,5.,6.,-80.])
         self.arm_policy=dict(tolerance=[.035]*6,max_speed=[.05]*6,
             settle_s=.25,timeout_s=20.,stall_s=2.,max_age_s=.3)
+        self.timing=json.loads((Path(__file__).resolve().parents[2]/'config/battery-execution.json').read_text())['timing_limits']
+        self.tcp=np.eye(4);self.tcp[0,3]=.148
+        self.trajectory_status='reference_complete'
         self.controller=SimpleNamespace(
             clock=lambda:self.now,
             motion_valid=lambda token:self.owned,
-            models={'right':SimpleNamespace(wrist_transform=lambda q,h:self.pose.copy())},
+            models={'right':ColumnModel()},
             snapshot=lambda:dict(arms={'right':{'joints':self.joints.tolist(),'received':self.now,
                 'gripper':-1.,'fresh':True}},body={'height':5.1,'fresh':True}),
             interrupt_motion=lambda token:setattr(self,'owned',False),
-            submit=lambda command,token,**kwargs:self.commands.append(command) or {'ok':True})
+            submit=lambda command,token,**kwargs:self.commands.append(command) or {'ok':True},
+            start_trajectory=lambda side,plan,token,**kwargs:self.commands.append(dict(type='arm.trajectory',arm=side,**plan)),
+            poll_trajectory=lambda token,**kwargs:{'status':self.trajectory_status})
         self.step=WristExtractionStep(self.controller,'owned',
             refinement={'position_tolerance_mm':[18.,18.,18.],'orientation_tolerance_deg':5.},
-            arm_policy=self.arm_policy)
+            arm_policy=self.arm_policy,timing_limits=self.timing,wrist_from_tool=self.tcp)
 
     def finish_return(self):
         self.joints=np.radians([.5,-.5,.2,-.2,.1,-89.])
-        for _ in range(4):
+        for _ in range(5):
             self.now+=.1
             result=self.step.poll()
         return result
 
     def test_chassis_starts_without_wrist_motion_or_ik_and_stops_before_return(self):
         self.assertEqual(self.commands,[])
-        self.controller.models['right'].wrist_transform=Mock(side_effect=AssertionError('No wrist solve'))
+        self.controller.models['right'].inverse_wrist=Mock(side_effect=AssertionError('No wrist IK'))
         self.assertEqual(self.step.start()['status'],'backing_chassis')
         self.retreat.start.assert_called_once()
         self.assertEqual(self.commands,[])
@@ -52,11 +61,70 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(self.commands,[])
         self.retreat.poll.return_value={'status':'chassis_stopped'}
         self.assertEqual(self.step.poll()['status'],'returning')
-        self.assertEqual(self.commands[0],dict(type='arm.joints',arm='right',joints=[0.,0.,0.,0.,0.,-90.]))
+        self.assertEqual(self.commands[0]['type'],'arm.trajectory')
+        np.testing.assert_allclose(self.commands[0]['joint_waypoints_rad'][-1],np.radians([0.,0.,0.,0.,0.,-90.]))
         self.assertEqual(self.finish_return()['status'],'carry_ready')
         self.assertEqual(self.step.poll()['status'],'carry_ready')
-        self.assertEqual([c['type'] for c in self.commands],['arm.joints'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.trajectory'])
         with self.assertRaises(ValueError):self.step.start()
+
+    def test_return_uses_shared_speed_acceleration_and_calibrated_tcp_limits(self):
+        self.step.start();self.step.poll()
+        plan=self.commands[0]
+        model=self.controller.models['right']
+        path=TimedJointPath(plan['joint_waypoints_rad'],model.reach+np.linalg.norm(self.tcp[:3,3]),
+            tcp_position=lambda q:(model.wrist_transform(q,5.1)@self.tcp)[:3,3],**self.timing)
+        np.testing.assert_allclose(plan['time_from_start_s'],path.times)
+        self.assertEqual(self.timing['joint_speed_deg_s'],[15.]*3+[50.]*3)
+        self.assertEqual(self.timing['joint_acceleration_deg_s2'],[30.]*3+[100.]*3)
+        self.assertEqual((self.timing['tcp_speed_mm_s'],self.timing['tcp_acceleration_mm_s2']),(60.,120.))
+        times=np.linspace(0,path.times[-1],2001)
+        xyz=[]
+        for t in times:
+            q,v,a=path.sample(t)
+            self.assertTrue(np.all(np.abs(np.degrees(v))<=np.array(self.timing['joint_speed_deg_s'])+1e-8))
+            self.assertTrue(np.all(np.abs(np.degrees(a))<=np.array(self.timing['joint_acceleration_deg_s2'])+1e-8))
+            xyz.append((model.wrist_transform(q,5.1)@self.tcp)[:3,3]*1000)
+        dt=times[1]-times[0]
+        self.assertLessEqual(np.linalg.norm(np.diff(xyz,axis=0)/dt,axis=1).max(),60.+1e-3)
+        self.assertLessEqual(np.linalg.norm(np.diff(xyz,n=2,axis=0)/dt**2,axis=1).max(),120.+1e-3)
+
+    def test_return_plan_passes_existing_ros_transport_without_hardware(self):
+        from web.tests.test_trajectory_transport import TrajectoryTransportTests
+        transport=TrajectoryTransportTests();transport.setUp()
+        def start(side,plan,token,**kwargs):
+            handle,confirm=transport.adapter.trajectory_start(side,plan,transport.state)
+            confirm()
+            return handle
+        self.controller.start_trajectory=start
+        self.step.start()
+        self.assertEqual(self.step.poll()['status'],'returning')
+        self.assertEqual(len(transport.sent),1)
+        self.assertEqual(transport.sent[0]['kind'],'start')
+        self.assertEqual(transport.sent[0]['version'],1)
+        self.assertEqual(transport.adapter.pending_arm_commands,{})
+
+    def test_return_waits_for_reference_before_starting_existing_arrival_monitor(self):
+        self.trajectory_status='running';self.step.start();self.step.poll()
+        self.now+=self.arm_policy['timeout_s']+1
+        self.assertEqual(self.step.poll()['status'],'returning')
+        self.assertIsNone(self.step.return_monitor)
+        self.trajectory_status='reference_complete'
+        self.assertEqual(self.finish_return()['status'],'carry_ready')
+
+    def test_return_already_at_transport_pose_does_not_send_duplicate_trajectory(self):
+        self.joints=np.radians([0.,0.,0.,0.,0.,-90.])
+        self.step.start();self.step.poll()
+        self.assertEqual(self.commands,[])
+        for _ in range(5):
+            self.now+=.1;receipt=self.step.poll()
+        self.assertEqual(receipt['status'],'carry_ready')
+
+    def test_trajectory_failure_stops_without_releasing_gripper(self):
+        self.step.start();self.step.poll()
+        self.controller.poll_trajectory=Mock(side_effect=ValueError('Driver stopped'))
+        self.assertTrue(self.step.poll()['stop_required'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.trajectory','arm.stop'])
 
     def test_cancel_before_chassis_completion_never_opens_gripper(self):
         self.retreat.poll.return_value={'status':'backing_chassis'}
@@ -88,14 +156,11 @@ class ExtractionTests(unittest.TestCase):
         receipt=self.step.cancel()
         self.assertTrue(receipt['stop_required'])
         self.assertEqual(self.step.poll()['status'],'cancelled')
-        self.assertEqual([c['type'] for c in self.commands],['arm.joints','arm.stop'])
+        self.assertEqual([c['type'] for c in self.commands],['arm.trajectory','arm.stop'])
 
     def test_rejected_return_never_reports_carry_ready(self):
         self.step.start()
-        def submit(command,token,**kwargs):
-            self.commands.append(command)
-            return {'ok':command['type']!='arm.joints'}
-        self.controller.submit=submit
+        self.controller.start_trajectory=Mock(side_effect=ValueError('Driver rejected return'))
         receipt=self.step.poll()
         self.assertTrue(receipt['stop_required'])
         self.assertNotEqual(receipt['status'],'carry_ready')
@@ -138,7 +203,7 @@ class ExtractionTests(unittest.TestCase):
             backend=BatteryControllerBackend(self.controller,'owned',store,
                 policies={'refinement':{'position_tolerance_mm':[18.]*3,'orientation_tolerance_deg':5.},
                           'coarse':{'arm_policy':self.arm_policy}},
-                pick_setup={},preflight=lambda *a:True,cancelled=lambda:False,
+                pick_setup={'timing_limits':self.timing,'T_wrist_from_tool':self.tcp.tolist()},preflight=lambda *a:True,cancelled=lambda:False,
                 timeout_s={'execute_coarse_alignment':1.,'execute_battery_approach':1.,'execute_pick':1.})
             try:
                 store.state['mission'].update(stage='HOLD_CONFIRMED',plan={'plan_id':'held','arm':'right'})
@@ -166,7 +231,7 @@ class ExtractionTests(unittest.TestCase):
                 self.assertTrue(result['ok'],result)
                 self.assertEqual(store.state['mission']['stage'],'CARRY_READY')
                 tools.execute('stow_for_carry',{'plan_id':'held'},'extract')
-                self.assertEqual([c['type'] for c in self.commands],['arm.joints'])
+                self.assertEqual([c['type'] for c in self.commands],['arm.trajectory'])
                 self.assertEqual(backend.status('stow_for_carry',request)['data']['target_transport_joints_deg'],[0.,0.,0.,0.,0.,-90.])
                 self.assertEqual(backend.status('stow_for_carry',request)['data']['extraction_dx_mm'],0.)
                 self.assertEqual(backend.status('stow_for_carry',request)['data']['chassis_retreat_mm'],200.)
