@@ -1,5 +1,6 @@
 """Self-return masks in base_link coordinates (metres)."""
 import numpy as np
+import os
 from base_envelope import BaseEnvelope,BASE_ENVELOPE_CONFIG
 
 
@@ -17,6 +18,17 @@ def gripper_columns(body_points):
         inside |= ((x >= cx - GRIPPER_HALF_X) & (x <= cx + GRIPPER_HALF_X)
                    & (y >= cy - GRIPPER_HALF_Y) & (y <= cy + GRIPPER_HALF_Y))
     return inside & np.isfinite(body_points).all(axis=1)
+
+
+def confirmed_right_tool_returns(body_points):
+    """Measured open-claw/wiring band, confirmed on site on 2026-11-14.
+
+    This supplements the nominal CAD columns only in the observed height
+    band. Other arm configurations still need their own geometric model.
+    """
+    p = np.asarray(body_points)
+    return (np.isfinite(p).all(axis=1)
+            & ((p >= (.310, -.465, .350)) & (p <= (.410, -.330, .710))).all(axis=1))
 
 
 def bottom_right_weak_returns(body_points, reflectivity):
@@ -40,6 +52,9 @@ def bottom_left_self_returns(body_points):
 
 class ChassisFilter:
     def __init__(self, mesh_file):
+        # Opt-in only for the site-confirmed commissioning pose. Do not carry
+        # an unmodeled tool signature into an unrelated future arm pose.
+        self.confirmed_right_tool = os.getenv('ARX_CONFIRMED_RIGHT_TOOL_RETURNS') == '1'
         self.envelope=BaseEnvelope.load(BASE_ENVELOPE_CONFIG)
         with np.load(mesh_file) as mesh:
             rigid = mesh["rigid"]
@@ -54,6 +69,8 @@ class ChassisFilter:
 
     def contains(self, body_points):
         result = gripper_columns(body_points)
+        if self.confirmed_right_tool:
+            result |= confirmed_right_tool_returns(body_points)
         if self.envelope is not None:
             result |= self.envelope.mask(body_points)
         # Enclose the two observed cable-height returns (0.419 and 0.463 m).

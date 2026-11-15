@@ -1,5 +1,9 @@
-"""Convert guarded MPPI SI velocity to a conservative, preview-only SDK estimate."""
+"""Provisional MPPI velocity-to-effort estimate; not a steady SI calibration."""
 import math
+if __package__:
+    from .effort_budget import bound
+else:
+    from effort_budget import bound
 
 # Low/high pulse inputs and transient peak response in m/s or rad/s.
 CURVES = {
@@ -24,8 +28,8 @@ def convert(vx, vy, wz):
         return 0., 0., 0.
     x = estimate(vx, 'forward', 'backward')
     y = estimate(vy, 'left', 'right')
-    yaw = estimate(wz, 'ccw', 'cw')
-    # Budget the combined effort across axes since pulses were measured one axis at a time.
-    load = math.hypot(x, y)/.22 + abs(yaw)/.055
-    scale = 1./max(1., load)
-    return x*scale, y*scale, yaw*scale
+    # Current attended tests: .055 cannot reliably start yaw; .10 can.
+    # Retain the reference curve shape, increase yaw effort gain only.
+    # This is a commissioning candidate, not a new measured velocity curve.
+    yaw = estimate(wz, 'ccw', 'cw') * (.10/.055)
+    return bound((x,y,yaw))
