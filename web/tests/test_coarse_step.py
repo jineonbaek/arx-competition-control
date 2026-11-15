@@ -8,9 +8,11 @@ from agent.coarse_execution import CoarseAlignmentStep
 
 class CoarseStepTests(unittest.TestCase):
     def setUp(self):
-        self.now=10.;self.adapter=FakeAdapter()
+        self.now=10.;self.adapter=FakeAdapter();self.adapter.chassis_ready=lambda:True
         self.c=Controller(configured(),self.adapter,lambda:self.now)
         self.c.wrist_reason=lambda side:''
+        self.c.config['arms']['right']['gripper_limits_raw']=[-3.14,0.]
+        self.grip=-3.14
         self.q=[0.]*6;self.left=[0.]*6;self.height=5.
         self.feedback(10.)
         self.token=self.c.reserve_motion(self.c.command_epoch)
@@ -25,16 +27,18 @@ class CoarseStepTests(unittest.TestCase):
             joint_waypoints_rad=[[0.]*6,[.01]*6])
         self.lift_policy=dict(tolerance=[.02],max_speed=[.1],settle_s=.2,timeout_s=5.,stall_s=1.,max_age_s=.2)
         self.arm_policy=dict(tolerance=[.002]*6,max_speed=[.01]*6,settle_s=.2,timeout_s=2.,stall_s=.6,max_age_s=.2)
+        self.gripper_policy=dict(tolerance=[.05],max_speed=[.2],settle_s=.01,timeout_s=10.,stall_s=2.,max_age_s=.3)
         self.step=self.make()
     def make(self,target=6.,acceptance=None):
         return CoarseAlignmentStep(self.c,self.token,lift_target_rad=target,lift_acceptance_rad=acceptance,observer_plan=self.plan,
             initial_joints={'left':[0.]*6,'right':[0.]*6},initial_lift_rad=5.,
             fixed_joint_tolerance_rad=.002,lift_policy=self.lift_policy,arm_policy=self.arm_policy,
+            gripper_policy=self.gripper_policy,
             max_pair_skew_s=.05,lift_preflight=lambda *_:True,arm_preflight=lambda *_:True)
     def feedback(self,t):
         self.now=t
         self.c.update_arm('left',self.left,-1.5,[0.]*6)
-        self.c.update_arm('right',self.q,-1.5,[0.]*6)
+        self.c.update_arm('right',self.q,self.grip,[0.]*6)
         self.c.update_body(self.height,[0.]*4,0.,0.,0.)
     def settle_lift(self):
         self.step.start();self.height=6.
@@ -42,10 +46,33 @@ class CoarseStepTests(unittest.TestCase):
             self.feedback(t);r=self.step.poll()
         if r['status']=='stopping_lift':
             self.feedback(self.now+.01);r=self.step.poll()
+        return self.settle_open() if r['status']=='opening_gripper' else r
+    def settle_open(self):
+        start=self.now
+        for offset in (.001,.012,.025):
+            self.feedback(start+offset);r=self.step.poll()
         return r
+    def test_open_after_lift_before_observer_and_reuse_open_acceptance(self):
+        self.grip=-1.5;self.feedback(10.);self.step.start()
+        self.assertFalse(any(c[0]=='arm' for c in self.adapter.calls))
+        self.height=6.
+        for t in (10.1,10.2,10.31,10.32):self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'opening_gripper')
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+        opens=[c for c in self.adapter.calls if c[0]=='arm']
+        self.assertEqual(len(opens),1);self.assertEqual(opens[0][1][2],-3.14)
+        self.grip=-2.8;self.feedback(10.4)
+        self.assertEqual(self.step.poll()['status'],'opening_gripper')
+        self.grip=-2.95
+        for t in (10.5,10.6,10.7):self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'observing_motion')
+        self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
+        self.assertEqual(sum(c[0]=='arm' for c in self.adapter.calls),1)
+        self.assertEqual(self.grip,-2.95)
+
     def test_lift_then_observer_then_measured_rest(self):
         self.assertEqual(self.settle_lift()['status'],'observing_motion')
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm','trajectory'])
         self.state.update(command_epoch=4,request_id='observe',status='running')
         self.feedback(10.4);self.assertEqual(self.step.poll()['status'],'observing_motion')
         self.state['status']='reference_complete';self.q=[.01]*6
@@ -55,7 +82,7 @@ class CoarseStepTests(unittest.TestCase):
         self.assertEqual(r['status'],'ready_to_observe')
         self.assertTrue(r['new_observation_required']);self.assertFalse(r['grasp_confirmed'])
         self.assertTrue(self.c.motion_valid(self.token))
-        self.assertFalse(any(c[0]=='arm' for c in self.adapter.calls))
+        self.assertEqual(sum(c[0]=='arm' for c in self.adapter.calls),1)
         with self.assertRaises(ValueError):self.step.start()
 
     def test_lift_accepts_five_radians_then_stops_before_arm(self):
@@ -64,15 +91,16 @@ class CoarseStepTests(unittest.TestCase):
         for t in (10.1,10.2,10.31):
             self.feedback(t);result=self.step.poll()
         self.feedback(self.now+.01);result=self.step.poll()
+        if result['status']=='opening_gripper':result=self.settle_open()
         self.assertEqual(result['status'],'observing_motion')
         self.assertTrue(self.step.lift_stop_sent)
         np.testing.assert_allclose(self.step.lift.target,[5.0])
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','trajectory'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm','trajectory'])
 
     def test_observer_preflight_failure_sends_no_trajectory(self):
         self.step.arm_preflight=lambda *_:False
         self.step.start();self.height=6.
-        for t in (10.1,10.2,10.31,10.32):
+        for t in (10.1,10.2,10.31,10.32,10.33):
             self.feedback(t);result=self.step.poll()
         self.assertTrue(result['stop_required'])
         self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
@@ -187,6 +215,7 @@ class CoarseStepTests(unittest.TestCase):
         self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
         for t in (10.41,10.51):
             self.feedback(t);r=self.step.poll()
+        if r['status']=='opening_gripper':r=self.settle_open()
         self.assertEqual(r['status'],'observing_motion')
         self.assertEqual(sum(c[0]=='trajectory' for c in self.adapter.calls),1)
 
@@ -211,15 +240,15 @@ class CoarseStepTests(unittest.TestCase):
     def test_stationary_observer_waits_for_new_settled_feedback_without_arm_command(self):
         self.stationary()
         self.assertEqual(self.settle_lift()['status'],'settling_observer')
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift'])
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm'])
         # Lift completion's last sample must not also establish arm settling.
         self.assertEqual(self.step.poll()['status'],'settling_observer')
-        for t in (10.32,10.42,10.53,10.63):
+        for t in (10.36,10.46,10.57,10.67):
             self.feedback(t);r=self.step.poll()
         self.assertEqual(r['status'],'ready_to_observe')
         self.assertTrue(r['new_observation_required'])
-        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift'])
-        self.q[0]=.02;self.feedback(10.6)
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm'])
+        self.q[0]=.02;self.feedback(10.7)
         self.assertTrue(self.step.poll()['stop_required'])
 
     def test_stationary_observer_cannot_hide_a_target_or_bypass_arm_preflight(self):

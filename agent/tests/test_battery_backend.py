@@ -131,7 +131,7 @@ class BackendTests(unittest.TestCase):
             def cancel(self):self.calls.append('cancel');return {'status':'cancelled'}
         settings=policy();coarse=dict(settings['coarse'],timing_limits=settings['timing_limits'])
         backend=BatteryControllerBackend(SearchController(),'owned',self.store,
-            policies={'coarse':coarse},pick_setup=None,preflight=lambda *a:True,
+            policies={'coarse':coarse,'pick':settings['pick']},pick_setup=None,preflight=lambda *a:True,
             cancelled=lambda:False,timeout_s={'execute_coarse_alignment':1.,'execute_battery_approach':1.,'execute_pick':1.})
         with patch('agent.battery_backend.CoarseAlignmentStep',SearchStep):
             first=backend.adjust_observer_search('search',0,10.)
@@ -166,7 +166,7 @@ class BackendTests(unittest.TestCase):
         settings=policy();coarse=dict(settings['coarse'],timing_limits=settings['timing_limits'])
         def backend(store):
             return BatteryControllerBackend(controller,'owned',store,
-                policies={'coarse':coarse},pick_setup=None,preflight=lambda *a:True,
+                policies={'coarse':coarse,'pick':settings['pick']},pick_setup=None,preflight=lambda *a:True,
                 cancelled=lambda:False,timeout_s={'execute_coarse_alignment':1.,'execute_battery_approach':1.,'execute_pick':1.})
         with patch('agent.battery_backend.CoarseAlignmentStep',SearchStep):
             first=backend(self.store).adjust_observer_search('search',0,10.)

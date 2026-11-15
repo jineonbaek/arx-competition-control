@@ -103,6 +103,7 @@ class BatteryControllerBackend:
                 observer_plan=timed,initial_joints=initial,initial_lift_rad=lift,
                 fixed_joint_tolerance_rad=p['fixed_joint_tolerance_rad'],
                 lift_policy=p['lift_policy'],arm_policy=p['arm_policy'],
+                gripper_policy=self.policies['pick']['gripper_policy'],
                 max_pair_skew_s=p['max_pair_skew_s'],lift_preflight=guard,arm_preflight=guard)
             receipt=step.start();deadline=time.monotonic()+self.timeout_s['execute_coarse_alignment']
             while receipt.get('status')!='ready_to_observe' and not receipt.get('stop_required'):

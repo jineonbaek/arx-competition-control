@@ -64,6 +64,7 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
             lift_acceptance_rad=plan['lift'].get('acceptance_rad'),
             observer_plan=trajectory,initial_joints=initial,initial_lift_rad=plan['lift']['current_rad'],
             **{k:p[k] for k in ('fixed_joint_tolerance_rad','lift_policy','arm_policy','max_pair_skew_s')},
+            gripper_policy=policies['pick']['gripper_policy'],
             lift_preflight=guard,arm_preflight=arm_guard)
     if setup is None:raise ValueError('TCP pending')
     digest=hashlib.sha256(json.dumps(setup,sort_keys=True,allow_nan=False).encode()).hexdigest()

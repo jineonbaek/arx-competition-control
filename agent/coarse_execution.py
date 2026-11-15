@@ -1,4 +1,4 @@
-"""Checked lift -> measured rest -> checked observer path -> measured rest.
+"""Checked lift -> open gripper -> checked observer path -> measured rest.
 
 No hardware setup or live registration. Caller supplies deterministic scene/path
 preflights and owns polling, timeout supervision and verified stop cleanup.
@@ -12,7 +12,7 @@ from .motion_feedback import ArrivalMonitor
 class CoarseAlignmentStep:
     def __init__(self, controller, token, *, lift_target_rad, lift_acceptance_rad=None, observer_plan,
                  initial_joints, initial_lift_rad, fixed_joint_tolerance_rad,
-                 lift_policy, arm_policy, max_pair_skew_s, lift_preflight, arm_preflight):
+                 lift_policy, arm_policy, gripper_policy, max_pair_skew_s, lift_preflight, arm_preflight):
         if not controller.motion_valid(token) or not all(map(callable, (lift_preflight, arm_preflight))):
             raise ValueError('Reserved controller and deterministic preflights required')
         self.controller=controller;self.token=token;self.lock=Lock()
@@ -47,6 +47,8 @@ class CoarseAlignmentStep:
                 raise ValueError('Observer plan must start at the fixed right-arm pose')
             self.endpoint=points[-1].copy()
         self.lift_policy=copy.deepcopy(lift_policy);self.arm_policy=copy.deepcopy(arm_policy)
+        self.gripper_policy=copy.deepcopy(gripper_policy)
+        self.open_target=float(controller.config["arms"]["right"]["gripper_open_raw"])
         if self.has_acceptance:self.lift_policy['settle_s']=min(self.lift_policy['settle_s'],.05)
         now=controller.clock()
         self.lift=(ArrivalMonitor([self.acceptance],started_at=now,minimum=[self.acceptance],**self.lift_policy)
@@ -170,6 +172,16 @@ class CoarseAlignmentStep:
                 elif self.stage=='stopping_lift':
                     if now-self.lift.start>=self.lift.timeout:return self._abort('timeout')
                     if stamp<=self.stop_stamp:return self._receipt()
+                    self.opening=ArrivalMonitor([2.9],minimum=[2.9],started_at=now,**self.gripper_policy)
+                    opened=self.controller.submit({'type':'gripper','arm':'right','position':self.open_target},
+                                                  self.token,preflight=self._guard)
+                    if opened.get('ok') is not True:return self._abort('opening_not_confirmed')
+                    self.stage='opening_gripper'
+                elif self.stage=='opening_gripper':
+                    arm=snapshot['arms']['right']
+                    opened=self.opening.update([-arm['gripper']],arm['received'],now)
+                    if opened['stop_required']:return self._abort(opened['status'])
+                    if not opened['arrived']:return self._receipt()
                     self.stage='observing_motion'
                     def observer_start(snapshot, time):
                         self._check(snapshot,time,lifting=False,commands=False)
