@@ -37,6 +37,7 @@ class ExtractionTests(unittest.TestCase):
                 'gripper':-1.,'fresh':True}},body={'height':5.1,'fresh':True}),
             interrupt_motion=lambda token:setattr(self,'owned',False),
             submit=lambda command,token,**kwargs:self.commands.append(command) or {'ok':True},
+            log=Mock(),
             start_trajectory=lambda side,plan,token,**kwargs:self.commands.append(dict(type='arm.trajectory',arm=side,**plan)),
             poll_trajectory=lambda token,**kwargs:{'status':self.trajectory_status})
         self.step=WristExtractionStep(self.controller,'owned',
@@ -175,8 +176,12 @@ class ExtractionTests(unittest.TestCase):
     def test_chassis_failure_stops_without_returning_arm(self):
         self.step.start()
         self.retreat.poll.side_effect=ValueError('motion_pose_stale_or_invalid')
-        self.assertTrue(self.step.poll()['stop_required'])
+        receipt=self.step.poll()
+        self.assertTrue(receipt['stop_required'])
+        self.assertEqual(receipt['failure_detail'],'ValueError: motion_pose_stale_or_invalid')
         self.retreat.cancel.assert_called_once()
+        self.controller.log.assert_called_once_with(
+            'stow_for_carry failed: ValueError: motion_pose_stale_or_invalid')
         self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_real_controller_joint_command_keeps_measured_gripper_and_lift(self):

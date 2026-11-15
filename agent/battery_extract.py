@@ -14,11 +14,11 @@ class WristExtractionStep:
         self.carry_joints_deg=[0.,0.,0.,0.,0.,-90.]
         self.return_monitor=None
         self.retreat=None
-        self.started=False;self.failure=None;self.stop_request=None
+        self.started=False;self.failure=None;self.failure_detail=None;self.stop_request=None
 
     def _receipt(self,status):
         return dict(status=self.failure or status,stop_required=self.failure is not None,
-            stop_request=self.stop_request,grasp_confirmed=False,
+            stop_request=self.stop_request,failure_detail=self.failure_detail,grasp_confirmed=False,
             target_transport_joints_deg=self.carry_joints_deg[:],
             target_wrist_base_mm=None)
 
@@ -78,11 +78,16 @@ class WristExtractionStep:
                 self.controller.start_trajectory('right',plan,self.token,
                     preflight=self._return_preflight,require_lift_settle=False)
             return self._receipt('returning')
-        except Exception:return self.cancel('extraction_feedback_failed')
+        except Exception as error:return self.cancel('extraction_feedback_failed',error)
 
-    def cancel(self,reason='cancelled'):
+    def cancel(self,reason='cancelled',error=None):
         if self.failure is None:
             self.failure=reason
+            if error is not None:
+                self.failure_detail=f'{type(error).__name__}: {error}'[:240]
+                try:self.controller.log('stow_for_carry failed: '+self.failure_detail)
+                except Exception:pass
+
             if self.retreat is not None:
                 try:self.retreat.cancel()
                 except Exception:self.stop_request='failed'
