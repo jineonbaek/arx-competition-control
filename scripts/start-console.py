@@ -312,7 +312,7 @@ def motor_feedback(seconds=0.35):
         if missing:
             errors.setdefault(channel, f"{channel}：未收到电机 {sorted(missing)} 的真实反馈；检查供电、急停、接线或驱动")
     if not chassis_seen:
-        errors["chassis"] = "未收到底盘控制器反馈（0x702/706/707/708）；检查机体急停、底盘供电或 CAN 支路"
+        errors["chassis"] = "未收到底盘控制器反馈（0x702/706/707/708）；检查机体急停、底盘供电或 CAN 支路；去看看是不是急停没关"
     sample = None
     if lift:
         positions = [item[0] for item in lift]
