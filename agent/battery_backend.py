@@ -184,7 +184,8 @@ class BatteryControllerBackend:
                         raise ValueError('Earlier execution requires recovery')
                 if operation=='stow_for_carry':
                     step=WristExtractionStep(self.controller,self.token,refinement=self.policies['refinement'],
-                        arm_policy=self.policies['coarse']['arm_policy'])
+                        arm_policy=self.policies['coarse']['arm_policy'],
+                        timing_limits=self.pick_setup['timing_limits'],wrist_from_tool=self.pick_setup['T_wrist_from_tool'])
                 else:
                     step=prepare_step(operation,arguments['plan'],self.controller,self.token,
                         policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
