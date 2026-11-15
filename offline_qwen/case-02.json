@@ -1,0 +1,46 @@
+{
+  "index": 2,
+  "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2",
+  "old": [
+    {
+      "seconds": 7.977,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "The dark rectangular housing on the left side of the drone frame matches the reference battery's overall shape (rounded-rectangular case with stacked top and handle sections). Candidate 2 bounds this whole visible battery outline tightly, while other candidates either cover only fragments (3, 6), include background (9), or point to thin background strips on the right (4, 5, 8) or a small unrelated region (7).",
+        "candidate_id": 2
+      }
+    },
+    {
+      "seconds": 8.318,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "The green mask accurately covers the black rectangular object mounted on the drone, which matches the reference object and task description of a detachable battery. There are no leaks into the background, table, or other drone structures."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 2.59,
+      "model_requests": 1,
+      "result": {
+        "status": "ambiguous",
+        "reason": "候选2、3、6重叠，电池外形相似无法唯一确认。",
+        "candidate_id": 2,
+        "confidence": 0.42
+      },
+      "wall_seconds": 2.594
+    },
+    "review": {
+      "seconds": 3.392,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "绿色掩膜准确覆盖电池外形，无背景泄漏",
+        "confidence": 0.95
+      },
+      "wall_seconds": 3.395
+    }
+  }
+}

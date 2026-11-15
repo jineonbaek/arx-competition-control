@@ -1,0 +1,9 @@
+{
+  "model": "qwen3.8-flash",
+  "enable_thinking": false,
+  "max_output_tokens": 512,
+  "confidence_gate": false,
+  "baseline": "saved historical requests; not simultaneous A/B",
+  "inputs": "original candidates, original mask, original grayscale preprocessing",
+  "execution": "sequential cloud requests only"
+}

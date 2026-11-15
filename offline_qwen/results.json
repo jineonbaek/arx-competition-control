@@ -1,0 +1,370 @@
+[
+  {
+    "index": 1,
+    "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 21.868,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The object on the lower shelf at mid-right (yellow box ~[481,236,544,296]) shows the whole removable battery outline: rounded-rectangular housing with a front handle opening and a flat labeled top, matching the reference battery's overall shape. The large dark box at the top-right edge is a container/case background, and the corner grippers are the robot itself, so they are excluded. Candidate 5 best covers the entire visible battery body.",
+          "candidate_id": 5
+        }
+      },
+      {
+        "seconds": 6.242,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green segmented region is a small, thin, irregular diagonal blob located at the table's lower shelf/leg junction, not on any battery-like object. It does not match the reference battery's rectangular/rounded-rectangular shell with side clips and handle; instead it leaks into background table structure. No battery candidate is captured by the mask."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 1.805,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "桌面小盒呈圆角矩形带端部手柄，最接近电池外形",
+          "candidate_id": 5,
+          "confidence": 0.63
+        },
+        "wall_seconds": 1.808
+      },
+      "review": {
+        "seconds": 1.706,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "绿区为桌下金属件，非电池外形",
+          "confidence": 0.93
+        },
+        "wall_seconds": 1.708
+      }
+    }
+  },
+  {
+    "index": 2,
+    "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2",
+    "old": [
+      {
+        "seconds": 7.977,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The dark rectangular housing on the left side of the drone frame matches the reference battery's overall shape (rounded-rectangular case with stacked top and handle sections). Candidate 2 bounds this whole visible battery outline tightly, while other candidates either cover only fragments (3, 6), include background (9), or point to thin background strips on the right (4, 5, 8) or a small unrelated region (7).",
+          "candidate_id": 2
+        }
+      },
+      {
+        "seconds": 8.318,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green mask accurately covers the black rectangular object mounted on the drone, which matches the reference object and task description of a detachable battery. There are no leaks into the background, table, or other drone structures."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 2.59,
+        "model_requests": 1,
+        "result": {
+          "status": "ambiguous",
+          "reason": "候选2、3、6重叠，电池外形相似无法唯一确认。",
+          "candidate_id": 2,
+          "confidence": 0.42
+        },
+        "wall_seconds": 2.594
+      },
+      "review": {
+        "seconds": 3.392,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "绿色掩膜准确覆盖电池外形，无背景泄漏",
+          "confidence": 0.95
+        },
+        "wall_seconds": 3.395
+      }
+    }
+  },
+  {
+    "index": 3,
+    "case_id": "run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 37.791,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "当前画面中，candidate 1 是一个棱角分明的普通白色方盒，没有参考电池那种圆角外壳与台阶式分层轮廓；candidate 5 的大框覆盖整张桌面，属于背景/整体误检，且需排除机器人夹爪。右上角 candidate 2 的物体呈现圆角矩形主体加上顶部台阶状结构的整体外形，与参考电池“上块+带手柄凹槽的圆角外壳”的剪影最接近（孔位/标签被遮挡或朝向另一侧，按任务说明仍应依整体外形判断）。因此选择 candidate 2 作为最接近的可拆卸比赛电池。",
+          "candidate_id": 2
+        }
+      },
+      {
+        "seconds": 11.764,
+        "model_requests": 1,
+        "result": {
+          "status": "ambiguous",
+          "reason": "The green mask covers the dark blocky object at the far right edge of the frame, which is partially cut off by the image border. No battery-defining features (side latch, end handle with opening, power connector face) are verifiable, and the object could equally be part of the drone body/structure sitting on the table rather than the removable battery shown in the reference. Because the segmented region's identity as a battery cannot be confirmed from visible evidence, the match is ambiguous."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 1.943,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "右侧深色块状物外形最接近比赛电池",
+          "candidate_id": 2,
+          "confidence": 0.45
+        },
+        "wall_seconds": 1.946
+      },
+      "review": {
+        "seconds": 1.755,
+        "model_requests": 1,
+        "result": {
+          "status": "ambiguous",
+          "reason": "绿色区域含白色部件，疑似漏到无人机机身",
+          "confidence": 0.55
+        },
+        "wall_seconds": 1.758
+      }
+    }
+  },
+  {
+    "index": 4,
+    "case_id": "run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7",
+    "old": [
+      {
+        "seconds": 11.279,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The large black rectangular object in the center of the image matches the description of a detachable race battery pack. It has a blocky shape and visible strap/handle features. Candidate 1 provides the most complete bounding box for this object.",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 47.791,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green mask covers the single dark rectangular block sitting on the white rack, including its front-center handle/strap tab — consistent with the reference battery's overall form (rectangular/rounded housing with an end handle). The mask stays on the object's visible faces (top ridged surface, front face, and the dark protruding handle), with only a few pixels of boundary overshoot onto the adjacent white tray edge, which is negligible. It correctly excludes the robot's own fixed gripper pads (left-arm dark rectangles and right-side dark panel), the white rack/stand, and the background. Per the task, the absence of visible mounting holes does not disqualify the candidate since the whole-housing shape is the criterion."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 1.382,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "candidate_id": 1,
+          "reason": "中央长方体电池外形匹配参考",
+          "confidence": 0.82
+        },
+        "wall_seconds": 1.385
+      },
+      "review": {
+        "seconds": 2.126,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "绿色区域贴合电池外形与手柄，未泄漏背景",
+          "confidence": 0.85
+        },
+        "wall_seconds": 2.13
+      }
+    }
+  },
+  {
+    "index": 5,
+    "case_id": "run-20261115T132439Z-43ed2f29/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 8.466,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "在右上角的无人机机身上，可见一个黑色长方形块状物体，其整体外形（圆角矩形外壳、安装在无人机上的位置）与参考图中的比赛电池相符。候选4的边界框正好覆盖该黑色电池块，而其他候选框涵盖了桌面、整架无人机或螺旋桨/夹爪等背景或无关结构。因此选择候选4。",
+          "candidate_id": 4
+        }
+      },
+      {
+        "seconds": 4.209,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green mask in the current view covers the upper-right region, which corresponds to the robot's own fixed gripper/arm structure (the dark block at the top-right edge of the table and the white arm segment), not a detachable battery. The reference battery has a characteristic rectangular housing with a side latch/handle and a long slot opening; no such object is visible in the scene. The mask also leaks into the white table surface and the rack/shelf structure beneath the arm. There is no battery candidate matching the reference, so the segmentation does not match the task target."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 1.735,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "右上深色块外形符合电池整体轮廓",
+          "candidate_id": 4,
+          "confidence": 0.55
+        },
+        "wall_seconds": 1.738
+      },
+      "review": {
+        "seconds": 2.178,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "绿色区域覆盖机架结构，非电池外形",
+          "confidence": 0.85
+        },
+        "wall_seconds": 2.181
+      }
+    }
+  },
+  {
+    "index": 6,
+    "case_id": "run-20261115T133503Z-3b93074d/battery-observations/fixed_3",
+    "old": [
+      {
+        "seconds": 54.527,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The dark rounded-rectangular housing in the center of the scene shows the end handle opening and overall block shape matching the reference race battery. Candidate 7 bounds this dark battery body (including the visible handle recess) without including the white foam/drone structure above it, which candidate 6 would wrongly absorb as background. The robot's own gripper arms and other drone parts are excluded.",
+          "candidate_id": 7
+        }
+      },
+      {
+        "seconds": 61.611,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green region covers the lower rounded-rectangular black case, which corresponds to the battery's two-tier shell shape seen in the reference (wider handle/base block under a narrower top block). The mask boundaries follow the object's silhouette: top edge along the tier junction, right/bottom edges along the case walls, and it does not include the robot's gripper fingers (they remain unmasked gray in front), the white drone/stand structure, the table surface, the caster wheel, or other background. Color/material differences are ignored per task instructions, and no孔位 details are required. The only deviation is minor under-segmentation of the upper tier, but there is no leakage into background objects, so the mask matches the battery candidate."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 2.116,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "中部黑色长方体外形与参考电池一致",
+          "candidate_id": 6,
+          "confidence": 0.62
+        },
+        "wall_seconds": 2.118
+      },
+      "review": {
+        "seconds": 2.003,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "绿区贴合电池外形，未泄漏背景夹爪",
+          "confidence": 0.82
+        },
+        "wall_seconds": 2.006
+      }
+    }
+  },
+  {
+    "index": 7,
+    "case_id": "run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2",
+    "old": [
+      {
+        "seconds": 10.397,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The central dark object on the drone shows the whole battery silhouette matching the reference: a rectangular/rounded-rectangular upper housing joined to a lower rounded end with the handle opening. Candidate 1 (269,66,458,250) covers this entire visible battery body, whereas candidate 6 only covers the lower handle portion. The small left strip (3,5), the flat right panel (7), and the full-drone boxes (2,4) are not the battery, and the corner grippers are excluded as the robot itself.",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 114.55,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green region does cover the dark battery-like object in the center (rounded-rectangular housing with the visible oval handle slot, matching the reference battery's two-tier silhouette). However, the mask is not confined to the battery shell: its upper band (roughly x=345-450, y=110-140) sits on the bright white structural slab/tray above the battery, well above the dark battery top edge (~y=140), and is narrower/offset relative to the battery's own dark block, so it cannot be the battery's top face. The step/notch on the right side of the mask also traces that background white structure's contour rather than the battery boundary. This is leakage into the drone's other structure/background, which the task explicitly requires rejecting."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 2.404,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "candidate_id": 6,
+          "reason": "候选6外形与参考电池最匹配。",
+          "confidence": 0.95
+        },
+        "wall_seconds": 2.406
+      },
+      "review": {
+        "seconds": 1.997,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "绿色区域贴合电池外形，未泄漏至桌面或夹爪",
+          "confidence": 0.82
+        },
+        "wall_seconds": 2.0
+      }
+    }
+  },
+  {
+    "index": 8,
+    "case_id": "run-20261115T142052Z-09a1db71/battery-observations/fixed_3",
+    "old": [
+      {
+        "seconds": 11.547,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "参考对象是一块可拆卸比赛电池：圆角矩形主体外壳，端部带有连接/手柄结构（带凹槽面）。在当前场景中，候选1 [281,65,423,197] 框内的黑色块状物体最符合整块电池的外形——可见矩形主体加上端部带圆角凹槽的连接面，与参考电池的整体轮廓一致。候选2 仅为一块垂直深色平板，缺乏电池端部手柄/连接特征；候选3/6/8 为无人机整体背景；候选4/5/7/9/10/11 仅为手柄或端部局部，并非整块电池。固定夹爪已排除。因此选择候选1。",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 7.411,
+        "model_requests": 2,
+        "result": {
+          "status": "accepted",
+          "reason": "The green segmented region accurately covers the rectangular battery object visible in the current image. The shape matches the reference object (a block battery with a handle-like structure). There is no mask leakage into the table, white structure, or background."
+        }
+      }
+    ],
+    "new": {
+      "selection": {
+        "seconds": 2.337,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "候选1为长方形电池外壳，端部手柄清晰",
+          "candidate_id": 1,
+          "confidence": 0.72
+        },
+        "wall_seconds": 2.339
+      },
+      "review": {
+        "seconds": 2.431,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "绿色区域贴合电池外形，未泄漏桌面背景",
+          "confidence": 0.82
+        },
+        "wall_seconds": 2.435
+      }
+    }
+  }
+]

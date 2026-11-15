@@ -1,0 +1,46 @@
+{
+  "index": 8,
+  "case_id": "run-20261115T142052Z-09a1db71/battery-observations/fixed_3",
+  "old": [
+    {
+      "seconds": 11.547,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "参考对象是一块可拆卸比赛电池：圆角矩形主体外壳，端部带有连接/手柄结构（带凹槽面）。在当前场景中，候选1 [281,65,423,197] 框内的黑色块状物体最符合整块电池的外形——可见矩形主体加上端部带圆角凹槽的连接面，与参考电池的整体轮廓一致。候选2 仅为一块垂直深色平板，缺乏电池端部手柄/连接特征；候选3/6/8 为无人机整体背景；候选4/5/7/9/10/11 仅为手柄或端部局部，并非整块电池。固定夹爪已排除。因此选择候选1。",
+        "candidate_id": 1
+      }
+    },
+    {
+      "seconds": 7.411,
+      "model_requests": 2,
+      "result": {
+        "status": "accepted",
+        "reason": "The green segmented region accurately covers the rectangular battery object visible in the current image. The shape matches the reference object (a block battery with a handle-like structure). There is no mask leakage into the table, white structure, or background."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 2.337,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "候选1为长方形电池外壳，端部手柄清晰",
+        "candidate_id": 1,
+        "confidence": 0.72
+      },
+      "wall_seconds": 2.339
+    },
+    "review": {
+      "seconds": 2.431,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "绿色区域贴合电池外形，未泄漏桌面背景",
+        "confidence": 0.82
+      },
+      "wall_seconds": 2.435
+    }
+  }
+}

@@ -1,0 +1,901 @@
+[
+  {
+    "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_0",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261113T152615Z-1201165b/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 21.868,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The object on the lower shelf at mid-right (yellow box ~[481,236,544,296]) shows the whole removable battery outline: rounded-rectangular housing with a front handle opening and a flat labeled top, matching the reference battery's overall shape. The large dark box at the top-right edge is a container/case background, and the corner grippers are the robot itself, so they are excluded. Candidate 5 best covers the entire visible battery body.",
+          "candidate_id": 5
+        }
+      },
+      {
+        "seconds": 6.242,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green segmented region is a small, thin, irregular diagonal blob located at the table's lower shelf/leg junction, not on any battery-like object. It does not match the reference battery's rectangular/rounded-rectangular shell with side clips and handle; instead it leaks into background table structure. No battery candidate is captured by the mask."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          541,
+          0,
+          638,
+          109
+        ],
+        "score": 0.37028276920318604,
+        "label": "a rectangular battery case",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          522,
+          3,
+          638,
+          159
+        ],
+        "score": 0.3457491099834442,
+        "label": "a rectangular battery case",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          481,
+          236,
+          544,
+          296
+        ],
+        "score": 0.3016347885131836,
+        "label": "a removable drone battery pack a battery",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          494,
+          243,
+          528,
+          282
+        ],
+        "score": 0.29923689365386963,
+        "label": "a battery",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          524,
+          14,
+          638,
+          159
+        ],
+        "score": 0.241723895072937,
+        "label": "a rectangular battery case",
+        "candidate_id": 7
+      },
+      {
+        "bbox_xyxy": [
+          476,
+          231,
+          551,
+          301
+        ],
+        "score": 0.20571701228618622,
+        "label": "a drone pack",
+        "candidate_id": 10
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 1540,
+      "mask_fraction": 0.005013020833333334,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d435"
+  },
+  {
+    "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2",
+    "old": [
+      {
+        "seconds": 7.977,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The dark rectangular housing on the left side of the drone frame matches the reference battery's overall shape (rounded-rectangular case with stacked top and handle sections). Candidate 2 bounds this whole visible battery outline tightly, while other candidates either cover only fragments (3, 6), include background (9), or point to thin background strips on the right (4, 5, 8) or a small unrelated region (7).",
+          "candidate_id": 2
+        }
+      },
+      {
+        "seconds": 8.318,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green mask accurately covers the black rectangular object mounted on the drone, which matches the reference object and task description of a detachable battery. There are no leaks into the background, table, or other drone structures."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          157,
+          0,
+          560,
+          266
+        ],
+        "score": 0.5360267162322998,
+        "label": "drone",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          157,
+          26,
+          294,
+          159
+        ],
+        "score": 0.47140347957611084,
+        "label": "a rectangular battery case",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          158,
+          27,
+          288,
+          93
+        ],
+        "score": 0.3576986789703369,
+        "label": "a rectangular battery case a battery",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          587,
+          119,
+          638,
+          145
+        ],
+        "score": 0.32615718245506287,
+        "label": "a removable drone battery pack",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          529,
+          120,
+          592,
+          145
+        ],
+        "score": 0.28623324632644653,
+        "label": "a removable drone battery pack",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          159,
+          86,
+          292,
+          158
+        ],
+        "score": 0.26146188378334045,
+        "label": "a rectangular battery case a battery",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          338,
+          170,
+          374,
+          205
+        ],
+        "score": 0.23862966895103455,
+        "label": "a battery",
+        "candidate_id": 7
+      },
+      {
+        "bbox_xyxy": [
+          529,
+          118,
+          637,
+          147
+        ],
+        "score": 0.23841801285743713,
+        "label": "a removable drone battery pack",
+        "candidate_id": 8
+      },
+      {
+        "bbox_xyxy": [
+          141,
+          18,
+          319,
+          176
+        ],
+        "score": 0.2354213297367096,
+        "label": "a removable battery pack",
+        "candidate_id": 9
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 15097,
+      "mask_fraction": 0.04914388020833333,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d405"
+  },
+  {
+    "case_id": "run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 37.791,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "当前画面中，candidate 1 是一个棱角分明的普通白色方盒，没有参考电池那种圆角外壳与台阶式分层轮廓；candidate 5 的大框覆盖整张桌面，属于背景/整体误检，且需排除机器人夹爪。右上角 candidate 2 的物体呈现圆角矩形主体加上顶部台阶状结构的整体外形，与参考电池“上块+带手柄凹槽的圆角外壳”的剪影最接近（孔位/标签被遮挡或朝向另一侧，按任务说明仍应依整体外形判断）。因此选择 candidate 2 作为最接近的可拆卸比赛电池。",
+          "candidate_id": 2
+        }
+      },
+      {
+        "seconds": 11.764,
+        "model_requests": 1,
+        "result": {
+          "status": "ambiguous",
+          "reason": "The green mask covers the dark blocky object at the far right edge of the frame, which is partially cut off by the image border. No battery-defining features (side latch, end handle with opening, power connector face) are verifiable, and the object could equally be part of the drone body/structure sitting on the table rather than the removable battery shown in the reference. Because the segmented region's identity as a battery cannot be confirmed from visible evidence, the match is ambiguous."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          188,
+          1,
+          357,
+          109
+        ],
+        "score": 0.3958543539047241,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          540,
+          11,
+          638,
+          184
+        ],
+        "score": 0.3607698678970337,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          101,
+          3,
+          637,
+          475
+        ],
+        "score": 0.25017204880714417,
+        "label": "a drone",
+        "candidate_id": 5
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 9334,
+      "mask_fraction": 0.030384114583333333,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d435"
+  },
+  {
+    "case_id": "run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7",
+    "old": [
+      {
+        "seconds": 11.279,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The large black rectangular object in the center of the image matches the description of a detachable race battery pack. It has a blocky shape and visible strap/handle features. Candidate 1 provides the most complete bounding box for this object.",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 47.791,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green mask covers the single dark rectangular block sitting on the white rack, including its front-center handle/strap tab — consistent with the reference battery's overall form (rectangular/rounded housing with an end handle). The mask stays on the object's visible faces (top ridged surface, front face, and the dark protruding handle), with only a few pixels of boundary overshoot onto the adjacent white tray edge, which is negligible. It correctly excludes the robot's own fixed gripper pads (left-arm dark rectangles and right-side dark panel), the white rack/stand, and the background. Per the task, the absence of visible mounting holes does not disqualify the candidate since the whole-housing shape is the criterion."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          238,
+          64,
+          445,
+          349
+        ],
+        "score": 0.454311341047287,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          2,
+          41,
+          638,
+          479
+        ],
+        "score": 0.35393986105918884,
+        "label": "a drone",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          239,
+          64,
+          445,
+          285
+        ],
+        "score": 0.342408686876297,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          2,
+          41,
+          506,
+          479
+        ],
+        "score": 0.2722984850406647,
+        "label": "a drone",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          167,
+          205,
+          204,
+          282
+        ],
+        "score": 0.2552518844604492,
+        "label": "handle one end",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          465,
+          208,
+          510,
+          244
+        ],
+        "score": 0.22743749618530273,
+        "label": "handle",
+        "candidate_id": 6
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 42160,
+      "mask_fraction": 0.13723958333333333,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d405"
+  },
+  {
+    "case_id": "run-20261115T132439Z-43ed2f29/battery-observations/fixed_0",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T132439Z-43ed2f29/battery-observations/fixed_0",
+    "old": [
+      {
+        "seconds": 8.466,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "在右上角的无人机机身上，可见一个黑色长方形块状物体，其整体外形（圆角矩形外壳、安装在无人机上的位置）与参考图中的比赛电池相符。候选4的边界框正好覆盖该黑色电池块，而其他候选框涵盖了桌面、整架无人机或螺旋桨/夹爪等背景或无关结构。因此选择候选4。",
+          "candidate_id": 4
+        }
+      },
+      {
+        "seconds": 4.209,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green mask in the current view covers the upper-right region, which corresponds to the robot's own fixed gripper/arm structure (the dark block at the top-right edge of the table and the white arm segment), not a detachable battery. The reference battery has a characteristic rectangular housing with a side latch/handle and a long slot opening; no such object is visible in the scene. The mask also leaks into the white table surface and the rack/shelf structure beneath the arm. There is no battery candidate matching the reference, so the segmentation does not match the task target."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          37,
+          4,
+          637,
+          446
+        ],
+        "score": 0.3241988718509674,
+        "label": "a drone",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          446,
+          1,
+          555,
+          139
+        ],
+        "score": 0.2755921483039856,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          39,
+          5,
+          637,
+          235
+        ],
+        "score": 0.23549936711788177,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          38,
+          12,
+          555,
+          204
+        ],
+        "score": 0.23107534646987915,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          445,
+          1,
+          638,
+          245
+        ],
+        "score": 0.22829386591911316,
+        "label": "a drone",
+        "candidate_id": 7
+      },
+      {
+        "bbox_xyxy": [
+          489,
+          163,
+          598,
+          245
+        ],
+        "score": 0.2075701355934143,
+        "label": "handle",
+        "candidate_id": 8
+      },
+      {
+        "bbox_xyxy": [
+          39,
+          12,
+          596,
+          208
+        ],
+        "score": 0.20507125556468964,
+        "label": "rectangular pack",
+        "candidate_id": 9
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 8461,
+      "mask_fraction": 0.027542317708333333,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d435"
+  },
+  {
+    "case_id": "run-20261115T133503Z-3b93074d/battery-observations/fixed_3",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T133503Z-3b93074d/battery-observations/fixed_3",
+    "old": [
+      {
+        "seconds": 54.527,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The dark rounded-rectangular housing in the center of the scene shows the end handle opening and overall block shape matching the reference race battery. Candidate 7 bounds this dark battery body (including the visible handle recess) without including the white foam/drone structure above it, which candidate 6 would wrongly absorb as background. The robot's own gripper arms and other drone parts are excluded.",
+          "candidate_id": 7
+        }
+      },
+      {
+        "seconds": 61.611,
+        "model_requests": 1,
+        "result": {
+          "status": "accepted",
+          "reason": "The green region covers the lower rounded-rectangular black case, which corresponds to the battery's two-tier shell shape seen in the reference (wider handle/base block under a narrower top block). The mask boundaries follow the object's silhouette: top edge along the tier junction, right/bottom edges along the case walls, and it does not include the robot's gripper fingers (they remain unmasked gray in front), the white drone/stand structure, the table surface, the caster wheel, or other background. Color/material differences are ignored per task instructions, and no孔位 details are required. The only deviation is minor under-segmentation of the upper tier, but there is no leakage into background objects, so the mask matches the battery candidate."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          1,
+          16,
+          143,
+          162
+        ],
+        "score": 0.3883245289325714,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          116,
+          2,
+          638,
+          478
+        ],
+        "score": 0.3211004137992859,
+        "label": "a drone",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          275,
+          2,
+          639,
+          427
+        ],
+        "score": 0.2881696820259094,
+        "label": "a drone",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          274,
+          2,
+          638,
+          478
+        ],
+        "score": 0.2555539608001709,
+        "label": "a drone",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          272,
+          146,
+          306,
+          269
+        ],
+        "score": 0.2548705041408539,
+        "label": "handle",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          275,
+          56,
+          500,
+          277
+        ],
+        "score": 0.2479201704263687,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          274,
+          147,
+          500,
+          277
+        ],
+        "score": 0.24273750185966492,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 7
+      },
+      {
+        "bbox_xyxy": [
+          18,
+          14,
+          105,
+          38
+        ],
+        "score": 0.20179958641529083,
+        "label": "a battery",
+        "candidate_id": 8
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 16204,
+      "mask_fraction": 0.052747395833333335,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d405"
+  },
+  {
+    "case_id": "run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2",
+    "old": [
+      {
+        "seconds": 10.397,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "The central dark object on the drone shows the whole battery silhouette matching the reference: a rectangular/rounded-rectangular upper housing joined to a lower rounded end with the handle opening. Candidate 1 (269,66,458,250) covers this entire visible battery body, whereas candidate 6 only covers the lower handle portion. The small left strip (3,5), the flat right panel (7), and the full-drone boxes (2,4) are not the battery, and the corner grippers are excluded as the robot itself.",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 114.55,
+        "model_requests": 1,
+        "result": {
+          "status": "rejected",
+          "reason": "The green region does cover the dark battery-like object in the center (rounded-rectangular housing with the visible oval handle slot, matching the reference battery's two-tier silhouette). However, the mask is not confined to the battery shell: its upper band (roughly x=345-450, y=110-140) sits on the bright white structural slab/tray above the battery, well above the dark battery top edge (~y=140), and is narrower/offset relative to the battery's own dark block, so it cannot be the battery's top face. The step/notch on the right side of the mask also traces that background white structure's contour rather than the battery boundary. This is leakage into the drone's other structure/background, which the task explicitly requires rejecting."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          269,
+          66,
+          458,
+          250
+        ],
+        "score": 0.485413521528244,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          266,
+          2,
+          639,
+          429
+        ],
+        "score": 0.3281530737876892,
+        "label": "a drone",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          165,
+          206,
+          200,
+          283
+        ],
+        "score": 0.26997774839401245,
+        "label": "handle one end",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          265,
+          2,
+          638,
+          477
+        ],
+        "score": 0.2610035538673401,
+        "label": "a drone",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          158,
+          201,
+          205,
+          286
+        ],
+        "score": 0.22641101479530334,
+        "label": "end",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          271,
+          133,
+          457,
+          250
+        ],
+        "score": 0.21796558797359467,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          462,
+          222,
+          549,
+          425
+        ],
+        "score": 0.20556209981441498,
+        "label": "rectangular drone battery pack",
+        "candidate_id": 7
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 28060,
+      "mask_fraction": 0.09134114583333333,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d405"
+  },
+  {
+    "case_id": "run-20261115T142052Z-09a1db71/battery-observations/fixed_3",
+    "directory": "/home/arx/arx-competition-control/agent/runs/run-20261115T142052Z-09a1db71/battery-observations/fixed_3",
+    "old": [
+      {
+        "seconds": 11.547,
+        "model_requests": 1,
+        "result": {
+          "status": "selected",
+          "reason": "参考对象是一块可拆卸比赛电池：圆角矩形主体外壳，端部带有连接/手柄结构（带凹槽面）。在当前场景中，候选1 [281,65,423,197] 框内的黑色块状物体最符合整块电池的外形——可见矩形主体加上端部带圆角凹槽的连接面，与参考电池的整体轮廓一致。候选2 仅为一块垂直深色平板，缺乏电池端部手柄/连接特征；候选3/6/8 为无人机整体背景；候选4/5/7/9/10/11 仅为手柄或端部局部，并非整块电池。固定夹爪已排除。因此选择候选1。",
+          "candidate_id": 1
+        }
+      },
+      {
+        "seconds": 7.411,
+        "model_requests": 2,
+        "result": {
+          "status": "accepted",
+          "reason": "The green segmented region accurately covers the rectangular battery object visible in the current image. The shape matches the reference object (a block battery with a handle-like structure). There is no mask leakage into the table, white structure, or background."
+        }
+      }
+    ],
+    "candidates": [
+      {
+        "bbox_xyxy": [
+          281,
+          65,
+          423,
+          197
+        ],
+        "score": 0.40871578454971313,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 1
+      },
+      {
+        "bbox_xyxy": [
+          446,
+          223,
+          549,
+          424
+        ],
+        "score": 0.3966737687587738,
+        "label": "a rectangular drone battery pack",
+        "candidate_id": 2
+      },
+      {
+        "bbox_xyxy": [
+          277,
+          2,
+          639,
+          381
+        ],
+        "score": 0.3384089469909668,
+        "label": "a drone",
+        "candidate_id": 3
+      },
+      {
+        "bbox_xyxy": [
+          163,
+          205,
+          200,
+          282
+        ],
+        "score": 0.2760699987411499,
+        "label": "handle one end",
+        "candidate_id": 4
+      },
+      {
+        "bbox_xyxy": [
+          447,
+          270,
+          491,
+          360
+        ],
+        "score": 0.2712888717651367,
+        "label": "handle",
+        "candidate_id": 5
+      },
+      {
+        "bbox_xyxy": [
+          278,
+          2,
+          638,
+          478
+        ],
+        "score": 0.24760401248931885,
+        "label": "a drone",
+        "candidate_id": 6
+      },
+      {
+        "bbox_xyxy": [
+          437,
+          270,
+          491,
+          376
+        ],
+        "score": 0.24219365417957306,
+        "label": "handle",
+        "candidate_id": 7
+      },
+      {
+        "bbox_xyxy": [
+          279,
+          3,
+          639,
+          318
+        ],
+        "score": 0.23486328125,
+        "label": "a drone",
+        "candidate_id": 8
+      },
+      {
+        "bbox_xyxy": [
+          148,
+          198,
+          206,
+          288
+        ],
+        "score": 0.20515847206115723,
+        "label": "end",
+        "candidate_id": 9
+      },
+      {
+        "bbox_xyxy": [
+          447,
+          270,
+          491,
+          308
+        ],
+        "score": 0.20385901629924774,
+        "label": "handle",
+        "candidate_id": 10
+      },
+      {
+        "bbox_xyxy": [
+          183,
+          350,
+          224,
+          416
+        ],
+        "score": 0.2021331489086151,
+        "label": "end",
+        "candidate_id": 11
+      }
+    ],
+    "geometry": {
+      "mask_pixels": 15058,
+      "mask_fraction": 0.049016927083333335,
+      "mask_valid": true,
+      "metric_valid": false,
+      "robot_geometry_ready": false,
+      "reason": "aligned_depth_unavailable"
+    },
+    "camera": "d405"
+  }
+]

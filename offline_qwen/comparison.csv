@@ -1,0 +1,17 @@
+﻿image,case,description,task,old_seconds,old_status,old_candidate,old_assessment,new_seconds,new_status,new_candidate,new_confidence,new_reason,new_assessment,human_note
+1,run-20261113T152615Z-1201165b/battery-observations/fixed_0,11月13日 D435：无人机电池在右上，下层架有小物体,selection,21.868,selected,5,错：未选中无人机电池,1.805,selected,5,0.63,桌面小盒呈圆角矩形带端部手柄，最接近电池外形,错：未选中无人机电池,以无人机上电池为目标，不能选下层桌架小物体
+1,run-20261113T152615Z-1201165b/battery-observations/fixed_0,11月13日 D435：无人机电池在右上，下层架有小物体,review,6.242,rejected,,对,1.706,rejected,,0.93,绿区为桌下金属件，非电池外形,对,原绿色区域在下层桌架，未覆盖无人机电池
+2,run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2,11月13日 D405：多框重叠于同一电池,selection,7.977,selected,2,对,2.59,ambiguous,2,0.42,候选2、3、6重叠，电池外形相似无法唯一确认。,未选出（不确定）,多个框属于同一目标，不应因此无法选择
+2,run-20261113T152615Z-1201165b/battery-observations/fixed_4/retry_2,11月13日 D405：多框重叠于同一电池,review,8.318,accepted,,对,3.392,accepted,,0.95,绿色掩膜准确覆盖电池外形，无背景泄漏,对,掩膜覆盖可见电池，未见明显背景泄漏
+3,run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0,11月15日17:20 D435：右缘电池被画面截断,selection,37.791,selected,2,对,1.943,selected,2,0.45,右侧深色块状物外形最接近比赛电池,对,选中右缘目标位置正确；身份确认受截断限制，不用白色打印件作为颜色反例
+3,run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0,11月15日17:20 D435：右缘电池被画面截断,review,11.764,ambiguous,,人工不确定，不计对错,1.755,ambiguous,,0.55,绿色区域含白色部件，疑似漏到无人机机身,人工不确定，不计对错,截图截断且白色结构紧邻，人工不作确定通过/拒绝标签
+4,run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7,11月15日18:36 D405：预抓位完整电池,selection,11.279,selected,1,对,1.382,selected,1,0.82,中央长方体电池外形匹配参考,对,候选1是完整目标
+4,run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7,11月15日18:36 D405：预抓位完整电池,review,47.791,accepted,,对,2.126,accepted,,0.85,绿色区域贴合电池外形与手柄，未泄漏背景,对,绿色贴合可见电池与提手，边缘误差轻微
+5,run-20261115T132439Z-43ed2f29/battery-observations/fixed_0,11月15日21:25 D435：右上真实电池,selection,8.466,selected,4,对,1.735,selected,4,0.55,右上深色块外形符合电池整体轮廓,对,候选4覆盖目标
+5,run-20261115T132439Z-43ed2f29/battery-observations/fixed_0,11月15日21:25 D435：右上真实电池,review,4.209,rejected,,误拒,2.178,rejected,,0.85,绿色区域覆盖机架结构，非电池外形,误拒,掩膜位于无人机上的黑色电池，不是机器人夹爪
+6,run-20261115T133503Z-3b93074d/battery-observations/fixed_3,11月15日21:37 D405：夹爪遮挡，原掩膜漏上半部,selection,54.527,selected,7,目标对，但框不完整,2.116,selected,6,0.62,中部黑色长方体外形与参考电池一致,对,候选6覆盖完整可见电池；7仅下半部
+6,run-20261115T133503Z-3b93074d/battery-observations/fixed_3,11月15日21:37 D405：夹爪遮挡，原掩膜漏上半部,review,61.611,accepted,,漏检：错误掩膜被通过,2.003,accepted,,0.82,绿区贴合电池外形，未泄漏背景夹爪,漏检：错误掩膜被通过,除夹爪遮挡外，还漏掉清晰可见的上半电池
+7,run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2,11月15日22:06 D405：原114秒复核案例,selection,10.397,selected,1,对,2.404,selected,6,0.95,候选6外形与参考电池最匹配。,目标对，但框不完整,候选1完整；6仅下半部。不能将这个掩膜与此前失败重试的掩膜混为一张
+7,run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2,11月15日22:06 D405：原114秒复核案例,review,114.55,rejected,,误拒,1.997,accepted,,0.82,绿色区域贴合电池外形，未泄漏至桌面或夹爪,对,保存的本次复核掩膜主要贴合电池，未见旧Qwen声称的大块白色支架泄漏
+8,run-20261115T142052Z-09a1db71/battery-observations/fixed_3,11月15日22:21 D405：张爪后电池清晰可见,selection,11.547,selected,1,对,2.337,selected,1,0.72,候选1为长方形电池外壳，端部手柄清晰,对,候选1覆盖完整目标
+8,run-20261115T142052Z-09a1db71/battery-observations/fixed_3,11月15日22:21 D405：张爪后电池清晰可见,review,7.411,accepted,,对,2.431,accepted,,0.82,绿色区域贴合电池外形，未泄漏桌面背景,对,可见电池主体基本被覆盖，无明显背景泄漏

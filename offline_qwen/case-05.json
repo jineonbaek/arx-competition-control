@@ -1,0 +1,46 @@
+{
+  "index": 5,
+  "case_id": "run-20261115T132439Z-43ed2f29/battery-observations/fixed_0",
+  "old": [
+    {
+      "seconds": 8.466,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "在右上角的无人机机身上，可见一个黑色长方形块状物体，其整体外形（圆角矩形外壳、安装在无人机上的位置）与参考图中的比赛电池相符。候选4的边界框正好覆盖该黑色电池块，而其他候选框涵盖了桌面、整架无人机或螺旋桨/夹爪等背景或无关结构。因此选择候选4。",
+        "candidate_id": 4
+      }
+    },
+    {
+      "seconds": 4.209,
+      "model_requests": 1,
+      "result": {
+        "status": "rejected",
+        "reason": "The green mask in the current view covers the upper-right region, which corresponds to the robot's own fixed gripper/arm structure (the dark block at the top-right edge of the table and the white arm segment), not a detachable battery. The reference battery has a characteristic rectangular housing with a side latch/handle and a long slot opening; no such object is visible in the scene. The mask also leaks into the white table surface and the rack/shelf structure beneath the arm. There is no battery candidate matching the reference, so the segmentation does not match the task target."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 1.735,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "右上深色块外形符合电池整体轮廓",
+        "candidate_id": 4,
+        "confidence": 0.55
+      },
+      "wall_seconds": 1.738
+    },
+    "review": {
+      "seconds": 2.178,
+      "model_requests": 1,
+      "result": {
+        "status": "rejected",
+        "reason": "绿色区域覆盖机架结构，非电池外形",
+        "confidence": 0.85
+      },
+      "wall_seconds": 2.181
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "index": 3,
+  "case_id": "run-20261115T091930Z-4da9d0a1/battery-observations/fixed_0",
+  "old": [
+    {
+      "seconds": 37.791,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "当前画面中，candidate 1 是一个棱角分明的普通白色方盒，没有参考电池那种圆角外壳与台阶式分层轮廓；candidate 5 的大框覆盖整张桌面，属于背景/整体误检，且需排除机器人夹爪。右上角 candidate 2 的物体呈现圆角矩形主体加上顶部台阶状结构的整体外形，与参考电池“上块+带手柄凹槽的圆角外壳”的剪影最接近（孔位/标签被遮挡或朝向另一侧，按任务说明仍应依整体外形判断）。因此选择 candidate 2 作为最接近的可拆卸比赛电池。",
+        "candidate_id": 2
+      }
+    },
+    {
+      "seconds": 11.764,
+      "model_requests": 1,
+      "result": {
+        "status": "ambiguous",
+        "reason": "The green mask covers the dark blocky object at the far right edge of the frame, which is partially cut off by the image border. No battery-defining features (side latch, end handle with opening, power connector face) are verifiable, and the object could equally be part of the drone body/structure sitting on the table rather than the removable battery shown in the reference. Because the segmented region's identity as a battery cannot be confirmed from visible evidence, the match is ambiguous."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 1.943,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "右侧深色块状物外形最接近比赛电池",
+        "candidate_id": 2,
+        "confidence": 0.45
+      },
+      "wall_seconds": 1.946
+    },
+    "review": {
+      "seconds": 1.755,
+      "model_requests": 1,
+      "result": {
+        "status": "ambiguous",
+        "reason": "绿色区域含白色部件，疑似漏到无人机机身",
+        "confidence": 0.55
+      },
+      "wall_seconds": 1.758
+    }
+  }
+}

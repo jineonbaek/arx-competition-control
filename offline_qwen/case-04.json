@@ -1,0 +1,46 @@
+{
+  "index": 4,
+  "case_id": "run-20261115T103355Z-3f4b4bae/battery-observations/fixed_7",
+  "old": [
+    {
+      "seconds": 11.279,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "The large black rectangular object in the center of the image matches the description of a detachable race battery pack. It has a blocky shape and visible strap/handle features. Candidate 1 provides the most complete bounding box for this object.",
+        "candidate_id": 1
+      }
+    },
+    {
+      "seconds": 47.791,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "The green mask covers the single dark rectangular block sitting on the white rack, including its front-center handle/strap tab — consistent with the reference battery's overall form (rectangular/rounded housing with an end handle). The mask stays on the object's visible faces (top ridged surface, front face, and the dark protruding handle), with only a few pixels of boundary overshoot onto the adjacent white tray edge, which is negligible. It correctly excludes the robot's own fixed gripper pads (left-arm dark rectangles and right-side dark panel), the white rack/stand, and the background. Per the task, the absence of visible mounting holes does not disqualify the candidate since the whole-housing shape is the criterion."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 1.382,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "candidate_id": 1,
+        "reason": "中央长方体电池外形匹配参考",
+        "confidence": 0.82
+      },
+      "wall_seconds": 1.385
+    },
+    "review": {
+      "seconds": 2.126,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "绿色区域贴合电池外形与手柄，未泄漏背景",
+        "confidence": 0.85
+      },
+      "wall_seconds": 2.13
+    }
+  }
+}

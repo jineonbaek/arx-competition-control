@@ -1,0 +1,9 @@
+{
+  "/home/arx/arx-competition-control/agent/config.py": "233995d43aa20f373f31dc48710e41925df14db2f772d6001d92cc5ab46a518b",
+  "/home/arx/arx-competition-control/agent/model.py": "bf8140347384fcfdd905f927e546d3e856bca19710ffbd388b3c11e7d352cb34",
+  "/home/arx/arx-competition-control/agent/perception_worker.py": "c3363ac01c97ef404a1dbf313c17f294a558e9cd880e1d9701d96278fb89a711",
+  "/home/arx/arx-competition-control/agent/grasp_pipeline.py": "a8a658d2fe9704fc21f29dcfb9b1b236dd8dac9b33a5c5156c0f18211a860a49",
+  "/home/arx/arx-competition-control/config/battery-execution.json": "c4c86962203ce1c9eb47afc7c069f02f293d3a8483b57005c9b1274920f0f6f6",
+  "/home/arx/arx-competition-control/web/config/control.json": "2e98e21151509b2034141df1707d3d141a44c904c55af614e2749d7f948ca799",
+  "/home/arx/arx-vision-demo/vision/demo/pipeline.py": "90111273a93b5c1f1f6f44d2f443abdefaa68deca515246433d0367e76bc09ad"
+}

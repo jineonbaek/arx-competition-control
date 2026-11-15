@@ -1,0 +1,46 @@
+{
+  "index": 1,
+  "case_id": "run-20261113T152615Z-1201165b/battery-observations/fixed_0",
+  "old": [
+    {
+      "seconds": 21.868,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "The object on the lower shelf at mid-right (yellow box ~[481,236,544,296]) shows the whole removable battery outline: rounded-rectangular housing with a front handle opening and a flat labeled top, matching the reference battery's overall shape. The large dark box at the top-right edge is a container/case background, and the corner grippers are the robot itself, so they are excluded. Candidate 5 best covers the entire visible battery body.",
+        "candidate_id": 5
+      }
+    },
+    {
+      "seconds": 6.242,
+      "model_requests": 1,
+      "result": {
+        "status": "rejected",
+        "reason": "The green segmented region is a small, thin, irregular diagonal blob located at the table's lower shelf/leg junction, not on any battery-like object. It does not match the reference battery's rectangular/rounded-rectangular shell with side clips and handle; instead it leaks into background table structure. No battery candidate is captured by the mask."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 1.805,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "桌面小盒呈圆角矩形带端部手柄，最接近电池外形",
+        "candidate_id": 5,
+        "confidence": 0.63
+      },
+      "wall_seconds": 1.808
+    },
+    "review": {
+      "seconds": 1.706,
+      "model_requests": 1,
+      "result": {
+        "status": "rejected",
+        "reason": "绿区为桌下金属件，非电池外形",
+        "confidence": 0.93
+      },
+      "wall_seconds": 1.708
+    }
+  }
+}

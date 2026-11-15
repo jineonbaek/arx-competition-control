@@ -1,0 +1,88 @@
+{
+  "basis": "assistant visual inspection of original RGB, original candidate boxes and original mask, using target-on-drone context; not a pixel-annotated ground truth dataset",
+  "confidence_not_used": true,
+  "cases": [
+    {
+      "description": "11月13日 D435：无人机电池在右上，下层架有小物体",
+      "valid_candidates": [
+        2,
+        3,
+        7
+      ],
+      "review_expected": "rejected",
+      "review_note": "原绿色区域在下层桌架，未覆盖无人机电池",
+      "selection_note": "以无人机上电池为目标，不能选下层桌架小物体"
+    },
+    {
+      "description": "11月13日 D405：多框重叠于同一电池",
+      "valid_candidates": [
+        2,
+        3,
+        6
+      ],
+      "review_expected": "accepted",
+      "review_note": "掩膜覆盖可见电池，未见明显背景泄漏",
+      "selection_note": "多个框属于同一目标，不应因此无法选择"
+    },
+    {
+      "description": "11月15日17:20 D435：右缘电池被画面截断",
+      "valid_candidates": [
+        2
+      ],
+      "review_expected": null,
+      "review_note": "截图截断且白色结构紧邻，人工不作确定通过/拒绝标签",
+      "selection_note": "选中右缘目标位置正确；身份确认受截断限制，不用白色打印件作为颜色反例"
+    },
+    {
+      "description": "11月15日18:36 D405：预抓位完整电池",
+      "valid_candidates": [
+        1
+      ],
+      "review_expected": "accepted",
+      "review_note": "绿色贴合可见电池与提手，边缘误差轻微",
+      "selection_note": "候选1是完整目标"
+    },
+    {
+      "description": "11月15日21:25 D435：右上真实电池",
+      "valid_candidates": [
+        4
+      ],
+      "review_expected": "accepted",
+      "review_note": "掩膜位于无人机上的黑色电池，不是机器人夹爪",
+      "selection_note": "候选4覆盖目标"
+    },
+    {
+      "description": "11月15日21:37 D405：夹爪遮挡，原掩膜漏上半部",
+      "valid_candidates": [
+        6
+      ],
+      "partial_candidates": [
+        7
+      ],
+      "review_expected": "rejected",
+      "review_note": "除夹爪遮挡外，还漏掉清晰可见的上半电池",
+      "selection_note": "候选6覆盖完整可见电池；7仅下半部"
+    },
+    {
+      "description": "11月15日22:06 D405：原114秒复核案例",
+      "valid_candidates": [
+        1
+      ],
+      "partial_candidates": [
+        6
+      ],
+      "review_expected": "accepted",
+      "review_note": "保存的本次复核掩膜主要贴合电池，未见旧Qwen声称的大块白色支架泄漏",
+      "selection_note": "候选1完整；6仅下半部。不能将这个掩膜与此前失败重试的掩膜混为一张"
+    },
+    {
+      "description": "11月15日22:21 D405：张爪后电池清晰可见",
+      "valid_candidates": [
+        1
+      ],
+      "review_expected": "accepted",
+      "review_note": "可见电池主体基本被覆盖，无明显背景泄漏",
+      "selection_note": "候选1覆盖完整目标"
+    }
+  ]
+}

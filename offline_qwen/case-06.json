@@ -1,0 +1,46 @@
+{
+  "index": 6,
+  "case_id": "run-20261115T133503Z-3b93074d/battery-observations/fixed_3",
+  "old": [
+    {
+      "seconds": 54.527,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "The dark rounded-rectangular housing in the center of the scene shows the end handle opening and overall block shape matching the reference race battery. Candidate 7 bounds this dark battery body (including the visible handle recess) without including the white foam/drone structure above it, which candidate 6 would wrongly absorb as background. The robot's own gripper arms and other drone parts are excluded.",
+        "candidate_id": 7
+      }
+    },
+    {
+      "seconds": 61.611,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "The green region covers the lower rounded-rectangular black case, which corresponds to the battery's two-tier shell shape seen in the reference (wider handle/base block under a narrower top block). The mask boundaries follow the object's silhouette: top edge along the tier junction, right/bottom edges along the case walls, and it does not include the robot's gripper fingers (they remain unmasked gray in front), the white drone/stand structure, the table surface, the caster wheel, or other background. Color/material differences are ignored per task instructions, and no孔位 details are required. The only deviation is minor under-segmentation of the upper tier, but there is no leakage into background objects, so the mask matches the battery candidate."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 2.116,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "中部黑色长方体外形与参考电池一致",
+        "candidate_id": 6,
+        "confidence": 0.62
+      },
+      "wall_seconds": 2.118
+    },
+    "review": {
+      "seconds": 2.003,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "绿区贴合电池外形，未泄漏背景夹爪",
+        "confidence": 0.82
+      },
+      "wall_seconds": 2.006
+    }
+  }
+}

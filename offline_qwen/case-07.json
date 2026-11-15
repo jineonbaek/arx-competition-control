@@ -1,0 +1,46 @@
+{
+  "index": 7,
+  "case_id": "run-20261115T140319Z-e2012d59/battery-observations/fixed_4/retry_2",
+  "old": [
+    {
+      "seconds": 10.397,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "reason": "The central dark object on the drone shows the whole battery silhouette matching the reference: a rectangular/rounded-rectangular upper housing joined to a lower rounded end with the handle opening. Candidate 1 (269,66,458,250) covers this entire visible battery body, whereas candidate 6 only covers the lower handle portion. The small left strip (3,5), the flat right panel (7), and the full-drone boxes (2,4) are not the battery, and the corner grippers are excluded as the robot itself.",
+        "candidate_id": 1
+      }
+    },
+    {
+      "seconds": 114.55,
+      "model_requests": 1,
+      "result": {
+        "status": "rejected",
+        "reason": "The green region does cover the dark battery-like object in the center (rounded-rectangular housing with the visible oval handle slot, matching the reference battery's two-tier silhouette). However, the mask is not confined to the battery shell: its upper band (roughly x=345-450, y=110-140) sits on the bright white structural slab/tray above the battery, well above the dark battery top edge (~y=140), and is narrower/offset relative to the battery's own dark block, so it cannot be the battery's top face. The step/notch on the right side of the mask also traces that background white structure's contour rather than the battery boundary. This is leakage into the drone's other structure/background, which the task explicitly requires rejecting."
+      }
+    }
+  ],
+  "new": {
+    "selection": {
+      "seconds": 2.404,
+      "model_requests": 1,
+      "result": {
+        "status": "selected",
+        "candidate_id": 6,
+        "reason": "候选6外形与参考电池最匹配。",
+        "confidence": 0.95
+      },
+      "wall_seconds": 2.406
+    },
+    "review": {
+      "seconds": 1.997,
+      "model_requests": 1,
+      "result": {
+        "status": "accepted",
+        "reason": "绿色区域贴合电池外形，未泄漏至桌面或夹爪",
+        "confidence": 0.82
+      },
+      "wall_seconds": 2.0
+    }
+  }
+}
