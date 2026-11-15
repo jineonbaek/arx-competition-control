@@ -76,7 +76,7 @@ class ExtractionTests(unittest.TestCase):
             tcp_position=lambda q:(model.wrist_transform(q,5.1)@self.tcp)[:3,3],**self.timing)
         np.testing.assert_allclose(plan['time_from_start_s'],path.times)
         self.assertEqual(self.timing['joint_speed_deg_s'],[15.]*3+[50.]*3)
-        self.assertEqual(self.timing['joint_acceleration_deg_s2'],[30.]*3+[100.]*3)
+        self.assertEqual(self.timing['joint_acceleration_deg_s2'],[28.]*6)
         self.assertEqual((self.timing['tcp_speed_mm_s'],self.timing['tcp_acceleration_mm_s2']),(60.,120.))
         times=np.linspace(0,path.times[-1],2001)
         xyz=[]
