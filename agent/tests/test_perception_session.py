@@ -111,6 +111,19 @@ class PerceptionTests(unittest.TestCase):
                 child.wait.assert_called_once_with(timeout=3)
                 self.assertIsNone(session.child)
 
+    def test_warmup_loads_all_local_models_without_registering_a_scene(self):
+        import sys,types
+        from agent.perception_worker import Models
+        vision=types.ModuleType('models');vision.VisionModels=Mock
+        prepare=Mock()
+        fp=types.ModuleType('foundationpose.infer_snapshot');fp.prepare_estimator=prepare
+        with tempfile.TemporaryDirectory() as root,patch.dict(sys.modules,{
+                'models':vision,'foundationpose.infer_snapshot':fp}):
+            worker=Models();result=worker.warmup({'output':str(Path(root)/'warmup')})
+        self.assertEqual(result['status'],'ready')
+        self.assertIsInstance(worker.vision,Mock)
+        prepare.assert_called_once()
+
     def test_whole_battery_and_nested_part_use_one_local_target(self):
         import sys,types
         target=types.ModuleType('target');target.shape_view=lambda image:image

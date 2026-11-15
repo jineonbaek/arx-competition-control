@@ -12,6 +12,9 @@ class GraspModule:
         self.task = battery_task
         self.runs = {}
 
+    def prewarm(self,cancelled):self.task.prewarm(cancelled)
+    def discard_prewarm(self):self.task.discard_prewarm()
+
     def start(self, context):
         request = context['request_id']
         with self.task.lock:

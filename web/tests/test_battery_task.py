@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import Mock,patch
 
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
@@ -73,6 +74,24 @@ class BatteryTaskTests(unittest.TestCase):
         self.gate.set();done=self.wait('needs_attention')
         self.assertEqual(done['reason'],'fixture')
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
+
+    def test_competition_reuses_preheated_session_without_early_inference(self):
+        cancelled=threading.Event();session=Mock()
+        with patch('battery_task.PerceptionSession',return_value=session):
+            self.task.prewarm(cancelled)
+            end=time.monotonic()+2
+            while not session.prewarm.called and time.monotonic()<end:time.sleep(.01)
+            self.assertTrue(session.prewarm.called)
+            self.assertIsNone(self.task.active)
+            prepared=self.task.prepared['store']
+            token=self.controller.reserve_motion(self.controller.command_epoch)
+            try:
+                self.task.start_owned(token,True)
+                self.assertIs(self.created[0][0],prepared)
+                self.assertIs(prepared.perception_session,session)
+                self.gate.set();self.wait('needs_attention')
+            finally:
+                if self.controller.motion_valid(token):self.controller.release_motion(token)
 
     def test_start_fixed_points_are_bounded_and_saved_for_this_run(self):
         invalid=[{'lift_target_rad':6.6},

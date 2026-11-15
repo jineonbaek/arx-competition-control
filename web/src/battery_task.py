@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 from agent.storage import RunStore
+from agent.perception_session import PerceptionSession
 from control import Rejected
 
 
@@ -21,6 +22,7 @@ class BatteryTask:
         self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
         self.lock=threading.RLock()
         self.active=None
+        self.prepared=None
         self.requests={}
 
     def _restore_depth(self,state):
@@ -78,6 +80,41 @@ class BatteryTask:
 
     def snapshot(self, client):
         with self.lock:return self._view(client)
+
+    def prewarm(self,cancelled):
+        """Prepare the competition grasp worker without capturing or inferring."""
+        with self.lock:
+            if self.prepared is not None:return
+            try:
+                store=RunStore.create(self.root)
+                store.state['battery_task_settings']=copy.deepcopy(self.task_settings);store.save()
+                session=PerceptionSession(store.path);store.perception_session=session
+                prepared={'store':store,'session':session,'worker':None}
+                self.prepared=prepared
+            except Exception as error:
+                self.controller.log('视觉模型预热未启动，抓取时按原逻辑加载：'+str(error)[:200],'warning')
+                return
+            def load():
+                try:
+                    result=session.prewarm(lambda:cancelled.is_set() or store.cancelled)
+                    store.event('vision_prewarm',result)
+                except Exception as error:
+                    session.close()
+                    if not store.closed:
+                        store.event('vision_prewarm',{'status':'unavailable','reason':str(error)[:200]})
+                    if not cancelled.is_set():
+                        self.controller.log('视觉模型预热未完成，抓取时按原逻辑加载：'+str(error)[:200],'warning')
+            prepared['worker']=threading.Thread(target=load,daemon=True,name='battery-vision-prewarm')
+            prepared['worker'].start()
+
+    def discard_prewarm(self):
+        with self.lock:
+            prepared=self.prepared;self.prepared=None
+        if prepared is None:return
+        (prepared['store'].path/'cancel.flag').touch(mode=0o600)
+        prepared['session'].close()
+        prepared['worker'].join(3.)
+        prepared['store'].close()
 
     def result(self, after=''):
         """Read published artifacts from the same run as the shared task."""
@@ -159,30 +196,35 @@ class BatteryTask:
             if not self.controller.motion_valid(token):
                 raise Rejected('整场任务控制权无效')
             return self._start('competition', None, environment_clear,
-                               copy.deepcopy(self.task_settings), token=token)
+                               copy.deepcopy(self.task_settings), token=token,use_prepared=True)
 
-    def _start(self, client, expected_epoch, environment_clear, settings, *, token=None):
+    def _start(self, client, expected_epoch, environment_clear, settings, *, token=None,use_prepared=False):
         if self.active is not None:
             if self.active['status']=='running' or self.active['recovery_required']:
                 raise Rejected('已有自动任务或待恢复任务')
             if self.active['store'] is not None and not self.active['store'].closed:
                 self.active['store'].close()
+        prepared=self.prepared if use_prepared else None
+        if prepared is not None:self.prepared=None
         owns_motion=token is None
         if owns_motion:token=self.controller.reserve_motion(expected_epoch)
-        store=None;depth_previous=None
+        store=prepared['store'] if prepared is not None else None;depth_previous=None
         try:
             if self.depth_control is not None:
                 cameras=self.depth_control.snapshot()['cameras']
                 depth_previous={camera:cameras[camera]['requested'] for camera in ('d435','d405')}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
-            store=RunStore.create(self.root)
+            if store is None:store=RunStore.create(self.root)
             if settings:
                 store.state['battery_task_settings']=copy.deepcopy(settings)
                 store.save()
             flow=self.workflow_factory(store,self.controller,token,environment_clear)
         except Exception:
             if depth_previous is not None:self._restore_depth({'depth_previous':depth_previous})
-            if store is not None:store.close()
+            if store is not None:
+                session=getattr(store,'perception_session',None)
+                if session is not None:session.close()
+                store.close()
             if owns_motion and self.controller.motion_valid(token):self.controller.release_motion(token)
             raise
         self.active={'client':client,'run_id':store.state['run_id'],'status':'running',
@@ -234,6 +276,7 @@ class BatteryTask:
             state['store'].close()
 
     def close(self):
+        self.discard_prewarm()
         with self.lock:
             state=self.active
             if state is None:return

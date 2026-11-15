@@ -84,6 +84,18 @@ class CompetitionTests(unittest.TestCase):
         self.recovery.decide.assert_not_called()
         self.assertEqual(self.adapter.calls, [])
 
+    def test_map_start_prewarms_grasp_while_navigation_is_running(self):
+        battery=Mock();battery.lock=threading.RLock()
+        self.task.register('pick',GraspModule(battery))
+        self.modules['navigate_pick'].status='running'
+        self.action('start')
+        deadline=time.monotonic()+2
+        while not battery.prewarm.called and time.monotonic()<deadline:time.sleep(.01)
+        battery.prewarm.assert_called_once()
+        battery.start_owned.assert_not_called()
+        self.action('stop');self.wait('paused')
+        battery.discard_prewarm.assert_called()
+
     def test_missing_navigation_is_not_faked_and_releases_control(self):
         self.task.modules.pop('navigate_pick')
         self.action('start')

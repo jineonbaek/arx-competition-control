@@ -71,6 +71,16 @@ class Models:
     def __init__(self):
         self.vision=None;self.pose={};self.head_target=None
 
+    def warmup(self,args):
+        started=time.monotonic();output=Path(args['output']);output.mkdir(exist_ok=True,parents=True)
+        if str(VISION) not in sys.path:sys.path.insert(0,str(VISION))
+        from models import VisionModels
+        if self.vision is None:self.vision=VisionModels()
+        sys.path.insert(0,str(ROOT/'foundationpose'))
+        from foundationpose.infer_snapshot import prepare_estimator
+        prepare_estimator(ROOT/'web/cad/gripper-v2/battery-print.stl',.001,output,self.pose)
+        return {'status':'ready','elapsed_s':round(time.monotonic()-started,3)}
+
     def segment(self,args):
         if str(VISION) not in sys.path:sys.path.insert(0,str(VISION))
         from models import VisionModels
@@ -154,7 +164,7 @@ def main():
             args=message['arguments']
             for key in ('frame','image','output','mask','head_frame','head_mask'):
                 if args.get(key) and not Path(args[key]).resolve().is_relative_to(run):raise ValueError('Perception path outside task')
-            operation={'segment':models.segment,'estimate':models.estimate}[message['operation']]
+            operation={'warmup':models.warmup,'segment':models.segment,'estimate':models.estimate}[message['operation']]
             data=operation(args)
             reply=dict(id=identity,ok=True,data=data)
         except Exception as error:

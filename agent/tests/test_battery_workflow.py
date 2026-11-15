@@ -3,7 +3,7 @@ import copy
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 from agent.config import Config
 from agent.storage import RunStore,atomic_json
 from agent.battery_workflow import build_workflow
@@ -46,6 +46,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertAlmostEqual(flow.tools.pick_setup['T_wrist_from_tool'][0][3],.14814204045)
             self.assertEqual(list(flow.tools.backends.directory.iterdir()),[])
             prepare.assert_not_called()
+    def test_assembly_reuses_preheated_perception_session(self):
+        session=Mock();self.store.perception_session=session
+        flow=self.build()
+        self.assertIs(flow.store.perception_session,session)
     def test_real_dispatch_completes_coarse_once_then_requires_new_observation(self):
         flow=self.build();self.coarse(flow);step=Step();step.finish.set()
         with patch('agent.battery_backend.prepare_step',return_value=step) as prepare, patch(

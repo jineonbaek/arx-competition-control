@@ -132,6 +132,9 @@ class CompetitionTask:
                 s['worker'] = worker
                 try:
                     self._save(s, action)
+                    pick=self.modules.get('pick')
+                    if s['index']<=1 and callable(getattr(pick,'prewarm',None)):
+                        pick.prewarm(s['cancel'])
                     worker.start()
                 except Exception:
                     s['status'] = 'needs_attention'
@@ -314,6 +317,10 @@ class CompetitionTask:
 
     def _finish(self, s, status, reason):
         stopped = status == 'completed' or self._stop_module(s)
+        pick=self.modules.get('pick')
+        try:
+            if callable(getattr(pick,'discard_prewarm',None)):pick.discard_prewarm()
+        except Exception as error:self.controller.log('视觉预热清理失败：'+str(error)[:200],'warning')
         with self.lock:
             if s['cancel'].is_set(): status, reason = 'paused', '操作员停止'
             s.update(status=status, reason=reason or s['reason'])
