@@ -29,7 +29,7 @@ class ExtractionTests(unittest.TestCase):
             snapshot=lambda:dict(arms={'right':{'joints':self.joints.tolist(),'received':self.now,
                 'gripper':-1.,'fresh':True}},body={'height':5.1,'fresh':True}),
             interrupt_motion=lambda token:setattr(self,'owned',False),
-            submit=lambda command,token:self.commands.append(command) or {'ok':True})
+            submit=lambda command,token,**kwargs:self.commands.append(command) or {'ok':True})
         self.step=WristExtractionStep(self.controller,'owned',
             refinement={'position_tolerance_mm':[18.,18.,18.],'orientation_tolerance_deg':5.},
             arm_policy=self.arm_policy)
@@ -92,7 +92,7 @@ class ExtractionTests(unittest.TestCase):
 
     def test_rejected_return_never_reports_carry_ready(self):
         self.step.start()
-        def submit(command,token):
+        def submit(command,token,**kwargs):
             self.commands.append(command)
             return {'ok':command['type']!='arm.joints'}
         self.controller.submit=submit

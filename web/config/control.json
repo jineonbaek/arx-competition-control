@@ -115,7 +115,7 @@
       "command_result_topic": "/web/right/command_result",
       "joint_speed_deg_s": 5.7,
       "trajectory_policy": {
-        "speed_deg_s": 8.55,
+        "speed_deg_s": 50.0,
         "acceleration_deg_s2": 18.0,
         "start_tolerance_deg": 0.5,
         "tracking_tolerance_deg": 3.0,
@@ -123,7 +123,15 @@
         "lease_s": 0.5,
         "max_duration_s": 60.0,
         "start_speed_deg_s": 0.2
-      }
+      },
+      "automatic_joint_speed_deg_s": [
+        15.0,
+        15.0,
+        15.0,
+        50.0,
+        50.0,
+        50.0
+      ]
     }
   },
   "body": {

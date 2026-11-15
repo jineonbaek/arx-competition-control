@@ -24,10 +24,16 @@ struct ArmLimits {
   }
   std::vector<double> advance(const std::vector<double>& reference, const std::vector<double>& target,
                               const std::vector<double>& actual, double speed_deg_s, double dt) const {
+    return advance(reference,target,actual,std::array<double,6>{speed_deg_s,speed_deg_s,speed_deg_s,speed_deg_s,speed_deg_s,speed_deg_s},dt);
+  }
+  std::vector<double> advance(const std::vector<double>& reference, const std::vector<double>& target,
+                              const std::vector<double>& actual, const std::array<double,6>& speeds_deg_s, double dt) const {
     auto next=reference;
-    double distance=0;
-    for(int i=0;i<6;++i) distance=std::max(distance,std::abs(target[i]-reference[i]));
-    double fraction=distance>0?std::min(1.0,speed_deg_s*M_PI/180*dt/distance):1;
+    double fraction=1;
+    for(int i=0;i<6;++i) {
+      double distance=std::abs(target[i]-reference[i]);
+      if(distance>0) fraction=std::min(fraction,speeds_deg_s[i]*M_PI/180*dt/distance);
+    }
     for(int i=0;i<6;++i) {
       next[i]+=fraction*(target[i]-reference[i]);
       if(std::abs(next[i]-actual[i])*180/M_PI>max_delta_deg+1e-9) return reference;

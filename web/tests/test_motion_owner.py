@@ -46,6 +46,19 @@ class MotionOwnerTests(unittest.TestCase):
             self.controller.submit({'type':'arm.joints','arm':'right','joints':[999.]*6},token)
         self.assertEqual(len(self.adapter.calls),1)
 
+    def test_only_owned_joint_commands_use_automatic_speed_profile(self):
+        from unittest.mock import Mock
+        self.controller.config['arms']['right']['command_result_topic']='/test/ack'
+        self.adapter.arm=Mock(return_value=None)
+        command={'type':'arm.joints','arm':'right','joints':[1.]*6}
+        self.controller.submit(command,'browser')
+        self.assertEqual(self.adapter.arm.call_args.kwargs['kind'],'arm.joints')
+        token=self.reserve()
+        self.controller.submit(command,token)
+        self.assertEqual(self.adapter.arm.call_args.kwargs['kind'],'arm.joints')
+        self.controller.submit(command,token,automatic_joint_speed=True)
+        self.assertEqual(self.adapter.arm.call_args.kwargs['kind'],'arm.joints.auto')
+
     def test_stops_interrupt_old_task_and_cannot_be_undone_by_owner(self):
         for stop in ({'type':'arm.stop','arm':'right'},{'type':'lift.stop'},
                      {'type':'chassis.stop','sequence':1}):

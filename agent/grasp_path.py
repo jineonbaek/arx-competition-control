@@ -117,10 +117,10 @@ class TimedJointPath:
         v=np.asarray(joint_speed_deg_s,float);a=np.asarray(joint_acceleration_deg_s2,float)
         if (q.ndim!=2 or q.shape[1]!=6 or len(q)<2 or v.shape!=(6,) or a.shape!=(6,)
                 or not np.isfinite(q).all() or not np.isfinite(v).all() or not np.isfinite(a).all()
-                or np.any(v<=0) or np.any(v>8.55) or np.any(a<=0)
+                or np.any(v<=0) or np.any(v>np.array([15.,15.,15.,50.,50.,50.])) or np.any(a<=0)
                 or not np.isfinite([reach_m,tcp_speed_mm_s,tcp_acceleration_mm_s2]).all()
                 or min(reach_m,tcp_speed_mm_s,tcp_acceleration_mm_s2)<=0):
-            raise ValueError('Explicit finite six-joint timing limits required; X5 speed cap is 8.55 deg/s')
+            raise ValueError('Explicit finite six-joint timing limits required; X5 joint speed caps are 15/15/15/50/50/50 deg/s')
         delta=np.abs(np.diff(q,axis=0));length=delta.sum(axis=1)
         if np.any(length==0):raise ValueError('Duplicate adjacent trajectory knots')
         speed_bound=reach_m*1000*length
