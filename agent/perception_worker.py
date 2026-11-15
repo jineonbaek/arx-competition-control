@@ -105,7 +105,7 @@ class Models:
                 self.head_target if camera=='d405' else None)
         if chosen is None:
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
-            report=run_frame(self.vision,judge,image,reference,TASK,output,camera=camera)
+            report=run_frame(self.vision,judge,image,reference,TASK,output,camera=camera,review_mask=False)
             atomic_json(output/'qwen-reports.json',judge.records)
             report['path']='qwen_fallback'
         else:

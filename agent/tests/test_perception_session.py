@@ -65,6 +65,42 @@ class PerceptionTests(unittest.TestCase):
                 self.assertEqual(report['path'],'pose_tracking' if tracked else 'qwen_fallback')
                 self.assertEqual(worker.vision.detect.called,not tracked)
 
+    def test_real_vision_fallback_selects_without_qwen_mask_review(self):
+        import importlib.util,sys,types
+        from PIL import Image
+        from agent.perception_worker import Models,VISION
+        target=types.ModuleType('target')
+        target.shape_view=lambda image:image
+        target.load_reference=lambda:Image.new('RGB',(80,60))
+        target.DINO_PROMPT='fixture';target.TASK='fixture'
+        spec=importlib.util.spec_from_file_location('candidate_only_pipeline',VISION/'pipeline.py')
+        pipeline=importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules,target=target):spec.loader.exec_module(pipeline)
+        judge=SimpleNamespace(records=[],select=Mock(return_value={'status':'selected','candidate_id':1}),
+            review=Mock(side_effect=AssertionError('Qwen mask review must not run')))
+        pipeline.QwenJudge=Mock(return_value=judge)
+        model_module=types.ModuleType('models');model_module.VisionModels=Mock()
+        row=dict(candidate_id=1,bbox_xyxy=[8,8,32,32],score=.8,label='battery')
+        mask=np.zeros((60,80),bool);mask[10:30,10:30]=True
+        for ambiguous in (False,True):
+            with self.subTest(ambiguous=ambiguous),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);Image.new('RGB',(80,60)).save(root/'rgb.png')
+                np.savez(root/'frame.npz',camera_id='d405')
+                worker=Models();worker.vision=Mock()
+                worker.vision.detect.return_value=[row];worker.vision.segment.return_value=(mask,.95)
+                chosen=None if ambiguous else (row,mask,.95)
+                with patch.dict(sys.modules,{'target':target,'pipeline':pipeline,'models':model_module}), \
+                        patch('agent.perception_worker.validate_frame'), \
+                        patch('agent.perception_worker.local_choice',return_value=chosen):
+                    result=worker.segment(dict(frame=str(root/'frame.npz'),image=str(root/'rgb.png'),output=str(root/'out')))
+                self.assertEqual(result['status'],'perception_accepted')
+                self.assertEqual(result['path'],'qwen_fallback' if ambiguous else 'local_candidate')
+                if ambiguous:
+                    judge.select.assert_called_once()
+                    self.assertEqual(result['review']['status'],'skipped')
+                else:judge.select.assert_not_called()
+                judge.review.assert_not_called()
+
     def test_session_is_lazy_and_close_releases_the_task_child(self):
         with tempfile.TemporaryDirectory() as root:
             with patch('agent.perception_session.subprocess.Popen') as launch:
