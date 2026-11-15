@@ -4,6 +4,13 @@ cd "$(dirname "$0")/.."
 source sensor_env.sh
 export ARX_DESKTOP_LAUNCHER="$PWD/desktop/start_navigation.sh"
 source staging/waypoint-rviz/install/local_setup.bash
+# New RViz overlay is separate; retain the previous package as fallback/rollback.
+arx_waypoint_prefix="$PWD/staging/effective-waypoint-rviz"
+if [[ -d "$arx_waypoint_prefix/share/ament_index" ]]; then
+    export AMENT_PREFIX_PATH="$arx_waypoint_prefix:${AMENT_PREFIX_PATH:-}"
+    export LD_LIBRARY_PATH="$arx_waypoint_prefix/lib:${LD_LIBRARY_PATH:-}"
+fi
+unset arx_waypoint_prefix
 config="$PWD/polarbear_adapt/polarbear.rviz"
 python3 "$PWD/polarbear_adapt/rviz_cloud_display.py" &
 rear_cloud_pid=$!
@@ -14,4 +21,16 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-rviz2 -d "$config"
+view_run=$(cat reports/active-polarbear-adapt.txt 2>/dev/null || true)
+while true; do
+    if rviz2 -d "$config"; then
+        if python3 "$PWD/desktop/close_navigation.py" "$view_run"; then
+            break
+        else
+            status=$?
+            [[ "$status" == 10 ]] || exit "$status"
+        fi
+    else
+        exit "$?"
+    fi
+done

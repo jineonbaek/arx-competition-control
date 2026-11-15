@@ -13,14 +13,16 @@ from sensor_msgs.msg import PointCloud2,PointField,LaserScan
 from sensor_msgs_py.point_cloud2 import read_points_numpy,create_cloud_xyz32
 from shared_obstacles import packet
 from global_mark import GlobalMarkFilter
+from obstacle_height import in_height_band
 import os
 from chassis_filter import ChassisFilter,bottom_left_self_returns,bottom_right_weak_returns
 from shared_voxels import without_self_shadow
 from core import split_ground
 from blind_core import filter_scan,apply_occlusion
+from cloud_queue import PendingClouds
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from rear_sector import rear_points,mask_scan
+from rear_sector import rear_points,mask_scan,rear_forward_points,mask_rear_forward_scan
 class Bridge(Node):
  def __init__(self):
   self.source=os.getenv('ARX_OBSERVATION_SENSOR','bottom');self.rear=self.source=='head';self.optical='rear_livox' if self.rear else 'bottom_livox';self.level='pb_rear_lidar_level' if self.rear else 'pb_lidar_level'
@@ -48,26 +50,29 @@ class Bridge(Node):
   self.global_filter=GlobalMarkFilter()
   self.global_pub=self.create_publisher(PointCloud2,"/pb/global_mark",10)
   self.pairs={};self.safeobs=self.create_publisher(PointCloud2,'/pb/obstacles',10);self.safeground=self.create_publisher(PointCloud2,'/pb/ground',10)
+  self.navobs=self.create_publisher(PointCloud2,'/pb/nav_obstacles',10)
   self.gs=self.create_subscription(PointCloud2,'/pb/ground_raw',lambda m:self.segment(m,'ground'),qos_profile_sensor_data)
   self.os=self.create_subscription(PointCloud2,'/pb/obstacle_raw',lambda m:self.segment(m,'obstacle'),qos_profile_sensor_data)
   self.blind=float(os.environ.get('ARX_BLIND','0.35'))
   self.mapscanpub=self.create_publisher(LaserScan,'/pb/mapping_scan',10)
   self.ms=self.create_subscription(LaserScan,'/pb/mapping_scan_unchecked',self.mapping_scan,qos_profile_sensor_data)
-  self.near_masks={};self.count=0;self.drops=0;self.last=0;self.pending=None;self.timer=self.create_timer(.02,self.tick)
+  self.near_masks={};self.count=0;self.drops=0;self.last=0;self.pending=PendingClouds();self.timer=self.create_timer(.02,self.tick)
  def footprint(self):
   if self.rear:return
   pts=json.loads((Path(__file__).resolve().parent/"footprint.json").read_text())["polygon_m"]
   p=PolygonStamped();p.header.frame_id="base_link";p.header.stamp=self.get_clock().now().to_msg();p.polygon.points=[Point32(x=float(x),y=float(y),z=0.) for x,y in pts];self.footpub.publish(p)
- def cloud(self,m):self.pending=m
+ def cloud(self,m):self.pending.add(Time.from_msg(m.header.stamp).nanoseconds,m)
  def tick(self):
-  if self.pending is None:return
-  m=self.pending
-  age=(self.get_clock().now().nanoseconds-Time.from_msg(m.header.stamp).nanoseconds)/1e9
-  if age>1 or age<-.1:self.pending=None;self.drops+=1;return
+  if not self.pending:return
+  def resolve(m):
+   stamp=Time.from_msg(m.header.stamp)
+   try:return (self.buf.lookup_transform('odom',self.optical,stamp),self.buf.lookup_transform(self.optical,m.header.frame_id,stamp),self.buf.lookup_transform('base_link',self.optical,stamp))
+   except Exception:return None
+  selected=self.pending.take_ready(self.get_clock().now().nanoseconds,resolve)
+  self.drops=self.pending.stale_drops
+  if selected is None:return
+  m,(t,src,body)=selected
   stamp=Time.from_msg(m.header.stamp)
-  try:t=self.buf.lookup_transform('odom',self.optical,stamp);src=self.buf.lookup_transform(self.optical,m.header.frame_id,stamp);body=self.buf.lookup_transform('base_link',self.optical,stamp)
-  except Exception:return
-  self.pending=None
   q=t.transform.rotation;s=src.transform.rotation;v=src.transform.translation
   with_strength=any(f.name=='intensity' and f.datatype==PointField.FLOAT32 and f.count==1 for f in m.fields)
   fields=('x','y','z','intensity') if with_strength else ('x','y','z')
@@ -78,6 +83,10 @@ class Bridge(Node):
   # First IMU cloud -> actual optical origin; then gravity align about that origin.
   pts=pts@Rotation.from_quat([s.x,s.y,s.z,s.w]).as_matrix().T+np.array([v.x,v.y,v.z])
   b=body.transform.rotation;v=body.transform.translation
+  if self.rear and self.dual:
+   visible=~rear_forward_points(pts)
+   pts=pts[visible]
+   if strength is not None:strength=strength[visible]
   base_points=pts@Rotation.from_quat([b.x,b.y,b.z,b.w]).as_matrix().T+[v.x,v.y,v.z]
   inside=self.chassis.contains(base_points)
   if self.mesh is not None:inside|=self.mesh.mask(base_points,np.eye(4),self.mesh.nominal_head,.02)
@@ -115,7 +124,7 @@ class Bridge(Node):
   while len(self.rays)>24:self.rays.pop(next(iter(self.rays)))
   tf=TransformStamped();tf.header=m.header;tf.header.frame_id='odom';tf.child_frame_id=self.level;tf.transform.translation=t.transform.translation;tf.transform.rotation.w=1.;self.br.sendTransform(tf)
   h=m.header;h.frame_id=self.level;self.pub.publish(create_cloud_xyz32(h,pts.astype(np.float32)));self.count+=1
-  if self.count%50==0:Path(os.environ['ARX_ADAPT_RUN'],f'bridge-{self.source}-health.json').write_text(json.dumps({'frames':self.count,'chassis_points_removed':self.chassis_dropped,'bottom_right_weak_removed':self.right_weak_dropped,'bottom_left_self_removed':self.left_self_dropped,'stale_dropped':self.drops,'stamp':stamp.nanoseconds,'optical_height_m':t.transform.translation.z,'commands_sent':0}))
+  if self.count%50==0:Path(os.environ['ARX_ADAPT_RUN'],f'bridge-{self.source}-health.json').write_text(json.dumps({'frames':self.count,'chassis_points_removed':self.chassis_dropped,'bottom_right_weak_removed':self.right_weak_dropped,'bottom_left_self_removed':self.left_self_dropped,'stale_dropped':self.drops,'queued_clouds':len(self.pending),'queue_overflow_drops':self.pending.overflow_drops,'stamp':stamp.nanoseconds,'optical_height_m':t.transform.translation.z,'commands_sent':0}))
  def segment(self,m,key):
   stamp=(m.header.stamp.sec,m.header.stamp.nanosec);pair=self.pairs.setdefault(stamp,{})
   pair[key]=m
@@ -136,19 +145,25 @@ class Bridge(Node):
   origin=transform.transform.translation
   xyz=np.array([origin.x,origin.y,origin.z])
   all_points=out+xyz
-  all_points=all_points[np.linalg.norm(all_points-xyz,axis=1)<=8.]
-  normal=(all_points[:,2]>=.03)&(all_points[:,2]<=1.35)
+  within_range=np.linalg.norm(all_points-xyz,axis=1)<=8.
+  normal=in_height_band(all_points)&within_range
+  # Mapping keeps safeobs unchanged. Only navigation receives the height gate,
+  # evaluated before LaserScan flattens the physical height to the sensor plane.
+  self.navobs.publish(create_cloud_xyz32(m.header,out[normal].astype(np.float32)))
   hits=all_points[normal]
   seeds=np.asarray(good,dtype=float).reshape(-1,3)+xyz
   rays=self.rays.pop(stamp,None)
-  if rays is not None:self.shared_pub.publish(packet(m.header.stamp,xyz,rays,hits,ground=seeds[::2],extra=all_points[~normal]))
+  if rays is not None:self.shared_pub.publish(packet(m.header.stamp,xyz,rays,hits,ground=seeds[::2],extra=all_points[~normal&within_range]))
   valid=self.global_filter.keep(out,np.array([origin.x,origin.y,origin.z]),stamp[0]+stamp[1]*1e-9)
+  valid &= normal
   self.global_pub.publish(create_cloud_xyz32(m.header,out[valid].astype(np.float32)))
 
  def safe_ranges(self,m):
   mask=self.near_masks.get((m.header.stamp.sec,m.header.stamp.nanosec))
   out=apply_occlusion(filter_scan(m.ranges,max(self.blind,m.range_min),m.range_max),m.angle_min,m.angle_increment,mask)
-  return out if self.rear else mask_scan(out,m.angle_min,m.angle_increment)
+  if self.rear:
+   return mask_rear_forward_scan(out,m.angle_min,m.angle_increment) if self.dual else out
+  return mask_scan(out,m.angle_min,m.angle_increment)
  def scan(self,m):
   m.ranges=self.safe_ranges(m);self.scanpub.publish(m)
  def mapping_scan(self,m):

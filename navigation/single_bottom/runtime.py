@@ -34,7 +34,8 @@ class Runtime(Node):
   elif mode=='body':
    self.guard=OdomGuard();self.gap_warned=False;self.output_state={'healthy':False}
    self.tf=TransformBroadcaster(self);self.static=StaticTransformBroadcaster(self);self.pub=self.create_publisher(Odometry,'/localization/odometry',20)
-   self.sub=self.create_subscription(Odometry,'/single/odometry_raw',self.odom,50)
+   self.sub=self.create_subscription(Odometry,'/single/odometry_raw',self.odom,
+    rclpy.qos.QoSProfile(depth=1,reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT))
   else:
    # Map conversion/publication can block; it must never stall odometry/TF.
    self.map_pub=self.create_publisher(PointCloud2,'/mapping/cloud_map',2)

@@ -1,0 +1,4 @@
+<library path="base_mask_layers">
+  <class name="arx_base_mask::InflationLayer" type="arx_base_mask::InflationLayer" base_class_type="nav2_costmap_2d::Layer"/>
+  <class name="arx_base_mask::VoxelLayer" type="arx_base_mask::VoxelLayer" base_class_type="nav2_costmap_2d::Layer"/>
+</library>
