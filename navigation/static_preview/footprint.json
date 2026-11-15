@@ -70,7 +70,7 @@
     ]
   ],
   "covering_radius_m": 0.529,
-  "padding_m": 0.03,
+  "padding_m": 0.0,
   "source": "delivered CAD voxel hull; nominal arm/lift pose",
   "head_margin_for_collision_not_flex_tracking": true
 }

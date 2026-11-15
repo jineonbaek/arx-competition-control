@@ -18,8 +18,10 @@ from std_msgs.msg import Header
 from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformBroadcaster, TransformListener, TransformException
 from clear_votes import TransientEvidence, SIZE
-from shared_voxels import World, credible
+from shared_voxels import World, credible, without_self_shadow
+from near_field_marking import NearFieldPromotion, model_orientation
 from shared_obstacles import packet
+from obstacle_height import in_height_band
 from trail_evidence import SensorTrail, append_trail_evidence
 
 
@@ -38,6 +40,8 @@ class Observations(Node):
     def __init__(self, sensors_only=False):
         super().__init__('pb_nav_observations' if sensors_only else 'pb_dual_observations')
         self.sensors_only=sensors_only
+        cfg=Path(__file__).resolve().parents[1]/'config/fixed_dual.json'
+        self.fixed=cfg.exists() and json.loads(cfg.read_text()).get('enabled',False)
         self.stvl=sensors_only and os.getenv("ARX_STVL_EVIDENCE")=="1"
         self.evidence={}
         self.live_alignment=None
@@ -49,6 +53,9 @@ class Observations(Node):
         self.blind = float(self.declare_parameter('blind', .35).value)
         self.filters = {s: World() for s in ('bottom', 'head')}
         self.prev = {}
+        self.promotions={s:NearFieldPromotion() for s in ('bottom','head')} if self.stvl else {}
+        self.model_rotations={}
+        self.quality_stats={}
         self.scan = {}
         self.mark = {}
         self.dynamic = None if sensors_only else TransientEvidence(ChassisSolid(Path(__file__).resolve().parents[1]/"models/lift2s_bottom_upright_20261105/base_interior.npz"))
@@ -112,8 +119,13 @@ class Observations(Node):
             tr.child_frame_id = f'pb_nav_{s}_{suffix}'
             tr.transform.translation.x, tr.transform.translation.y = map(float, origin[:2])
             tr.transform.translation.z = float(z)
-            tr.transform.rotation.z = math.sin(yaw/2)
-            tr.transform.rotation.w = math.cos(yaw/2)
+            heading=yaw+math.pi if self.fixed and s=='head' and suffix=='sensor' else yaw
+            if suffix=='sensor' and self.fixed and s in self.model_rotations:
+                quat=self.model_rotations[s]
+                tr.transform.rotation.x,tr.transform.rotation.y,tr.transform.rotation.z,tr.transform.rotation.w=map(float,quat)
+            else:
+                tr.transform.rotation.z = math.sin(heading/2)
+                tr.transform.rotation.w = math.cos(heading/2)
             transforms.append(tr)
         self.tf.sendTransform(transforms)
 
@@ -156,8 +168,12 @@ class Observations(Node):
                         import json
                         cfg=Path(__file__).resolve().parents[1]/'config/fixed_dual.json'
                         fixed=cfg.exists() and json.loads(cfg.read_text()).get('enabled')
-                        if not fixed or self.live_alignment is None or self.get_clock().now().nanoseconds-self.live_alignment[0]>300000000:raise
-                        to_map=self.live_alignment[1]
+                        if not fixed:raise
+                        if self.live_alignment is not None and self.get_clock().now().nanoseconds-self.live_alignment[0]<=300000000:
+                            to_map=self.live_alignment[1]
+                        # Fixed-dual mapping must bootstrap without map->odom.
+                        # Publish odom-frame persistent marks now; STVL evidence
+                        # waits for a real map transform, never an identity guess.
             except TransformException:continue
             queue.popleft()
             self.receive(source,msg,tr,to_map)
@@ -182,26 +198,39 @@ class Observations(Node):
         previous_t,previous=self.prev.get(s,(-1,None))
         if t<=previous_t:return
         hits=self.filters[s].floor_filter(s,t,origin,rays,hits,ground,extra)
+        hits=hits[in_height_band(hits)]
         supported=credible(hits,previous if t-previous_t<.35 else None)
         self.prev[s]=(t,hits)
+        persistent=supported
         if self.stvl:
-            qmap=to_map.rotation;omap=to_map.translation
-            rot=Rotation.from_quat([qmap.x,qmap.y,qmap.z,qmap.w]).as_matrix()
-            delta=np.array([omap.x,omap.y,omap.z])
-            self.trails[s].observe_alignment(rot, delta)
-            map_origin = origin @ rot.T + delta
-            map_rays = rays @ rot.T + delta
-            map_hits = supported @ rot.T + delta
-            owned, vacated = self.trails[s].evidence(t, s, map_origin, map_rays, map_hits)
-            msg = packet(m.header.stamp, map_origin, map_rays, map_hits)
-            append_trail_evidence(msg, map_hits[owned], vacated)
-            msg.header.frame_id='map'
-            self.evidence[s].publish(msg)
+            quality=self.promotions[s].keep(supported,origin,t)
+            persistent=supported[quality]
+            # Rejected persistent marks cannot manufacture free space behind them.
+            rays=without_self_shadow(rays,supported[~quality],origin)
+            stat=self.quality_stats.setdefault(s,dict(frames=0,candidates=0,promoted=0,rejected=0,commands_sent=0))
+            stat['frames']+=1;stat['candidates']+=len(supported);stat['promoted']+=len(persistent);stat['rejected']+=int((~quality).sum())
+            if stat['frames']%50==0 and os.getenv('ARX_ADAPT_RUN'):
+                Path(os.environ['ARX_ADAPT_RUN'],f'near-quality-{s}.json').write_text(json.dumps(stat))
+            self.model_rotations[s]=model_orientation([q.x,q.y,q.z,q.w],s=='head')
+            if to_map is not None:
+                qmap=to_map.rotation;omap=to_map.translation
+                rot=Rotation.from_quat([qmap.x,qmap.y,qmap.z,qmap.w]).as_matrix()
+                delta=np.array([omap.x,omap.y,omap.z])
+                self.trails[s].observe_alignment(rot, delta)
+                map_origin = origin @ rot.T + delta
+                map_rays = rays @ rot.T + delta
+                map_hits = persistent @ rot.T + delta
+                map_hits = map_hits[in_height_band(map_hits)]
+                owned, vacated = self.trails[s].evidence(t, s, map_origin, map_rays, map_hits)
+                msg = packet(m.header.stamp, map_origin, map_rays, map_hits)
+                append_trail_evidence(msg, map_hits[owned], vacated)
+                msg.header.frame_id='map'
+                self.evidence[s].publish(msg)
         if self.sensors_only:
             self.frames(s,origin,yaw,m.header.stamp)
             self.publish_scan(s,m.header.stamp,planar_ranges(supported,origin,yaw,self.blind))
             header=Header(frame_id='odom',stamp=m.header.stamp)
-            message=create_cloud_xyz32(header,supported.astype(np.float32))
+            message=create_cloud_xyz32(header,persistent.astype(np.float32))
             self.mark[s].publish(message)
             if self.compat_mark is not None and s=='bottom':self.compat_mark.publish(message)
             if s=='head':

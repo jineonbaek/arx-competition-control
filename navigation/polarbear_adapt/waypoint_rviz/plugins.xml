@@ -1,0 +1,6 @@
+<library path="arx_waypoint_rviz">
+  <class name="arx_waypoints/MappingPanel" type="arx_waypoints::MappingPanel" base_class_type="rviz_common::Panel"><description>Map session controls, available on demand.</description></class>
+  <class name="arx_waypoints/Panel" type="arx_waypoints::Panel" base_class_type="rviz_common::Panel"><description>Order, start or cancel a waypoint route.</description></class>
+  <class name="arx_waypoints/Add" type="arx_waypoints::Add" base_class_type="rviz_common::Tool"><description>Add a map pose without starting the robot.</description></class>
+  <class name="arx_waypoints/ForegroundPolygon" type="arx_waypoints::ForegroundPolygon" base_class_type="rviz_common::Display"><description>Display a footprint in front of the 3D scene.</description></class>
+</library>

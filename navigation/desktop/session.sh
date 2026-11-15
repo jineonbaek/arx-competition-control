@@ -22,7 +22,7 @@ try:
 except (OSError,ValueError):
     # A running driver may still be trying to communicate with the console.
     import subprocess
-    sys.exit(subprocess.run(['pgrep','-f','[p]olarbear_adapt/goal_drive.py'],stdout=subprocess.DEVNULL).returncode==0)
+    sys.exit(subprocess.run(['pgrep','-f','[p]olarbear_adapt/(mppi_)?goal_drive.py'],stdout=subprocess.DEVNULL).returncode==0)
 sys.exit(bool(state['chassis_active']))
 PY
 }
@@ -56,7 +56,9 @@ stop_session() {
     bash desktop/save_navigation_map.sh </dev/null || return 1
   fi
   if [[ -s "$run/goal-drive.pid" ]];then
-    stop_owned "$(cat "$run/goal-drive.pid")" "polarbear_adapt/goal_drive.py" || return 1
+    local drive_pattern='polarbear_adapt/goal_drive.py'
+    if [[ "$(tr '\0' ' ' <"/proc/$(cat "$run/goal-drive.pid")/cmdline" 2>/dev/null)" == *'polarbear_adapt/mppi_goal_drive.py'* ]];then drive_pattern='polarbear_adapt/mppi_goal_drive.py';fi
+    stop_owned "$(cat "$run/goal-drive.pid")" "$drive_pattern" || return 1
   fi
   stop_owned "$(cat "$run/launch.pid")" 'ros2 launch polarbear_adapt/navigation.launch.py' || return 1
   python3 desktop/session_processes.py stop "$run"

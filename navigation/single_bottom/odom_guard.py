@@ -1,5 +1,9 @@
 """Monotonic odometry with bounded, fresh-only stationary gap recovery."""
 import math
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from pose_freshness import fresh as pose_fresh
 import numpy as np
 
 class OdomGuard:
@@ -19,7 +23,7 @@ class OdomGuard:
         if not np.isfinite(np.r_[p,q,v]).all() or np.linalg.norm(q)<1e-9:
             self.reason='nonfinite odometry';return 'fault'
         q=q/np.linalg.norm(q)
-        fresh=-100_000_000<=now-stamp<=300_000_000
+        fresh=pose_fresh(stamp,now)
         gap=previous is not None and stamp-previous>=1_000_000_000
         if self.anchor is not None and (gap or self.pending):
             old_p,old_q=self.anchor
@@ -41,5 +45,5 @@ class OdomGuard:
 def map_output_allowed(state,now):
     try:
         age=now-int(state['last_published_ns'])
-        return state['healthy'] is True and -100_000_000<=age<=300_000_000
+        return state['healthy'] is True and pose_fresh(int(state['last_published_ns']),now)
     except (KeyError,TypeError,ValueError):return False

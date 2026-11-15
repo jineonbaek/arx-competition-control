@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import rclpy
 import runtime
+from pose_freshness import fresh
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--run',type=Path,required=True)
@@ -44,7 +45,7 @@ if args.operator_confirmed_static:
     audit=rclpy.create_node('body_operator_static_audit');rows=[]
     def receive(m):
         stamp=m.header.stamp.sec*10**9+m.header.stamp.nanosec
-        if not -100_000_000<=audit.get_clock().now().nanoseconds-stamp<=300_000_000:return
+        if not fresh(stamp,audit.get_clock().now().nanoseconds):return
         po=m.pose.pose;tw=m.twist.twist
         if m.header.frame_id!='lio_world' or m.child_frame_id!='bottom_imu':return
         p,q,v,_,_=runtime.body_state([po.position.x,po.position.y,po.position.z],

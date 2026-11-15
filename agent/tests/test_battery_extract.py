@@ -3,6 +3,7 @@ import unittest
 import tempfile
 import time
 from types import SimpleNamespace
+from unittest.mock import Mock,patch
 import numpy as np
 from scipy.spatial.transform import Rotation
 from agent.battery_extract import WristExtractionStep
@@ -13,6 +14,10 @@ class ExtractionTests(unittest.TestCase):
         self.pose=np.eye(4);self.pose[:3,3]=[.45,-.15,.70]
         self.pose[:3,:3]=Rotation.from_euler('xyz',[-85,1,2],degrees=True).as_matrix()
         self.commands=[];self.owned=True
+        self.retreat=Mock()
+        self.retreat.poll.return_value={'status':'chassis_stopped'}
+        patched=patch('agent.battery_extract.ChassisRetreatStep',return_value=self.retreat)
+        patched.start();self.addCleanup(patched.stop)
         self.now=10.
         self.joints=np.radians([10.,20.,30.,5.,6.,-80.])
         self.arm_policy=dict(tolerance=[.035]*6,max_speed=[.05]*6,
@@ -36,15 +41,22 @@ class ExtractionTests(unittest.TestCase):
             result=self.step.poll()
         return result
 
-    def test_one_wrist_command_subtracts_200_mm_and_preserves_yz_and_pose(self):
+    def test_one_wrist_command_subtracts_155_mm_then_chassis_stops_before_return(self):
         self.assertEqual(self.commands,[])
         self.assertEqual(self.step.start()['status'],'withdrawing')
         command=self.commands[0]
         self.assertEqual(command['type'],'arm.wrist')
-        np.testing.assert_allclose(command['position_mm'],[250.,-150.,700.])
+        np.testing.assert_allclose(command['position_mm'],[295.,-150.,700.])
         np.testing.assert_allclose(command['orientation_deg'],[-85.,1.,2.])
-        self.pose[:3,3]+=[-.2,.017,-.017]
+        self.pose[:3,3]+=[-.155,.017,-.017]
         self.pose[:3,:3]=self.pose[:3,:3]@Rotation.from_euler('x',4.9,degrees=True).as_matrix()
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.retreat.start.assert_called_once()
+        self.assertEqual(len(self.commands),1)
+        self.retreat.poll.return_value={'status':'backing_chassis'}
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.assertEqual(len(self.commands),1)
+        self.retreat.poll.return_value={'status':'chassis_stopped'}
         self.assertEqual(self.step.poll()['status'],'returning')
         self.assertEqual(self.commands[1],dict(type='arm.joints',arm='right',joints=[0.,0.,0.,0.,0.,-90.]))
         self.assertEqual(self.finish_return()['status'],'carry_ready')
@@ -53,7 +65,7 @@ class ExtractionTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.step.start()
 
     def test_outside_existing_tolerance_waits_and_cancel_never_opens_gripper(self):
-        self.step.start();self.pose[0,3]-=.180
+        self.step.start();self.pose[0,3]-=.135
         self.assertEqual(self.step.poll()['status'],'withdrawing')
         self.assertTrue(self.step.cancel()['stop_required'])
         self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
@@ -66,7 +78,8 @@ class ExtractionTests(unittest.TestCase):
         self.assertNotEqual(result['status'],'withdrawn')
 
     def test_return_waits_for_all_six_joint_errors_and_existing_settling(self):
-        self.step.start();self.pose[0,3]-=.2
+        self.step.start();self.pose[0,3]-=.155
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
         self.assertEqual(self.step.poll()['status'],'returning')
         self.joints=np.radians([0.,0.,0.,0.,0.,-87.9])
         self.now+=.1
@@ -77,14 +90,14 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(self.finish_return()['status'],'carry_ready')
 
     def test_cancel_during_return_stops_without_opening_or_lift_commands(self):
-        self.step.start();self.pose[0,3]-=.2;self.step.poll()
+        self.step.start();self.pose[0,3]-=.155;self.step.poll();self.step.poll()
         receipt=self.step.cancel()
         self.assertTrue(receipt['stop_required'])
         self.assertEqual(self.step.poll()['status'],'cancelled')
         self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.joints','arm.stop'])
 
     def test_rejected_return_never_reports_carry_ready(self):
-        self.step.start();self.pose[0,3]-=.2
+        self.step.start();self.pose[0,3]-=.155;self.step.poll()
         def submit(command,token):
             self.commands.append(command)
             return {'ok':command['type']!='arm.joints'}
@@ -92,6 +105,20 @@ class ExtractionTests(unittest.TestCase):
         receipt=self.step.poll()
         self.assertTrue(receipt['stop_required'])
         self.assertNotEqual(receipt['status'],'carry_ready')
+
+    def test_cancel_while_chassis_moves_brakes_and_never_starts_return(self):
+        self.step.start();self.pose[0,3]-=.155;self.step.poll()
+        self.retreat.poll.return_value={'status':'backing_chassis'}
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.step.cancel();self.retreat.cancel.assert_called_once()
+        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
+
+    def test_chassis_failure_stops_without_returning_arm(self):
+        self.step.start();self.pose[0,3]-=.155;self.step.poll()
+        self.retreat.poll.side_effect=ValueError('motion_pose_stale_or_invalid')
+        self.assertTrue(self.step.poll()['stop_required'])
+        self.retreat.cancel.assert_called_once()
+        self.assertEqual([c['type'] for c in self.commands],['arm.wrist','arm.stop'])
 
     def test_real_controller_joint_command_keeps_measured_gripper_and_lift(self):
         from web.tests.test_control import Controller,FakeAdapter,configured
