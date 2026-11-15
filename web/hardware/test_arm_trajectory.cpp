@@ -23,6 +23,14 @@ int main(int argc,char** argv){
         assert(t.status()=="reference_complete");std::cout<<out.dump()<<"\n";return 0;
     }
     auto p=plan();
+    {auto manual=limits;manual.max_delta_deg=5.7;auto relaxed=policy;relaxed.tracking_tolerance_deg=10.;
+     for(double degrees:{9.,11.}){ArmTrajectory t(manual,relaxed);t.start(p,std::vector<double>(7,0),0);
+       auto actual=std::vector<double>(7,0);actual[0]=degrees*M_PI/180;
+       auto q=t.tick(.01,actual,true);
+       if(degrees<10.)assert(q.size()==6&&t.active());
+       else assert(q.empty()&&t.reason()=="tracking_error");}
+     relaxed.tracking_tolerance_deg=10.1;bool rejected=false;
+     try{ArmTrajectory t(manual,relaxed);}catch(...){rejected=true;}assert(rejected);}
     for(auto kind:{0,1,2,3,4}){auto x=p;
         if(kind==0)x["time_from_start_s"]={0.,0.,4.};
         if(kind==1)x["joint_waypoints_rad"][1][0]=5.;

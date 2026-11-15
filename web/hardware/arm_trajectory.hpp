@@ -31,7 +31,7 @@ public:
                   p.max_tick_gap_s,p.lease_s,p.max_duration_s,p.start_speed_deg_s})
       if(!std::isfinite(v)||v<=0)throw std::invalid_argument("Invalid trajectory policy");
     if(p.speed_deg_s>50. || p.start_tolerance_deg>p.tracking_tolerance_deg ||
-       p.tracking_tolerance_deg>limits.max_delta_deg || p.max_tick_gap_s>p.lease_s ||
+       p.tracking_tolerance_deg>10. || p.max_tick_gap_s>p.lease_s ||
        p.lease_s>p.max_duration_s || p.start_speed_deg_s>p.speed_deg_s)throw std::invalid_argument("Inconsistent trajectory policy");
   }
   bool active() const{return state_=="running";}

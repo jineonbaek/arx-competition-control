@@ -118,7 +118,7 @@
         "speed_deg_s": 50.0,
         "acceleration_deg_s2": 18.0,
         "start_tolerance_deg": 0.5,
-        "tracking_tolerance_deg": 5.0,
+        "tracking_tolerance_deg": 10.0,
         "max_tick_gap_s": 0.05,
         "lease_s": 0.5,
         "max_duration_s": 60.0,
