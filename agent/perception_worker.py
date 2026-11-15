@@ -92,7 +92,8 @@ class Models:
                 surface_location(frame,mask)
                 if score<.85:raise ValueError('Tracked mask confidence low')
                 y,x=np.nonzero(mask)
-                if (x.min()<box[0] or x.max()>=box[2] or y.min()<box[1] or y.max()>=box[3]):
+                outside=(x<box[0])|(x>=box[2])|(y<box[1])|(y>=box[3])
+                if np.count_nonzero(outside)>.05*x.size:
                     raise ValueError('Tracked mask left predicted region')
                 chosen=({'candidate_id':0,'bbox_xyxy':box},mask,score);method='pose_tracking'
             except ValueError as error:tracking_error=str(error)

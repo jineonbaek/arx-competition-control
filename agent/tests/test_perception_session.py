@@ -26,6 +26,45 @@ class PerceptionTests(unittest.TestCase):
             self.assertIsNone(local_choice(rows,{},models,None))
             self.assertIsNone(local_choice(rows[:1],{},models,None,np.array([1000,0,500.])))
 
+    def test_tracking_allows_five_percent_overflow_without_changing_other_checks(self):
+        import sys,types
+        from PIL import Image
+        from agent.perception_worker import Models
+        target=types.ModuleType('target')
+        target.shape_view=lambda image:image
+        target.load_reference=lambda:None
+        target.DINO_PROMPT='fixture';target.TASK='fixture'
+        pipeline=types.ModuleType('pipeline')
+        pipeline.QwenJudge=Mock(return_value=SimpleNamespace(records=[]))
+        pipeline.run_frame=Mock(side_effect=lambda *a,**kw:{'status':'perception_accepted'})
+        pipeline.overlay_mask=lambda image,mask:image
+        pipeline.filter_fixed_gripper_candidates=lambda rows,size,camera:(rows,[])
+        pipeline.mask_geometry=lambda mask:{}
+        model_module=types.ModuleType('models');model_module.VisionModels=Mock()
+        for outside,score,depth_ok,tracked in [(0,.95,True,True),(4,.95,True,True),
+                (5,.95,True,True),(6,.95,True,False),
+                (0,.84,True,False),(0,.95,False,False)]:
+            with self.subTest(outside=outside,score=score,depth_ok=depth_ok), tempfile.TemporaryDirectory() as root:
+                root=Path(root);Image.new('RGB',(14,14)).save(root/'rgb.png')
+                np.savez(root/'frame.npz',camera_id='d405')
+                mask=np.zeros((14,14),bool)
+                inside_y,inside_x=np.indices((10,10))
+                mask[inside_y.ravel()[:100-outside]+2,inside_x.ravel()[:100-outside]+2]=True
+                mask[2:2+outside,12]=True
+                worker=Models();worker.pose={'base_from_object':np.eye(4)}
+                worker.vision=Mock();worker.vision.segment.return_value=(mask,score)
+                worker.vision.detect.return_value=[]
+                with patch.dict(sys.modules,{'target':target,'pipeline':pipeline,'models':model_module}), \
+                        patch('agent.perception_worker.validate_frame'), \
+                        patch('agent.perception_worker.projected_box',return_value=[2,2,12,12]), \
+                        patch('agent.perception_worker.local_choice',return_value=None), \
+                        patch('agent.battery_observation.surface_location',
+                              side_effect=None if depth_ok else ValueError('Invalid depth')):
+                    report=worker.segment({'frame':str(root/'frame.npz'),
+                        'image':str(root/'rgb.png'),'output':str(root/'out')})
+                self.assertEqual(report['path'],'pose_tracking' if tracked else 'qwen_fallback')
+                self.assertEqual(worker.vision.detect.called,not tracked)
+
     def test_session_is_lazy_and_close_releases_the_task_child(self):
         with tempfile.TemporaryDirectory() as root:
             with patch('agent.perception_session.subprocess.Popen') as launch:
