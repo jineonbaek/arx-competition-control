@@ -22,6 +22,13 @@ class CabinetPreviewTests(unittest.TestCase):
         r=p.analyze_frame('d435','demo',f);self.assertEqual(r['status'],'localized');self.assertFalse(r['executable']);self.assertEqual(r['plan']['z_range_mm'],0);self.assertEqual(r['arm_path']['status'],'rejected')
         self.assertEqual(r['environment_evidence']['status'],'unavailable');self.assertNotIn('observed_corridor_points',r)
         self.assertEqual(r['window']['localization_source'],'rgb_cad_pnp');self.assertFalse(r['readiness']['execution_ready'])
+    def test_execution_capture_can_skip_duplicate_preview_ik_without_skipping_geometry(self):
+        p=self.make();f=rgb_frame();k=json.loads(f['intrinsics']);k['fy']=650*66*169.6/(141*79);f['intrinsics']=json.dumps(k)
+        def forbidden(*args):raise AssertionError('Duplicate preview IK must not run')
+        p._arm_preview=forbidden
+        r=p.analyze_frame('d435','demo',f,include_arm_preview=False)
+        self.assertEqual(r['status'],'localized');self.assertEqual(r['plan']['z_range_mm'],0)
+        self.assertEqual(r['arm_path']['status'],'deferred');self.assertFalse(r['executable'])
     def test_partial_view_has_no_inferred_plane_or_route(self):
         p=self.make();f=frame();f['rgb']=np.roll(f['rgb'],-200,axis=1);f['camera_id']='d405'
         r=p.analyze_frame('d405','demo',f);self.assertEqual(r['status'],'partial');self.assertNotIn('plan',r)

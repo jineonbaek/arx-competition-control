@@ -1,0 +1,7 @@
+# Held cabinet execution connection
+
+User requests connecting the real path and ignoring errors within5mm, with prior authorization for supervised physical placement. Implement a server-owned real right-arm segment task, preserving the offline simulator boundary. Client selects only current cabinet model and start/cancel; never raw joints, coordinates, gains or approval. Actual ControllerBridge transports the fixed internal timed trajectory and enforces trusted physical approvals. No production approval is invented from a user tolerance or camera reprojection.
+
+5mm is an outside TCP arrival tolerance, checked using actual FK from fresh settled feedback; preserve tight joint following, aperture checks and fixed-Z insertion. A 79mm aperture with75mm battery height has only2mm nominal clearance per side when perfectly aligned.5mm cannot be treated as safe insertion error or as permission to ignore a collision.
+
+Default production planner uses fresh D435 color+CAD preview, physical-evidence provider remains unavailable until measured acceptance. This explicit limitation must be reported by the start route. A trusted internal planner/provider can exercise real ControllerBridge (fake transport in regression); the task must handle asynchronous polling, cancel, stop/unknown ownership retention, and no automatic replay. No gripper release, chassis or lift transport is added. HTTP is authenticated and same-origin as existing control. Real placement remains blocked where evidence or geometry fails; connecting the runner must never synthesize PhysicalApproval.

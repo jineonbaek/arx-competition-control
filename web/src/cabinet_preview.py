@@ -41,7 +41,7 @@ class CabinetPreview:
             captures={camera:CabinetColorCapture(controller,camera=camera,root=self.root) for camera in ('d435','d405')}
         self.captures=captures
 
-    def action(self,data):
+    def action(self,data,*,include_arm_preview=True):
         if not isinstance(data,dict) or set(data)!={'camera','model'} or data['camera'] not in self.captures or data['model'] not in ('demo','competition'):
             raise ValueError('仅接受相机与电池仓模型选择，不接受坐标或执行参数')
         state=self.controller.snapshot()
@@ -51,11 +51,11 @@ class CabinetPreview:
         with self.cache_lock:self.latest.pop(camera,None)
         try:
             frame=self.captures[camera].capture()
-            self.analyze_frame(camera,data['model'],frame)
+            self.analyze_frame(camera,data['model'],frame,include_arm_preview=include_arm_preview)
             return self.snapshot()[camera]
         finally:self.lock.release()
 
-    def analyze_frame(self,camera,mode,frame,*,now=None):
+    def analyze_frame(self,camera,mode,frame,*,now=None,include_arm_preview=True):
         if camera not in ('d435','d405') or str(frame['camera_id'])!=camera:raise ValueError('相机身份与配对帧不一致')
         hashes=self._source_hashes(camera)
         self.profiles=json.loads((self.root/'config/cabinet-profiles.json').read_text())
@@ -84,7 +84,8 @@ class CabinetPreview:
                 plan=horizontal_plan(window,slot,self.battery,tip_point_object_mm=self.grip['points_object_mm']['tip'])
                 result['plan']=plan
                 result['alignment']=self._alignment(frame,plan)
-                result['arm_path']=self._arm_preview(frame,plan)
+                result['arm_path']=(self._arm_preview(frame,plan) if include_arm_preview else
+                    dict(status='deferred',executable=False,reason='实机任务独立计算当前升降的轨迹；未重复运行预览逆解'))
                 plan['blockers'].extend(result['readiness']['blockers'])
                 self._draw(image,frame,window,plan)
             except (ValueError,KeyError) as e:result.update(status='planning_rejected' if 'window' in result else 'rgb_rejected',reason=str(e))

@@ -2,7 +2,7 @@
 
 新增 `agent/cabinet_controller_bridge.py`，提供已有 Controller 的进程内右臂时序轨迹适配。它调用已有 `reserve_motion/start_trajectory/poll_trajectory`，独立停止使用 `adapter.arm_stop('right')`，不构造 ROS、SDK、CAN 或相机对象。
 
-2026-11-15 按用户“升级推送并测试”指令，已升级在线网页观察服务，并增加只读就绪状态和固定拒绝测试接口。没有运动 HTTP 入口，也没有把 OfflineCabinetRun 改成实机执行；该流程仍严格只接受 SimulationExecutor。本模块也没有实现或安装实际物理证据提供器。默认调用会在申请控制权前拒绝。因此不能把本轮单元测试通过解释为已经完成实机放置或已具备物理执行许可。
+2026-11-15 按用户“升级推送并测试”指令，已升级在线网页观察服务，并增加只读就绪状态和固定拒绝测试接口。后续已增加受保护的仓口任务入口 `/api/cabinet-execution`，只接收模型开始/取消，不接受任意轨迹或许可；生产物理提供器仍未安装，执行禁用。没有把 OfflineCabinetRun 改成实机执行；该流程仍严格只接受 SimulationExecutor。本模块也没有实现或安装实际物理证据提供器。默认调用会在申请控制权前拒绝。因此不能把本轮单元测试通过解释为已经完成实机放置或已具备物理执行许可。
 
 ## 已覆盖的接口行为
 
@@ -47,3 +47,5 @@
 首次升级检查遇到观察订阅刚启动、轨迹状态尚未到达，实际提前拒绝为“No idle trajectory driver”，已自动回退。只读 ROS 状态核实驱动为 idle/ready，增加订阅发现等待后重新升级，正确命中缺少物理提供器门控；没有绕过驱动或物理门控。
 
 报告在主机 `reports/bridge-upgrade-20261115/`；本地摘要见 `docs/cabinet-upgrade-verification.md`。上一轮851项测试和缺参数拒绝结果属于升级前历史记录。
+
+后续带电池任务接线、仓外5mm容差和实际开始拒绝结果见 `docs/held-execution-integration.md`。接口已接线不代表完整实物放置已放行。

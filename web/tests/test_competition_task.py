@@ -107,7 +107,9 @@ class CompetitionTests(unittest.TestCase):
         module.status = 'running'
         self.action('start')
         deadline = time.monotonic()+2
-        while self.task.snapshot()['phase'] != 'navigate_place' and time.monotonic()<deadline: time.sleep(.01)
+        # Phase selection precedes module dispatch; this test pauses an already started module.
+        while not any(row[:2]==('start','navigate_place') for row in self.trace) and time.monotonic()<deadline: time.sleep(.01)
+        self.assertTrue(any(row[:2]==('start','navigate_place') for row in self.trace))
         self.action('stop')
         paused = self.wait('paused')
         self.assertEqual([t['status'] for t in paused['tasks'][:3]], ['completed']*3)

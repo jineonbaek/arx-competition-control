@@ -76,3 +76,24 @@ async function camera(c){
  }catch{el(c+'-live').hidden=true;el(c+'-live-status').textContent='相机离线或画面已过期';}
 }
 setInterval(refresh,1500);setInterval(()=>{expireDisplayed();for(const c of ['d435','d405'])camera(c);},1000);refresh();
+function executionResult(r){
+ const active=['planning','queued','running','cancelling'].includes(r.status);
+ el('execute').disabled=r.start_checks_available!==true||active||r.status==='recovery_required';
+ el('execute').textContent='检查并执行右臂路径';el('stop-task').disabled=!active;
+ el('stop-task').textContent='停止本次右臂任务';
+ el('execution-status').textContent=`${r.status||'未连接'} · ${r.reason||'仓外到位容差5mm；入仓净空与实机证据检查保持有效，完成后保持夹持。'}`;
+}
+async function executionStatus(){
+ try{executionResult(await api('/api/cabinet-execution'));}
+ catch(e){el('execute').disabled=true;el('execution-status').textContent='任务状态连接中断：'+e.message;}
+}
+el('execute').onclick=async()=>{
+ el('execute').disabled=true;
+ try{executionResult(await api('/api/cabinet-execution',{op:'start',model:el('cabinet-model').value}));}
+ catch(e){el('execution-status').textContent=e.message;}
+};
+el('stop-task').onclick=async()=>{
+ try{executionResult(await api('/api/cabinet-execution',{op:'cancel'}));}
+ catch(e){el('execution-status').textContent='停止请求结果未知：'+e.message;}
+};
+setInterval(executionStatus,1000);executionStatus();
