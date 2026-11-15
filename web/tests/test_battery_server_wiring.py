@@ -44,7 +44,7 @@ class BatteryServerWiringTests(unittest.TestCase):
                   'max_duration_s':60.0,'start_speed_deg_s':0.2}
         control=json.loads((ROOT/'web/config/control.json').read_text())
         self.assertEqual(control['arms']['left']['trajectory_policy'],expected)
-        self.assertEqual(control['arms']['right']['trajectory_policy'],dict(expected,speed_deg_s=50.))
+        self.assertEqual(control['arms']['right']['trajectory_policy'],dict(expected,speed_deg_s=50.,tracking_tolerance_deg=5.))
         self.assertEqual(control['arms']['right']['automatic_joint_speed_deg_s'],[15.]*3+[50.]*3)
         policy=json.loads(policy_path.read_text())
         self.assertEqual(policy['timing_limits']['joint_speed_deg_s'],control['arms']['right']['automatic_joint_speed_deg_s'])
