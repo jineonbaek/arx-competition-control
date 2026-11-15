@@ -1,5 +1,6 @@
 """CAD mesh clearance against the fixed base, using the preview's URDF visuals."""
 import math
+import hashlib
 from functools import lru_cache
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -26,16 +27,19 @@ def origin(node):
     return m
 
 
-def vertices(path):
-    data = path.read_bytes()
+def vertices(path, data=None):
+    data = path.read_bytes() if data is None else data
     record = np.dtype([("normal","<f4",3),("vertices","<f4",(3,3)),("extra","<u2")])
     return np.frombuffer(data, dtype=record, offset=84)["vertices"].reshape(-1,3).astype(float)
 
 
 @lru_cache(maxsize=64)
-def cad_mesh(path, scale, transform):
+def cad_mesh(path, scale, transform, source_sha256=None):
     m=np.asarray(transform,float).reshape(4,4)
-    v=vertices(path)*scale
+    data=path.read_bytes()
+    if source_sha256 is not None and hashlib.sha256(data).hexdigest()!=source_sha256:
+        raise ValueError('CAD mesh changed while loading')
+    v=vertices(path,data)*scale
     v=v@m[:3,:3].T+m[:3,3]
     def build(points):
         geometry=fcl.BVHModel()
@@ -75,14 +79,18 @@ def mesh_gap(obstacle, geometry, transform, bounds):
 
 class ColumnModel:
     def __init__(self, package=PACKAGE, *, side="right"):
-        xml = ET.parse(package/"urdf/lift2_with_sensors.urdf")
+        package=Path(package);urdf=package/"urdf/lift2_with_sensors.urdf";blob=urdf.read_bytes()
+        xml = ET.ElementTree(ET.fromstring(blob))
+        self.source_hashes={str(urdf.resolve()):hashlib.sha256(blob).hexdigest()}
         self.lift = origin(xml.find("joint[@name='joint4']/origin"))
         def mesh(name):
             visual = xml.find(f"link[@name='{name}']/visual")
             node=visual.find("geometry/mesh")
             path=node.get("filename").removeprefix("package://lift2/")
             scale=tuple(np.fromstring(node.get('scale','1 1 1'),sep=' '))
-            return cad_mesh(package/path,scale,tuple(origin(visual.find('origin')).ravel()))
+            source=(package/path).resolve();digest=hashlib.sha256(source.read_bytes()).hexdigest()
+            self.source_hashes[str(source)]=digest
+            return cad_mesh(source,scale,tuple(origin(visual.find('origin')).ravel()),digest)
         base,geometry = mesh("base_link")
         self.column = base.min(0),base.max(0)
         self.obstacle=geometry
@@ -104,6 +112,8 @@ class ColumnModel:
             self.parts.append((m,axis,lo+CORNERS*(hi-lo)))
         self.reach = sum(np.linalg.norm(m[:3,3]) for m,_,_ in self.parts) + max(
             np.linalg.norm(c,axis=1).max() for _,_,c in self.parts)
+        if any(hashlib.sha256(Path(p).read_bytes()).hexdigest()!=h for p,h in self.source_hashes.items()):
+            raise ValueError('Robot geometry changed while loading')
 
     def wrist_transform(self, q, lift):
         parent = self.lift.copy()

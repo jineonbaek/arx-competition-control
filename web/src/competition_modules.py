@@ -95,3 +95,30 @@ class QwenRecovery:
         from agent.contracts import validate
         validate(decision, schema)
         return decision
+
+
+class PlacementModule:
+    """Use exactly the same horizontal placement task as placement.html."""
+    recoveries={}
+    def __init__(self,task):self.task=task;self.runs={}
+    def start(self,context):
+        request=context['request_id']
+        if request in self.runs:raise ValueError('放置已启动，不能重放已执行动作')
+        if context['cancelled'].is_set():return dict(status='stopped',reason='操作员停止')
+        result=self.task.start_owned(context['token'])
+        self.runs[request]=result['run_id']
+        return dict(status='running')
+    def inspect(self,context):
+        result=self.task.snapshot()
+        if self.runs.get(context['request_id'])!=result.get('run_id'):
+            return dict(status='unknown',reason='没有本轮放置记录')
+        status=result['status']
+        return dict(status=('completed' if status=='completed' and result['battery_placed'] else
+                    'stopped' if status=='cancelled' else
+                    'failed' if status in ('blocked','recovery_required','completed') else 'running'),
+                    phase=result['phase'],reason=result['reason'],run_id=result['run_id'])
+    def stop(self,context):
+        self.task.action({'op':'cancel'})
+        if self.task.thread is not None:self.task.thread.join(2.)
+        return dict(stopped=self.task.thread is None or not self.task.thread.is_alive())
+    def resume(self,context):raise ValueError('放置需要核实中断状态，不能重新松爪或重放入仓动作')
