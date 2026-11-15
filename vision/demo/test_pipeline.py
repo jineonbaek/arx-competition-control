@@ -48,6 +48,20 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue((self.output/"mask.png").exists())
         self.assertFalse(result["geometry"]["robot_geometry_ready"])
 
+    def test_selection_only_skips_qwen_review_and_keeps_mask_validation(self):
+        from unittest.mock import Mock
+        judge=Judge({"status":"selected","candidate_id":1})
+        judge.review=Mock(side_effect=AssertionError("Qwen mask review must not run"))
+        models=Models(self.candidates)
+        result=self.run_frame(models,judge,review_mask=False)
+        self.assertEqual(result["status"],"perception_accepted")
+        self.assertEqual(judge.modes,[False]);judge.review.assert_not_called()
+        self.assertEqual(result["review"]["status"],"skipped")
+        models.segment=lambda image,**kw:(np.zeros((image.height,image.width),bool),.9)
+        result=self.run_frame(models,judge,review_mask=False)
+        self.assertEqual(result["status"],"needs_new_observation")
+        judge.review.assert_not_called()
+
     def test_shape_evidence_keeps_color_only_in_display_overlay(self):
         from unittest.mock import Mock
         from target import TASK, DINO_PROMPT, load_reference, shape_view

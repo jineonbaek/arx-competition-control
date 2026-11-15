@@ -233,7 +233,7 @@ class QwenJudge:
                          "reason":{"type":"string"}},["status","reason"])
 
 def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
-              threshold=.20,force_fallback=False,camera=None):
+              threshold=.20,force_fallback=False,camera=None,*,review_mask=True):
     shape=shape_view(image)
     reference=shape_view(reference)
     detected=models.detect(shape,DINO_PROMPT,threshold)
@@ -271,8 +271,9 @@ def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
     geometry=mask_geometry(mask,depth,(metadata or {}).get("depth"))
     report["geometry"]=geometry
     report["sam2_predicted_iou"]=score
-    report["review"]=judge.review(shape,reference,overlay_mask(shape,mask),geometry,task)
-    report["status"]="perception_accepted" if geometry["mask_valid"] and report["review"]["status"]=="accepted" else "needs_new_observation"
+    report["review"]=(judge.review(shape,reference,overlay_mask(shape,mask),geometry,task)
+                      if review_mask else {"status":"skipped","reason":"Qwen candidate selection only"})
+    report["status"]="perception_accepted" if geometry["mask_valid"] and (not review_mask or report["review"]["status"]=="accepted") else "needs_new_observation"
     return report
 
 def _png(image):
