@@ -27,7 +27,9 @@ from grasp_integration import GraspIntegration
 from navigation_view import read_snapshot
 from battery_task import BatteryTask
 from placement_preview import PlacementPreview
+from agent.cabinet_readiness import readiness as cabinet_readiness, admission_probe as cabinet_admission_probe
 from cabinet_preview import CabinetPreview
+from cabinet_rehearsal import CabinetRehearsal
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from competition_modules import GraspModule, QwenRecovery
@@ -45,10 +47,11 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
+    cabinet_rehearsal=cabinet_rehearsal or CabinetRehearsal(controller)
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
@@ -88,9 +91,12 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/cabinet-controller':
+                if not self.client():return self.json(403,{'message':'请先打开控制页面'})
+                return self.json(200,cabinet_readiness(controller))
             if path == '/api/cabinet-preview':
                 if not self.client():return self.json(403,{'message':'请先打开入仓预览页'})
-                return self.json(200,cabinet_preview.latest)
+                return self.json(200,cabinet_preview.snapshot())
             if path == '/api/placement-preview':
                 if not self.client():return self.json(403,{'message':'请先打开自动放置页面'})
                 return self.json(200,placement_preview.latest)
@@ -181,6 +187,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 data["task"] = {key: task.get(key) for key in ("status", "phase", "mission_stage", "reason", "run_id", "recovery_required")}
                 data['competition'] = competition_task.snapshot(self.client()) if competition_task else None
                 return self.json(200, data)
+            if path == '/api/cabinet-rehearsal':
+                if not self.client():return self.json(403,{'message':'请先打开控制页'})
+                return self.json(200,cabinet_rehearsal.snapshot())
             if path == "/api/state":
                 return self.json(200, controller.snapshot())
             if path == '/api/arxgent':
@@ -224,7 +233,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -237,6 +246,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/cabinet-controller/probe':
+                    return self.json(200,cabinet_admission_probe(controller,strict_json(raw)))
+                if path == '/api/cabinet-rehearsal':
+                    return self.json(202,cabinet_rehearsal.action(strict_json(raw)))
                 if path == '/api/cabinet-preview':
                     return self.json(200,cabinet_preview.action(strict_json(raw)))
                 if path == '/api/placement-preview':
@@ -312,6 +325,7 @@ def main():
     grasp_integration = GraspIntegration.from_repository(WEB_ROOT.parent, args.port)
     vision = VisionPreview()
     foundation = FoundationPosePreview(controller,depth_control)
+    cabinet_rehearsal=CabinetRehearsal(controller)
     placement_preview=PlacementPreview(controller,depth_control)
     placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
@@ -320,7 +334,7 @@ def main():
         recovery=QwenRecovery(arxgent.config))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview))
+        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
@@ -335,6 +349,7 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        cabinet_rehearsal.close()
         if placement_task is not None:placement_task.close()
         competition_task.close()
         foundation.close()

@@ -148,7 +148,8 @@ class Controller:
                     self.motion_trajectory.pop('stop_requested',None)
                 self.log("轨迹停止请求失败：" + str(error), "warning")
 
-    def start_trajectory(self, side, plan, token, *, preflight, require_lift_settle=True):
+    def start_trajectory(self, side, plan, token, *, preflight, require_lift_settle=True,
+                         expected_driver=None):
         """Process-only entry: planner checks scene, calibrated TCP and rest in preflight."""
         with self.lock:
             if side not in self.arms or not self.motion_valid(token) or not callable(preflight):
@@ -166,6 +167,14 @@ class Controller:
                                       "require_lift_settle": bool(require_lift_settle)}
             try:
                 expected = self.adapter.trajectory_status(side)
+                if expected_driver is not None:
+                    if (not isinstance(expected_driver,dict) or not isinstance(expected,dict)
+                            or any(expected.get(k)!=expected_driver.get(k)
+                                   for k in ('driver_instance','command_epoch'))):
+                        raise Rejected('审批绑定的轨迹驱动/代次已变化')
+                    # Preserve the approved epoch through the adapter and into
+                    # the driver's atomic start check; never rebind after stop.
+                    expected = copy.deepcopy(expected_driver)
                 handle, confirmation = self.adapter.trajectory_start(side, plan, expected)
                 self.motion_trajectory["handle"] = copy.deepcopy(handle)
                 self.command_epoch += 1

@@ -1,12 +1,16 @@
 """Cabinet recognition and path preview only. No motion reservation/submission API."""
 import base64
+import hashlib
 import json
 import threading
 from pathlib import Path
 import time
+import xml.etree.ElementTree as ET
 import cv2
 import numpy as np
 from agent.cabinet_preview_geometry import detect,localize,opening,horizontal_plan
+from agent.cabinet_rgb_geometry import localize_rgb,camera_matrix
+from cabinet_capture import CabinetColorCapture,CALIBRATIONS
 from agent.storage import atomic_json
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -29,13 +33,12 @@ class SeededModel:
 
 class CabinetPreview:
     def __init__(self,controller,depth,*,captures=None,root=ROOT):
-        self.controller=controller;self.root=Path(root);self.lock=threading.Lock();self.latest={}
+        self.controller=controller;self.root=Path(root);self.lock=threading.Lock();self.cache_lock=threading.Lock();self.latest={};self.bindings={}
         self.profiles=json.loads((self.root/'config/cabinet-profiles.json').read_text())
         self.battery=json.loads((self.root/'config/battery-envelope.json').read_text())
         self.grip=json.loads((self.root/'web/public/cad/battery-grip.json').read_text())
         if captures is None:
-            from grasp_preview import GraspPreview
-            captures={camera:GraspPreview(controller,depth,cache=self.root/'web/hardware/runtime'/('cabinet-'+camera),camera=camera) for camera in ('d435','d405')}
+            captures={camera:CabinetColorCapture(controller,camera=camera,root=self.root) for camera in ('d435','d405')}
         self.captures=captures
 
     def action(self,data):
@@ -44,19 +47,26 @@ class CabinetPreview:
         state=self.controller.snapshot()
         if state.get('motion_reserved') is not False or state.get('chassis_active') is not False:raise ValueError('请先结束运动任务再拍摄规划预览')
         if not self.lock.acquire(False):raise ValueError('仓口识别/路径规划正在进行')
-        camera=data['camera'];self.latest.pop(camera,None)
+        camera=data['camera']
+        with self.cache_lock:self.latest.pop(camera,None)
         try:
-            capture=self.captures[camera];view=capture.handle_action({'op':'capture'})
-            with np.load(capture.cache/'frame.npz',allow_pickle=False) as source:frame={k:source[k].copy() for k in source.files}
-            if str(frame['id'])!=view['id']:raise ValueError('配对深度帧已被更新')
-            return self.analyze_frame(camera,data['model'],frame)
+            frame=self.captures[camera].capture()
+            self.analyze_frame(camera,data['model'],frame)
+            return self.snapshot()[camera]
         finally:self.lock.release()
 
     def analyze_frame(self,camera,mode,frame,*,now=None):
         if camera not in ('d435','d405') or str(frame['camera_id'])!=camera:raise ValueError('相机身份与配对帧不一致')
+        hashes=self._source_hashes(camera)
+        self.profiles=json.loads((self.root/'config/cabinet-profiles.json').read_text())
+        self.battery=json.loads((self.root/'config/battery-envelope.json').read_text())
+        self.grip=json.loads((self.root/'web/public/cad/battery-grip.json').read_text())
         detected=detect(frame['rgb']);image=frame['rgb'][:,:,::-1].copy()
-        result={'camera':camera,'model':mode,'snapshot_id':str(frame['id']),'image_time':float(frame['image_time']),
-            'status':detected['status'],'executable':False,'reason':detected.get('reason','')}
+        result={'camera':camera,'role':'primary' if camera=='d435' else 'auxiliary','model':mode,
+            'snapshot_id':str(frame['id']),'image_time':float(frame['image_time']),
+            'status':detected['status'],'executable':False,'reason':detected.get('reason',''),
+            'environment_evidence':{'status':'unavailable','reason':'点云未配置，本链路不使用深度碰撞结论'},
+            'readiness':{'execution_ready':False,'blockers':['尚未验收负载路径、入仓精度和松爪条件']}}
         if detected['status']!='complete':
             for x,y,right,bottom in detected.get('partial_boxes_px',[]):cv2.rectangle(image,(x,y),(right-1,bottom-1),(0,190,255),2)
         else:
@@ -65,31 +75,107 @@ class CabinetPreview:
             cv2.polylines(image,[np.array(detected['outer_contour_px'],np.int32)],True,(0,200,255),1)
             slot=opening(self.profiles,mode)
             try:
-                window=localize(frame,slot,now=now)
+                window=localize_rgb(frame,slot,now=now)
                 result.update(status='localized',window=window,target_slot=slot['slot_id'])
+                result['readiness']['blockers'].append(window['scale_assumption'])
+                if window['pose_ambiguous']:result['readiness']['blockers'].append('平面PnP存在近似等价姿态，预览选最低像素误差候选')
                 cv2.polylines(image,[np.rint(window['inner_quad_px']).astype(np.int32)],True,(255,230,0),2)
                 cv2.polylines(image,[np.array(window['outer_contour_px'],np.int32)],True,(0,200,255),1)
                 plan=horizontal_plan(window,slot,self.battery,tip_point_object_mm=self.grip['points_object_mm']['tip'])
                 result['plan']=plan
                 result['alignment']=self._alignment(frame,plan)
                 result['arm_path']=self._arm_preview(frame,plan)
-                result['observed_corridor_points']=self._corridor(frame,window,plan)
-                if window['rim_plane_p90_mm']>=plan['nominal_cad_clearance_mm']:
-                    plan['blockers'].append('红框深度平面P90残差大于CAD最小净距，当前不能作为插入精度证据')
+                plan['blockers'].extend(result['readiness']['blockers'])
                 self._draw(image,frame,window,plan)
-                if result['observed_corridor_points']>15:plan['blockers'].append('实测点云在入仓包络中有潜在碰撞点，需复核')
-            except (ValueError,KeyError) as e:result.update(status='planning_rejected' if 'window' in result else 'depth_rejected',reason=str(e))
+            except (ValueError,KeyError) as e:result.update(status='planning_rejected' if 'window' in result else 'rgb_rejected',reason=str(e))
+        status=str(frame.get('calibration_status','未声明验证状态'))
+        result['calibration']={'camera_sha256':str(frame.get('calibration_sha256','')),
+            'camera_status':status,'physical_base_accuracy_verified':False,
+            'tcp_sha256':hashes.get('config/right-grip-tcp.json'),
+            'note':'沿用原抓取TCP；相机到机器人基座的精度需独立验证'}
+        result['readiness']['blockers'].append('相机到基座转换未完成实测验收：'+status)
+        if result.get('plan'):result['plan']['blockers'].append(result['readiness']['blockers'][-1])
+        result['source_hashes']=hashes;result['expires_at']=float(frame['image_time'])+30.
+        result['validity']={'valid':True,'reason':'冻结帧预览，需持续核对状态'}
+        bound={key:np.asarray(frame[key]).copy() if key in frame else None for key in ('joints','lift_rad','right_gripper','left_joints','command_epoch','body_configuration')}
+        captured_calibration_matches=hashes[CALIBRATIONS[camera]] in (None,str(frame.get('calibration_sha256','')))
+        if self._source_hashes(camera)!=hashes or not captured_calibration_matches:
+            result={k:v for k,v in result.items() if k not in ('plan','window','alignment','arm_path')}
+            result.update(status='stale',reason='采集后模型或标定发生变化，请重新识别',validity={'valid':False})
         ok,jpeg=cv2.imencode('.jpg',image)
         if not ok:raise ValueError('仓口预览图生成失败')
         result['image']='data:image/jpeg;base64,'+base64.b64encode(jpeg).decode()
-        self.latest[camera]=result
+        with self.cache_lock:self.bindings[camera]=bound;self.latest[camera]=result
         directory=self.root/'web/hardware/runtime/cabinet-preview';directory.mkdir(parents=True,exist_ok=True)
         atomic_json(directory/(camera+'-result.json'),result)
         return result
 
+    def _source_hashes(self,camera):
+        paths=[CALIBRATIONS[camera],'config/right-grip-tcp.json','config/cabinet-profiles.json',
+            'config/battery-envelope.json','web/public/cad/battery-grip.json',
+            'agent/cabinet_rgb_geometry.py','agent/cabinet_preview_geometry.py','agent/grasp_path.py',
+            'web/src/cabinet_preview.py','web/src/cabinet_capture.py','web/src/handeye_column.py','web/config/control.json']
+        package=Path('web/public/models/lift2/diy-20261105');urdf=package/'urdf/lift2_with_sensors.urdf';paths.append(str(urdf))
+        if (self.root/urdf).is_file():
+            xml=ET.parse(self.root/urdf)
+            for node in xml.findall('./link/visual/geometry/mesh'):
+                name=node.get('filename','')
+                if name.startswith('package://lift2/'):paths.append(str(package/name.removeprefix('package://lift2/')))
+        model=getattr(self.controller,'models',{}).get('right')
+        for name in getattr(model,'source_hashes',{}):paths.append(name)
+        return {p:hashlib.sha256((self.root/p).read_bytes()).hexdigest() if (self.root/p).is_file() else None for p in paths}
+
+    def _checked_model(self):
+        model=self.controller.models['right'];sources=getattr(model,'source_hashes',{})
+        if not sources:raise ValueError('机械臂模型没有加载来源身份，需重新加载模型后规划')
+        if any(hashlib.sha256(Path(p).read_bytes()).hexdigest()!=h for p,h in sources.items()):
+            raise ValueError('机械臂模型来源已变化，旧模型不能继续计算坐标或路径')
+        return model
+
+    def _invalid_reason(self,result,bound,state,now):
+        try:
+            if result.get('validity',{}).get('valid') is not True:return result.get('reason','预览已失效')
+            if not np.isfinite(now) or not -.1<=now-result['image_time']<=30:return '冻结预览已过期，请重新识别'
+            if state.get('motion_reserved') is not False or state.get('chassis_active') is not False:return '机器人已开始运动，旧路径已失效'
+            arm=state['arms']['right'];body=state['body']
+            stamps=np.array([arm['timestamp'],body['timestamp']],float)
+            if not arm.get('fresh') or not body.get('fresh') or not np.isfinite(stamps).all() or np.max(abs(now-stamps))>.5:return '机器人反馈过期，旧路径已失效'
+            if bound['command_epoch'] is None or state.get('command_epoch')!=int(bound['command_epoch']):return '控制指令已变化，请重新识别'
+            q=np.asarray(arm['joints'],float);old=np.asarray(bound['joints'],float)
+            if q.shape!=(6,) or old.shape!=(6,) or not np.isfinite(q).all() or not np.isfinite(old).all():return '关节绑定无效，请重新识别'
+            scalars=np.array([body['height'],bound['lift_rad'],arm['gripper'],bound['right_gripper']],float)
+            if not np.isfinite(scalars).all():return '升降或夹持绑定无效，请重新识别'
+            if np.max(abs(q-old))>np.radians(.25) or abs(scalars[0]-scalars[1])>.05 or abs(scalars[2]-scalars[3])>.05:return '关节、升降或夹持位置已变化，请重新识别'
+            if bound['left_joints'] is not None:
+                left=state['arms']['left'];lq=np.asarray(left['joints'],float);previous=np.asarray(bound['left_joints'],float)
+                if (not left.get('fresh') or abs(now-left['timestamp'])>.5 or lq.shape!=(6,) or previous.shape!=(6,)
+                        or not np.isfinite(lq).all() or not np.isfinite(previous).all() or np.max(abs(lq-previous))>np.radians(.25)):
+                    return '左臂状态已变化，请重新识别'
+            if bound['body_configuration'] is not None:
+                for key,value in json.loads(str(bound['body_configuration'])).items():
+                    if value is None:
+                        if body.get(key) is not None:return '机体或相机姿态已变化，请重新识别'
+                    elif (body.get(key) is None or not np.isfinite([value,body[key]]).all() or abs(body[key]-value)>.005):
+                        return '机体或相机姿态已变化，请重新识别'
+            if self._source_hashes(result['camera'])!=result['source_hashes']:return '模型、TCP、标定或规划代码已变化，请重新识别'
+            return ''
+        except (KeyError,TypeError,ValueError,OSError,OverflowError):return '缺少完整状态绑定，请重新识别'
+
+    def snapshot(self,*,now=None):
+        now=time.time() if now is None else now;state=self.controller.snapshot();out={}
+        with self.cache_lock:
+            for camera,result in self.latest.items():
+                reason=self._invalid_reason(result,self.bindings.get(camera,{}),state,now)
+                if reason:
+                    result={k:v for k,v in result.items() if k not in ('plan','window','alignment','arm_path')}
+                    result.update(status='stale',reason=reason,validity={'valid':False,'reason':reason},executable=False)
+                    self.latest[camera]=result
+                out[camera]=result
+        return out
+
     def _alignment(self,frame,plan):
         try:
-            model=self.controller.models['right'];tcp=np.array(json.loads((self.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
+            model=self._checked_model();tcp=np.array(json.loads((self.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
             current=model.wrist_transform(frame['joints'],float(frame['lift_rad']))@tcp
             return dict(current_tcp_base_mm=(current[:3,3]*1000).tolist(),pre_tcp_base_mm=plan['tcp_pre_base_mm'],
                 outside_alignment_required=True,alignment_changes_z=True,
@@ -101,7 +187,7 @@ class CabinetPreview:
         attempts=[]
         try:
             tcp=np.array(json.loads((self.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
-            model=SeededModel(self.controller.models['right']);current=float(frame['lift_rad'])
+            model=SeededModel(self._checked_model());current=float(frame['lift_rad'])
             # Conditional outside-alignment alternatives, never lift commands.
             candidates=[current]+sorted([v for v in (10.,8.,5.52) if abs(v-current)>.05],key=lambda v:abs(v-current))
             for lift in candidates:
@@ -119,10 +205,10 @@ class CabinetPreview:
     @staticmethod
     def _project(frame,points_mm):
         t=frame['base_from_color'];p=(np.asarray(points_mm)/1000-t[:3,3])@t[:3,:3]
-        k=json.loads(str(frame['intrinsics']));points=[]
-        # Captures contain factory undistorted rays; display projection is only an overlay.
+        k=json.loads(str(frame['intrinsics']));matrix,dist=camera_matrix(k);points=[]
         for x,y,z in p:
-            points.append([int(round(k['fx']*x/z+k['cx'])),int(round(k['fy']*y/z+k['cy']))] if z>.07 else None)
+            uv=cv2.projectPoints(np.array([[x,y,z]],float),np.zeros(3),np.zeros(3),matrix,dist)[0].reshape(2) if z>.07 else None
+            points.append(np.rint(uv).astype(int).tolist() if uv is not None else None)
         return points
 
     def _draw(self,image,frame,window,plan):
