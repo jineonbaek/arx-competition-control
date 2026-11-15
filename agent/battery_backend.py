@@ -12,17 +12,19 @@ from .battery_execution import prepare_step
 from .coarse_alignment import observer_search_geometry
 from .coarse_execution import CoarseAlignmentStep
 from .grasp_path import TimedJointPath
-from .pick_backend import CoarseExecutionBackend, ApproachExecutionBackend, PickExecutionBackend, ExtractionExecutionBackend
-from .battery_extract import WristExtractionStep
+from .pick_backend import (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend,
+    ExtractionExecutionBackend,CarryReturnExecutionBackend)
+from .battery_extract import WristExtractionStep,CarryReturnStep
 from .storage import atomic_json
 
-BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend,ExtractionExecutionBackend)}
+BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend,
+    ExtractionExecutionBackend,CarryReturnExecutionBackend)}
 
 class BatteryControllerBackend:
     def __init__(self,controller,token,store,*,policies,pick_setup,preflight,cancelled,timeout_s):
         if store.closed or not callable(preflight) or not callable(cancelled):
             raise ValueError('Open run and local preflight/cancellation required')
-        if set(timeout_s)!=set(BACKENDS)-{'stow_for_carry'} or any(type(t) not in (int,float) or not math.isfinite(t)
+        if set(timeout_s)!=set(BACKENDS)-{'stow_for_carry','return_to_carry'} or any(type(t) not in (int,float) or not math.isfinite(t)
                                                or not 0<t<=3600 for t in timeout_s.values()):
             raise ValueError('Finite deadlines required for all execution stages')
         self.controller=controller;self.token=token;self.store=store
@@ -184,14 +186,16 @@ class BatteryControllerBackend:
                     if saved['receipt']['status'] not in ('completed','rejected'):
                         raise ValueError('Earlier execution requires recovery')
                 if operation=='stow_for_carry':
-                    step=WristExtractionStep(self.controller,self.token,refinement=self.policies['refinement'],
+                    step=WristExtractionStep(self.controller,self.token)
+                elif operation=='return_to_carry':
+                    step=CarryReturnStep(self.controller,self.token,
                         arm_policy=self.policies['coarse']['arm_policy'],
                         timing_limits=self.pick_setup['timing_limits'],wrist_from_tool=self.pick_setup['T_wrist_from_tool'])
                 else:
                     step=prepare_step(operation,arguments['plan'],self.controller,self.token,
                         policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
                 timeout=self.timeout_s.get(operation,self.timeout_s['execute_pick'])
-                if operation=='stow_for_carry':timeout+=self.policies['coarse']['arm_policy']['timeout_s']
+                if operation=='return_to_carry':timeout+=self.policies['coarse']['arm_policy']['timeout_s']
                 entry=BACKENDS[operation](step,request_id=request_id,arguments=arguments,journal=path,
                     cancelled=lambda:self.store.closed or self.store.cancelled or self.cancelled(),
                     timeout_s=timeout)

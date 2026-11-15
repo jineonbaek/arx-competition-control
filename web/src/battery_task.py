@@ -108,7 +108,10 @@ class BatteryTask:
         data['tool_results']=[{'name':call['result'].get('tool'),
             'ok':call['result'].get('ok'),'error':call['result'].get('error'),
             'data':{k:v for k,v in call['result'].get('data',{}).items()
-                    if k in ('status','location','message','plan_id','result_file','image_time','execution_receipt')}}
+                    if k in ('status','location','message','plan_id','result_file','image_time','execution_receipt',
+                             'execution_status','execution_id','stage','extract_stage','carry_stage','extracted',
+                             'extraction_dx_mm','chassis_retreat_mm','carry_ready','target_wrist_base_mm',
+                             'target_transport_joints_deg')}}
             for key,call in state.get('calls',{}).items()
             if key.startswith('fixed_') and not key.startswith('fixed_poll_') and 'result' in call]
         receipts={}

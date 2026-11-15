@@ -10,7 +10,7 @@ from agent.grasp_path import TimedJointPath
 from unittest.mock import Mock,patch
 import numpy as np
 from scipy.spatial.transform import Rotation
-from agent.battery_extract import WristExtractionStep
+from agent.battery_extract import WristExtractionStep,CarryReturnStep
 
 
 class ExtractionTests(unittest.TestCase):
@@ -40,8 +40,8 @@ class ExtractionTests(unittest.TestCase):
             log=Mock(),
             start_trajectory=lambda side,plan,token,**kwargs:self.commands.append(dict(type='arm.trajectory',arm=side,**plan)),
             poll_trajectory=lambda token,**kwargs:{'status':self.trajectory_status})
-        self.step=WristExtractionStep(self.controller,'owned',
-            refinement={'position_tolerance_mm':[18.,18.,18.],'orientation_tolerance_deg':5.},
+        self.extract_step=WristExtractionStep(self.controller,'owned')
+        self.step=CarryReturnStep(self.controller,'owned',
             arm_policy=self.arm_policy,timing_limits=self.timing,wrist_from_tool=self.tcp)
 
     def finish_return(self):
@@ -54,14 +54,17 @@ class ExtractionTests(unittest.TestCase):
     def test_chassis_starts_without_wrist_motion_or_ik_and_stops_before_return(self):
         self.assertEqual(self.commands,[])
         self.controller.models['right'].inverse_wrist=Mock(side_effect=AssertionError('No wrist IK'))
-        self.assertEqual(self.step.start()['status'],'backing_chassis')
+        self.assertEqual(self.extract_step.start()['status'],'backing_chassis')
         self.retreat.start.assert_called_once()
         self.assertEqual(self.commands,[])
         self.retreat.poll.return_value={'status':'backing_chassis'}
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.assertEqual(self.extract_step.poll()['status'],'backing_chassis')
         self.assertEqual(self.commands,[])
         self.retreat.poll.return_value={'status':'chassis_stopped'}
-        self.assertEqual(self.step.poll()['status'],'returning')
+        self.assertEqual(self.extract_step.poll()['status'],'chassis_stopped')
+        self.assertEqual(self.commands,[])
+        with self.assertRaises(ValueError):self.extract_step.start()
+        self.assertEqual(self.step.start()['status'],'returning')
         self.assertEqual(self.commands[0]['type'],'arm.trajectory')
         np.testing.assert_allclose(self.commands[0]['joint_waypoints_rad'][-1],np.radians([0.,0.,0.,0.,0.,-90.]))
         self.assertEqual(self.finish_return()['status'],'carry_ready')
@@ -122,22 +125,22 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(receipt['status'],'carry_ready')
 
     def test_trajectory_failure_stops_without_releasing_gripper(self):
-        self.step.start();self.step.poll()
+        self.step.start()
         self.controller.poll_trajectory=Mock(side_effect=ValueError('Driver stopped'))
         self.assertTrue(self.step.poll()['stop_required'])
         self.assertEqual([c['type'] for c in self.commands],['arm.trajectory','arm.stop'])
 
     def test_cancel_before_chassis_completion_never_opens_gripper(self):
         self.retreat.poll.return_value={'status':'backing_chassis'}
-        self.step.start()
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.assertTrue(self.step.cancel()['stop_required'])
+        self.extract_step.start()
+        self.assertEqual(self.extract_step.poll()['status'],'backing_chassis')
+        self.assertTrue(self.extract_step.cancel()['stop_required'])
         self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_feedback_loss_stops_without_claiming_extraction(self):
-        self.step.start()
+        self.extract_step.start()
         self.controller.snapshot=lambda:dict(arms={'right':{'joints':[0.]*6,'fresh':False}},body={'height':5.1,'fresh':True})
-        result=self.step.poll()
+        result=self.extract_step.poll()
         self.assertTrue(result['stop_required'])
         self.assertNotEqual(result['status'],'withdrawn')
 
@@ -160,23 +163,22 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual([c['type'] for c in self.commands],['arm.trajectory','arm.stop'])
 
     def test_rejected_return_never_reports_carry_ready(self):
-        self.step.start()
         self.controller.start_trajectory=Mock(side_effect=ValueError('Driver rejected return'))
-        receipt=self.step.poll()
+        receipt=self.step.start()
         self.assertTrue(receipt['stop_required'])
         self.assertNotEqual(receipt['status'],'carry_ready')
 
     def test_cancel_while_chassis_moves_brakes_and_never_starts_return(self):
         self.retreat.poll.return_value={'status':'backing_chassis'}
-        self.step.start()
-        self.assertEqual(self.step.poll()['status'],'backing_chassis')
-        self.step.cancel();self.retreat.cancel.assert_called_once()
+        self.extract_step.start()
+        self.assertEqual(self.extract_step.poll()['status'],'backing_chassis')
+        self.extract_step.cancel();self.retreat.cancel.assert_called_once()
         self.assertEqual([c['type'] for c in self.commands],['arm.stop'])
 
     def test_chassis_failure_stops_without_returning_arm(self):
-        self.step.start()
+        self.extract_step.start()
         self.retreat.poll.side_effect=ValueError('motion_pose_stale_or_invalid')
-        receipt=self.step.poll()
+        receipt=self.extract_step.poll()
         self.assertTrue(receipt['stop_required'])
         self.assertEqual(receipt['failure_detail'],'ValueError: motion_pose_stale_or_invalid')
         self.retreat.cancel.assert_called_once()
@@ -221,25 +223,34 @@ class ExtractionTests(unittest.TestCase):
                 self.retreat.start.assert_called_once()
                 self.assertEqual(self.commands,[])
                 self.retreat.poll.return_value={'status':'chassis_stopped'}
-                request=store.state['run_id']+':extract'
+                extract_request=store.state['run_id']+':extract'
+                for _ in range(100):
+                    if backend.entries[extract_request].wait(.01):break
+                    time.sleep(.01)
+                self.assertEqual(self.commands,[])
+                result=tools.execute('get_execution_status',{},'extract_poll')
+                self.assertTrue(result['ok'],result)
+                self.assertEqual(store.state['mission']['stage'],'EXTRACTED')
+                self.assertEqual(backend.status('stow_for_carry',extract_request)['data']['extraction_dx_mm'],0.)
+                self.assertEqual(backend.status('stow_for_carry',extract_request)['data']['chassis_retreat_mm'],200.)
+
+                tools.execute('return_to_carry',{'plan_id':'held'},'carry')
+                carry_request=store.state['run_id']+':carry'
                 for _ in range(100):
                     if len(self.commands)==1:break
                     time.sleep(.01)
                 self.assertEqual(len(self.commands),1)
-                self.assertFalse(backend.entries[request].wait(.03))
-                self.assertNotEqual(store.state['mission']['stage'],'CARRY_READY')
+                self.assertFalse(backend.entries[carry_request].wait(.03))
                 self.joints=np.radians([.5,-.5,.2,-.2,.1,-89.])
                 for _ in range(5):
                     self.now+=.1;time.sleep(.03)
-                self.assertTrue(backend.entries[request].wait(1.))
-                result=tools.execute('get_execution_status',{},'poll')
+                self.assertTrue(backend.entries[carry_request].wait(1.))
+                result=tools.execute('get_execution_status',{},'carry_poll')
                 self.assertTrue(result['ok'],result)
                 self.assertEqual(store.state['mission']['stage'],'CARRY_READY')
-                tools.execute('stow_for_carry',{'plan_id':'held'},'extract')
+                tools.execute('return_to_carry',{'plan_id':'held'},'carry')
                 self.assertEqual([c['type'] for c in self.commands],['arm.trajectory'])
-                self.assertEqual(backend.status('stow_for_carry',request)['data']['target_transport_joints_deg'],[0.,0.,0.,0.,0.,-90.])
-                self.assertEqual(backend.status('stow_for_carry',request)['data']['extraction_dx_mm'],0.)
-                self.assertEqual(backend.status('stow_for_carry',request)['data']['chassis_retreat_mm'],200.)
+                self.assertEqual(backend.status('return_to_carry',carry_request)['data']['target_transport_joints_deg'],[0.,0.,0.,0.,0.,-90.])
             finally:backend.cancel_and_wait(1.);store.close()
 
     def test_tool_does_not_extract_before_hold_confirmation(self):
@@ -253,5 +264,7 @@ class ExtractionTests(unittest.TestCase):
                 backend=SimpleNamespace(available=lambda operation:True,invoke=lambda *a:self.fail('premature motion'))
                 tools=BatteryExecutionTools(Config(motion_enabled=True),store,backends=backend)
                 self.assertFalse(tools.execute('stow_for_carry',{'plan_id':'held'},'early')['ok'])
+                store.state['mission']['stage']='HOLD_CONFIRMED'
+                self.assertFalse(tools.execute('return_to_carry',{'plan_id':'held'},'early_carry')['ok'])
                 self.assertEqual(self.commands,[])
             finally:store.close()

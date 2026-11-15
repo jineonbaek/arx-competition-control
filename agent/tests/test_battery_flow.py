@@ -32,7 +32,8 @@ class Tools:
             m['stage']='PICK_AT_PREGRASP';m['approach_plan']=m['plan'];m['plan']=None
         elif name=='execute_pick':m['stage']='PICK_EXECUTED'
         elif name=='verify_hold':m['stage']='HOLD_CONFIRMED';data={'hold_status':'confirmed'}
-        elif name=='stow_for_carry':m['stage']='CARRY_READY';data={'carry_ready':True}
+        elif name=='stow_for_carry':m['stage']='EXTRACTED';data={'extracted':True}
+        elif name=='return_to_carry':m['stage']='CARRY_READY';data={'carry_ready':True}
         return dict(ok=True,data=data,error=None)
 
 def review(operation,plan):
@@ -52,7 +53,7 @@ class FlowTests(unittest.TestCase):
         names=self.tools.calls
         self.assertEqual(names.count('execute_battery_approach'),2)
         self.assertEqual(names.count('execute_pick'),1)
-        self.assertEqual(names[-2:],["verify_hold","stow_for_carry"])
+        self.assertEqual(names[-3:],["verify_hold","stow_for_carry","return_to_carry"])
         self.assertEqual(self.store.state['mission']['stage'],'CARRY_READY')
         self.assertNotIn('capture_grasp_scene',names)
         self.assertEqual(names.count('preview_battery_grasp'),3)
@@ -66,6 +67,13 @@ class FlowTests(unittest.TestCase):
         result=self.flow().run()
         self.assertEqual(result['status'],'needs_attention')
         self.assertEqual(self.tools.calls[-2:],['verify_hold','stow_for_carry'])
+
+    def test_carry_failure_does_not_replay_completed_chassis_retreat(self):
+        self.tools.fail='return_to_carry'
+        result=self.flow().run()
+        self.assertEqual(result['status'],'needs_attention')
+        self.assertEqual(self.tools.calls[-3:],['verify_hold','stow_for_carry','return_to_carry'])
+        self.assertEqual(self.tools.calls.count('stow_for_carry'),1)
 
     def test_correction_loop_is_not_stopped_by_the_initial_tool_call_budget(self):
         self.tools.corrections=25

@@ -188,11 +188,22 @@ class ApproachExecutionBackend(_PreparedExecutionBackend):
 class ExtractionExecutionBackend(_PreparedExecutionBackend):
     operation='stow_for_carry'
     stage_key='extract_stage'
-    terminal_stage='carry_ready'
-    running_stages=('backing_chassis','returning')
+    terminal_stage='chassis_stopped'
+    running_stages=('backing_chassis',)
 
     @staticmethod
     def _completed_data(receipt):
-        return dict(carry_ready=True,extracted=True,extraction_dx_mm=0.,chassis_retreat_mm=200.,
+        return dict(extracted=True,extraction_dx_mm=0.,chassis_retreat_mm=200.)
+
+
+class CarryReturnExecutionBackend(_PreparedExecutionBackend):
+    operation='return_to_carry'
+    stage_key='carry_stage'
+    terminal_stage='carry_ready'
+    running_stages=('returning',)
+
+    @staticmethod
+    def _completed_data(receipt):
+        return dict(carry_ready=True,
                     target_wrist_base_mm=receipt['target_wrist_base_mm'],
                     target_transport_joints_deg=receipt['target_transport_joints_deg'])

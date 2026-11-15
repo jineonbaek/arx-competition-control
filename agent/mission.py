@@ -12,7 +12,8 @@ OPERATIONS = {
     "plan_pick": (("GRASP_CANDIDATE_READY", "PICK_PLANNED"), "PICK_PLANNED", False),
     "execute_pick": (("PICK_PLANNED",), "PICK_EXECUTED", True),
     "verify_hold": (("PICK_EXECUTED",), "HOLD_CONFIRMED", False),
-    "stow_for_carry": (("HOLD_CONFIRMED",), "CARRY_READY", True),
+    "stow_for_carry": (("HOLD_CONFIRMED",), "EXTRACTED", True),
+    "return_to_carry": (("EXTRACTED",), "CARRY_READY", True),
     "navigate_to_area": (("CARRY_READY",), "ARRIVED_AT_PLACE_AREA", True),
     "align_battery_to_slot": (("SLOT_IDENTIFIED", "ALIGNED"), "ALIGNED", True),
     "insert_battery": (("ALIGNED",), "INSERTED", True),
@@ -104,7 +105,8 @@ class Mission:
                 raise AgentError("placement_not_confirmed", "Correct insertion, release and at least 3 seconds stability are required")
             self.data[operation + "_evidence"] = data
         else:
-            evidence = {"execute_pick": ("pose_reached",), "stow_for_carry": ("carry_ready",),
+            evidence = {"execute_pick": ("pose_reached",), "stow_for_carry": ("extracted",),
+                        "return_to_carry": ("carry_ready",),
                         "navigate_to_area": ("arrived",), "align_battery_to_slot": ("aligned",),
                         "insert_battery": ("inserted",), "release_and_withdraw": ("released", "withdrawn")}[operation]
             if any(data.get(key) is not True for key in evidence):

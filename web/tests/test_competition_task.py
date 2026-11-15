@@ -247,7 +247,7 @@ class RecoveryModelTests(unittest.TestCase):
     def test_carry_is_same_run_receipt_only_and_never_sends_another_movement(self):
         import types
         battery=Mock();battery.lock=threading.RLock()
-        store=types.SimpleNamespace(state={'mission':{'stow_for_carry_evidence':{'carry_ready':True}}})
+        store=types.SimpleNamespace(state={'mission':{'stage':'CARRY_READY'}})
         grasp=GraspModule(battery)
         grasp.runs['competition-x:pick']=dict(store=store,flow={'status':'completed'},run_id='grasp-x')
         carry=CarryReceiptModule(grasp)

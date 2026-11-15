@@ -26,6 +26,7 @@ class RegressionTests(unittest.TestCase):
         obs = self.call('observe_scene', cameras=['d435'])['data']['observation_id']
         self.assertTrue(self.call('verify_hold', observation_id=obs)['ok'])
         self.assertTrue(self.call('stow_for_carry')['ok'])
+        self.assertTrue(self.call('return_to_carry')['ok'])
         self.assertTrue(self.call('navigate_to_area')['ok'])
         return old
 
@@ -61,6 +62,7 @@ class RegressionTests(unittest.TestCase):
         obs = self.call('observe_scene', cameras=['d435'])['data']['observation_id']
         self.call('verify_hold', observation_id=obs)
         self.call('stow_for_carry')
+        self.call('return_to_carry')
         self.call('navigate_to_area')
         self.assertFalse(self.call('select_slot', observation_id=old, camera='d435', bbox_xyxy=[1, 1, 10, 10], slot_id='red_slot')['ok'])
         slot = self.select_slot()

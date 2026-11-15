@@ -10,6 +10,7 @@ from .contracts import AgentError, strict_json
 
 DOMAINS = {"generate_grasp_candidates": "grasp", "plan_pick": "planner",
            "execute_pick": "robot", "verify_hold": "verification", "stow_for_carry": "robot",
+           "return_to_carry": "robot",
            "navigate_to_area": "navigation", "align_battery_to_slot": "insertion",
            "insert_battery": "insertion", "release_and_withdraw": "robot",
            "verify_placement": "verification"}

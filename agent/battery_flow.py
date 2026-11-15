@@ -139,6 +139,9 @@ class BatteryFlow:
                     self._next('extract')
                 elif phase=='extract':
                     self._call('stow_for_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})
+                    self._next('carry')
+                elif phase=='carry':
+                    self._call('return_to_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})
                     return self._finish('completed')
                 else:raise AgentError('invalid_flow','Unknown fixed-flow phase')
             return self._finish('needs_attention','Fixed flow call budget exhausted')

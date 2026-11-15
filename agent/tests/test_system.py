@@ -123,6 +123,7 @@ class SystemTests(unittest.TestCase):
         obs = self.call("observe_scene", cameras=["d435"])["data"]["observation_id"]
         self.assertTrue(self.call("verify_hold", observation_id=obs)["ok"])
         self.assertTrue(self.call("stow_for_carry")["ok"])
+        self.assertTrue(self.call("return_to_carry")["ok"])
         self.assertTrue(self.call("navigate_to_area")["ok"])
         obs = self.call("observe_scene", cameras=["d435"])["data"]["observation_id"]
         self.assertFalse(self.call("select_slot", observation_id=obs, camera="d435",
@@ -221,6 +222,10 @@ class FixtureBackend:
             return {"placement_status": "confirmed", "slot_id": "red_slot", "correct_slot": True,
                     "inserted": True, "released": True, "stable_for_s": self.stable_seconds,
                     "evidence_observation_id": arguments["observation_id"], "evidence_after_execution": True}
+        if operation == "stow_for_carry":
+            return {"extracted": True}
+        if operation == "return_to_carry":
+            return {"carry_ready": True}
         return {"pose_reached": True, "completed": True, "carry_ready": True,
                 "arrived": True, "aligned": True, "inserted": True,
                 "released": True, "withdrawn": True}

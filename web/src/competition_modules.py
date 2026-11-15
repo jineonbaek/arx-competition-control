@@ -57,7 +57,7 @@ class GraspModule:
 
 
 class CarryReceiptModule:
-    """The existing extraction already returns to transport joints; do not move twice."""
+    """The grasp flow already returns to transport joints; do not move twice."""
     recoveries={}
     def __init__(self,grasp):self.grasp=grasp
     def start(self,context):return self.inspect(context)
@@ -66,7 +66,7 @@ class CarryReceiptModule:
             state=self.grasp.runs.get(context['run_id']+':pick')
             mission=state['store'].state.get('mission',{}) if state else {}
             if (state and (state['flow'] or {}).get('status')=='completed'
-                    and mission.get('stow_for_carry_evidence',{}).get('carry_ready') is True):
+                    and mission.get('stage')=='CARRY_READY'):
                 return dict(status='completed',run_id=state['run_id'],source='existing_carry_ready_receipt')
             return dict(status='failed',reason='原抓取尚无运输姿态完成回执，不重复发送运输动作')
     def stop(self,context):return dict(stopped=True)
