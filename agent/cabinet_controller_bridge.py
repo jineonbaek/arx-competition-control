@@ -131,24 +131,7 @@ the seam only. This class never changes gripper, lift or chassis targets.
                 and all(finite(v) for v in values))
 
     def _feedback(self, state, now):
-        try:
-            right, left, body = state['arms']['right'], state['arms']['left'], state['body']
-            stamps = [right['received'], left['received'], body['received']]
-            if (not finite(now) or state.get('chassis_active') is not False
-                    or any(row.get('fresh') is not True for row in (right, left, body))
-                    or not all(finite(v) and 0 <= now-v <= self.policy.max_age_s for v in stamps)
-                    or max(stamps)-min(stamps) > self.policy.max_age_s
-                    or not self._vector(right['joints'], 6) or not self._vector(left['joints'], 6)
-                    or not self._vector(body['wheels'], 4)
-                    or any(abs(v) > 1e-9 for v in body['wheels'])):
-                raise BridgeRejected('Fresh paired arm/body feedback and stationary chassis required')
-            vector = (right['joints'] + [right['gripper'], body['height']]
-                      + left['joints'] + [body['waist'], body['head_yaw'], body['head_pitch']])
-            if not self._vector(vector, 17):
-                raise BridgeRejected('Invalid measured feedback')
-            return tuple(stamps), vector
-        except (KeyError, TypeError) as error:
-            raise BridgeRejected('Missing measured feedback') from error
+        return measured_feedback(state, now, self.policy)
 
     def _fixed_components(self, values):
         if self.frozen is None:
@@ -353,30 +336,7 @@ the seam only. This class never changes gripper, lift or chassis targets.
             return self._observe_rest(state,now,target=target)
 
     def _observe_rest(self, state, now, *, target=None):
-        try:
-            stamps, values = self._feedback(state, now)
-            if min(stamps) <= self.rest_after:
-                return False
-            if self.rest and any(t <= old for t, old in zip(stamps, self.rest[-1][0])):
-                return False
-            if target is not None and any(abs(a-b) > self.policy.joint_tolerance_rad
-                                          for a, b in zip(values[:6], target)):
-                self.rest.clear()
-                return False
-            stamp = min(stamps)
-            if self.rest:
-                old_stamps, old_values = self.rest[-1]
-                dt = [a-b for a,b in zip(stamps,old_stamps)]
-                components = [0]*7+[2]+[1]*6+[2]*3
-                if (min(dt) <= 0 or max(dt) > self.policy.max_age_s
-                        or any(abs(a-b)/dt[index] > self.policy.rest_speed_rad_s
-                               for a,b,index in zip(values,old_values,components))):
-                    self.rest.clear()
-            self.rest.append((stamps, values))
-            return len(self.rest) >= 3 and stamp-min(self.rest[0][0]) >= self.policy.settle_s-1e-9
-        except BridgeRejected:
-            self.rest.clear()
-            return False
+        return measured_rest(state, now, self.policy, self.rest_after, self.rest, target=target)
 
     def _release(self, *, completion=False):
         if self.outcome_unknown:
@@ -455,3 +415,56 @@ the seam only. This class never changes gripper, lift or chassis targets.
                     except Exception as error:
                         self.stop_error = str(error)[:300]
             return self.snapshot()
+
+
+def wheels_stopped(values):
+    """Allow +/-0.05 in native wheel-feedback units, including encoder zero residue."""
+    return ControllerBridge._vector(values, 4) and all(abs(value) <= .05 for value in values)
+
+
+def measured_feedback(state, now, policy):
+    try:
+        right, left, body = state['arms']['right'], state['arms']['left'], state['body']
+        stamps = [right['received'], left['received'], body['received']]
+        if (not finite(now) or state.get('chassis_active') is not False
+                or any(row.get('fresh') is not True for row in (right, left, body))
+                or not all(finite(v) and 0 <= now-v <= policy.max_age_s for v in stamps)
+                or max(stamps)-min(stamps) > policy.max_age_s
+                or not ControllerBridge._vector(right['joints'], 6) or not ControllerBridge._vector(left['joints'], 6)
+                or not ControllerBridge._vector(body['wheels'], 4)
+                or not wheels_stopped(body['wheels'])):
+            raise BridgeRejected('Fresh paired arm/body feedback and stationary chassis required')
+        vector = (right['joints'] + [right['gripper'], body['height']]
+                  + left['joints'] + [body['waist'], body['head_yaw'], body['head_pitch']])
+        if not ControllerBridge._vector(vector, 17):
+            raise BridgeRejected('Invalid measured feedback')
+        return tuple(stamps), vector
+    except (KeyError, TypeError) as error:
+        raise BridgeRejected('Missing measured feedback') from error
+
+
+def measured_rest(state, now, policy, rest_after, samples, *, target=None):
+    try:
+        stamps, values = measured_feedback(state, now, policy)
+        if min(stamps) <= rest_after:
+            return False
+        if samples and any(t <= old for t, old in zip(stamps, samples[-1][0])):
+            return False
+        if target is not None and any(abs(a-b) > policy.joint_tolerance_rad
+                                      for a, b in zip(values[:6], target)):
+            samples.clear()
+            return False
+        stamp = min(stamps)
+        if samples:
+            old_stamps, old_values = samples[-1]
+            dt = [a-b for a,b in zip(stamps,old_stamps)]
+            components = [0]*7+[2]+[1]*6+[2]*3
+            if (min(dt) <= 0 or max(dt) > policy.max_age_s
+                    or any(abs(a-b)/dt[index] > policy.rest_speed_rad_s
+                           for a,b,index in zip(values,old_values,components))):
+                samples.clear()
+        samples.append((stamps, values))
+        return len(samples) >= 3 and stamp-min(samples[0][0]) >= policy.settle_s-1e-9
+    except BridgeRejected:
+        samples.clear()
+        return False

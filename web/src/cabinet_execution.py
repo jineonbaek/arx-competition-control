@@ -8,8 +8,8 @@ import uuid
 
 import numpy as np
 
-from agent.cabinet_controller_bridge import digest
-from agent.motion_feedback import ArrivalMonitor, tool_feedback
+from agent.cabinet_controller_bridge import BridgePolicy, digest, measured_rest, wheels_stopped
+from agent.motion_feedback import ArrivalMonitor
 from agent.storage import RunStore, atomic_json
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +28,7 @@ class CabinetExecutionTask:
         self.cancel = threading.Event()
         self.thread = self.token = self.store = None
         self.sleep = time.sleep
+        self.arrival_policy = BridgePolicy(.002, .02, .02, .02, .3, .2, .2, 70.)
         self.state = dict(status='idle', phase='idle', reason='', battery_placed=False,
                           execution_enabled=controller.config['execution_enabled'],
                           physical_provider_configured=False, execution_backend='existing_controller',
@@ -107,7 +108,7 @@ class CabinetExecutionTask:
             raise ValueError('Controller configuration changed during placement')
         right, left, body = state['arms']['right'], state['arms']['left'], state['body']
         if (not all(row.get('fresh') for row in (right, left, body))
-                or state.get('chassis_active') is not False or any(body['wheels'])):
+                or state.get('chassis_active') is not False or not wheels_stopped(body['wheels'])):
             raise ValueError('Fresh feedback and stationary chassis required')
         base = self.initial
         if (abs(body['height']-base['body']['height']) > .05
@@ -128,7 +129,7 @@ class CabinetExecutionTask:
         self._check()
         self._save(motion_started=True)
         self.ctrl.start_trajectory('right', segment['plan'], self.token, preflight=self._check)
-        deadline = self.ctrl.clock()+segment['plan']['time_from_start_s'][-1]+45.
+        deadline = self.ctrl.clock()+self.arrival_policy.timeout_s
         while self.ctrl.clock() < deadline:
             self._check()
             result = self.ctrl.poll_trajectory(self.token, preflight=self._check)
@@ -137,28 +138,22 @@ class CabinetExecutionTask:
             self.sleep(.02)
         else:
             raise ValueError('Placement trajectory timed out')
-        target = np.eye(4)
-        target[:3,:3] = segment['target_rotation']
-        target[:3,3] = np.asarray(segment['target_tcp_mm'])/1000
-        # Reuse the configured arrival tolerance; no new instantaneous TCP-speed gate.
-        policy = copy.deepcopy(self.pick_policy['arm_policy'])
-        policy['max_speed'] = [float('1e100')]*6
-        monitor = ArrivalMonitor(np.zeros(6), started_at=self.ctrl.clock(), **policy)
-        while True:
+        # Use the original cabinet bridge's joint arrival and measured-rest checks.
+        rest_after, rest = self.ctrl.clock(), []
+        while self.ctrl.clock() < deadline:
             self._check()
             state = self.ctrl.snapshot()
-            measured = tool_feedback(state, self.ctrl.models['right'], self.bundle['tcp_matrix'], target,
-                now=self.ctrl.clock(), max_age_s=policy['max_age_s'],
-                max_pair_skew_s=self.pick_policy['max_pair_skew_s'],
-                expected_lift_rad=self.initial['body']['height'],
-                lift_tolerance_rad=self.pick_policy['lift_tolerance_rad'])
-            value = np.r_[measured['position_error_mm'], measured['orientation_error_rotvec_deg']]
-            receipt = monitor.update(value, measured['sample_time'], self.ctrl.clock())
-            if receipt['arrived']:
+            if measured_rest(state, self.ctrl.clock(), self.arrival_policy, rest_after, rest,
+                             target=segment['plan']['joint_waypoints_rad'][-1]):
+                if segment['phase'] == 'outside_align':
+                    tool = self.ctrl.models['right'].wrist_transform(state['arms']['right']['joints'],
+                               state['body']['height'])@self.bundle['tcp_matrix']
+                    error = float(np.linalg.norm(tool[:3,3]*1000-np.asarray(segment['target_tcp_mm'])))
+                    if not np.isfinite(error) or error > self.state['outside_tolerance_mm']+1e-9:
+                        raise ValueError('Outside TCP arrival exceeds 5 mm; insertion not started')
                 return
-            if receipt['stop_required']:
-                raise ValueError('Placement arrival failed: '+receipt['status'])
             self.sleep(.02)
+        raise ValueError('Placement joint arrival timed out')
 
     def _release(self):
         self._save(phase='release')
@@ -240,7 +235,10 @@ class CabinetExecutionTask:
             while end+1 < len(points) and times[end+1]-times[begin] <= 45:
                 end += 1
             tool = model.wrist_transform(points[end], self.initial['body']['height'])@self.bundle['tcp_matrix']
-            yield dict(phase=phase, target_tcp_mm=(tool[:3,3]*1000).tolist(), target_rotation=tool[:3,:3].tolist(),
+            xyz = (tool[:3,3]*1000).tolist()
+            if phase == 'outside_align' and end == len(points)-1:
+                xyz = self.bundle['observation']['plan'].get('tcp_pre_base_mm', xyz)
+            yield dict(phase=phase, target_tcp_mm=xyz, target_rotation=tool[:3,:3].tolist(),
                        plan=dict(interpolation='segment_quintic_scalar',
                                  time_from_start_s=[t-times[begin] for t in times[begin:end+1]],
                                  joint_waypoints_rad=points[begin:end+1]))

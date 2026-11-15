@@ -16,10 +16,12 @@ from agent.storage import RunStore
 
 
 class CabinetVerificationTests(unittest.TestCase):
-    def fixture(self,*,moving=False,wrong=False):
+    def fixture(self,*,moving=False,wrong=False,flat=False):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
         store=RunStore.create(Path(tmp.name));self.addCleanup(store.close)
         texture=np.random.default_rng(12).integers(0,255,(200,200,3),dtype=np.uint8)
+        if flat:
+            texture[:]=180;texture[68:132,68:132]=20
         calls=[]
         def capture(**kwargs):
             n=len(calls);calls.append(n)
@@ -39,8 +41,8 @@ class CabinetVerificationTests(unittest.TestCase):
             return dict(status='perception_accepted')
         return store,preview,observation,recognize,calls
 
-    def run_verify(self,*,moving=False,wrong=False):
-        store,preview,observation,recognize,calls=self.fixture(moving=moving,wrong=wrong)
+    def run_verify(self,*,moving=False,wrong=False,flat=False):
+        store,preview,observation,recognize,calls=self.fixture(moving=moving,wrong=wrong,flat=flat)
         with patch('cabinet_verification.segment',recognize),patch('cabinet_verification.gpu_slot',nullcontext):
             result=verify_placement(preview,store,observation,object(),lambda:None,lambda dt:None)
         return result,calls
@@ -50,8 +52,14 @@ class CabinetVerificationTests(unittest.TestCase):
         self.assertTrue(result['placement_confirmed']);self.assertGreaterEqual(result['stable_duration_s'],3.)
         self.assertGreaterEqual(len(calls),8)
 
-    def test_recognized_battery_elsewhere_is_not_placement_success(self):
-        with self.assertRaisesRegex(ValueError,'本次入仓目标'):self.run_verify(wrong=True)
+    def test_nominal_cad_projection_overlap_is_not_an_acceptance_gate(self):
+        result,_=self.run_verify(wrong=True)
+        self.assertTrue(result['placement_confirmed'])
+
+    def test_low_texture_battery_does_not_need_three_corner_features(self):
+        with patch('cabinet_verification.cv2.goodFeaturesToTrack',return_value=None):
+            result,_=self.run_verify(flat=True)
+        self.assertTrue(result['placement_confirmed'])
 
     def test_moving_battery_cannot_pass_stability(self):
         with self.assertRaisesRegex(ValueError,'仍在移动'):self.run_verify(moving=True)

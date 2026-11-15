@@ -12,6 +12,7 @@ sys.path.insert(0,str(ROOT/'web/src'))
 from cabinet_execution import CabinetExecutionTask
 from competition_modules import PlacementModule
 from agent.placement_backend import verify_stability
+from agent.cabinet_controller_bridge import wheels_stopped, measured_rest
 
 
 class Clock:
@@ -37,7 +38,7 @@ class Controller:
         arm=dict(fresh=True,joints=self.q[:],gripper=self.gripper,received=self.clock())
         return dict(command_epoch=self.command_epoch,motion_reserved=self.owner is not None,chassis_active=False,
             arms={'right':arm,'left':dict(arm,joints=[0.]*6)},
-            body=dict(fresh=True,height=5.,waist=0.,head_yaw=0.,head_pitch=0.,wheels=[0.]*4,received=self.clock()))
+            body=dict(fresh=True,height=5.,waist=0.,head_yaw=0.,head_pitch=0.,wheels=getattr(self,'wheels',[0.]*4),received=self.clock()))
     def reserve_motion(self,epoch):
         if self.owner is not None:raise ValueError('busy')
         self.calls.append('reserve');self.owner=object();return self.owner
@@ -170,6 +171,43 @@ class CabinetExecutionTests(unittest.TestCase):
         for observe in [lambda:dict(image_time=1.,center_base_m=[0.,0.,0.]),
                         lambda:dict(image_time=clock(),center_base_m=[clock()*.1,0.,0.])]:
             with self.assertRaises(ValueError):verify_stability(observe,lambda:None,clock.sleep,clock)
+
+
+    def test_encoder_zero_residue_does_not_block_the_whole_flow(self):
+        self.ctrl.wheels=[-.0146484375,-.0146484375,-.0146484375,0.]
+        self.assertEqual(self.run_task()['status'],'completed')
+
+    def test_wheel_tolerance_still_rejects_motion_and_invalid_feedback(self):
+        self.assertTrue(wheels_stopped([-.05,.05,0.,0.]))
+        for values in [[.051,0.,0.,0.],[float('nan'),0.,0.,0.],[0.,0.]]:
+            self.assertFalse(wheels_stopped(values))
+
+    def test_joint_arrival_uses_original_cabinet_tolerance(self):
+        self.task.action({'op':'start','model':'demo'})
+        self.task.bundle=copy.deepcopy(self.bundle)
+        self.assertEqual(self.task.arrival_policy.joint_tolerance_rad,.002)
+        self.assertEqual(self.task.arrival_policy.settle_s,.3)
+        part=copy.deepcopy(self.bundle['segments'][1])
+        part['target_tcp_mm']=[0.,0.,0.]
+        part['target_rotation']=[[.999,-.035,0.],[.035,.999,0.],[0.,0.,1.]]
+        self.task._move(part)
+        self.ctrl.release_motion(self.task.token)
+
+    def test_original_outside_five_mm_is_total_distance_not_per_axis(self):
+        self.task.action({'op':'start','model':'demo'})
+        self.task.bundle=copy.deepcopy(self.bundle)
+        part=copy.deepcopy(self.bundle['segments'][0]);part['target_tcp_mm']=[46.,-4.,0.]
+        with self.assertRaisesRegex(ValueError,'Outside TCP arrival exceeds 5 mm'):
+            self.task._move(part)
+        self.ctrl.release_motion(self.task.token)
+
+    def test_original_joint_monitor_does_not_accept_error_above_point002(self):
+        policy=self.task.arrival_policy
+        s=self.ctrl.snapshot();s['arms']['right']['joints'][0]=.003
+        rest=[]
+        for stamp in [2.,2.2,2.4,2.6]:
+            for row in [s['arms']['right'],s['arms']['left'],s['body']]:row['received']=stamp
+            self.assertFalse(measured_rest(s,stamp,policy,1.,rest,target=[0.]*6))
 
 
 if __name__=='__main__':unittest.main()

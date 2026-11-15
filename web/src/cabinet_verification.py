@@ -1,7 +1,6 @@
 """Post-release RGB confirmation reusing grasp recognition and placement stability."""
 import hashlib
 import io
-import json
 
 import cv2
 import numpy as np
@@ -34,44 +33,30 @@ def verify_placement(preview, store, observation, token, check, sleep):
         raise ValueError('放置后未确认识别到电池')
     mask = np.asarray(Image.open(output/'mask.png').convert('L')) > 0
     plan = observation['plan']
-    bounds = np.asarray(preview.battery['bounds_mm'])
-    width, height, length = bounds[1]-bounds[0]
-    axis, left, up = np.asarray(plan['R_base_from_tool']).T
-    front = np.asarray(plan['leading_points_base_mm'][-1])
-    corners = [front-axis*d+left*x+up*y for d in (0.,length)
-               for x in (-width/2,width/2) for y in (-height/2,height/2)]
-    pixels = preview._project(frame, corners)
-    if any(p is None for p in pixels):
-        raise ValueError('入仓目标不在D435视野中，不能确认放置')
-    expected = np.zeros(mask.shape, np.uint8)
-    cv2.fillConvexPoly(expected, cv2.convexHull(np.array(pixels,np.int32)), 1)
-    if not mask.any() or np.mean(expected[mask]) < .8:
-        raise ValueError('识别电池不在本次入仓目标位置')
-    gray = cv2.cvtColor(frame['rgb'], cv2.COLOR_RGB2GRAY)
-    points = cv2.goodFeaturesToTrack(gray, 100, .01, 7, mask=mask.astype(np.uint8)*255)
-    if points is None or len(points) < 3:
-        raise ValueError('电池可跟踪特征不足，未确认放置稳定')
+    # Track the recognized patch directly, including batteries with no corner features.
+    y, x = np.nonzero(mask)
+    if not len(x):
+        raise ValueError('放置后未确认识别到电池')
+    x0, y0, x1, y1 = int(x.min()), int(y.min()), int(x.max()+1), int(y.max()+1)
+    template = frame['rgb'][y0:y1,x0:x1].copy()
+    template_mask = mask[y0:y1,x0:x1].astype(np.uint8)*255
+    _, left, up = np.asarray(plan['R_base_from_tool']).T
     center = np.asarray(observation['window']['center_base_m'])*1000
     projected = preview._project(frame,[center,center+left*10,center+up*10])
     scale = np.column_stack((np.subtract(projected[1],projected[0]),
                              np.subtract(projected[2],projected[0])))/10
     inverse_scale = np.linalg.inv(scale)
-    previous = dict(gray=gray, points=points, frame=frame, shift=np.zeros(2))
+    previous = dict(frame=frame)
 
     def observe():
         check()
         fresh = capture.capture(token=token)
         if fresh['image_time'] <= previous['frame']['image_time']:
             raise ValueError('放置确认画面未更新')
-        current = cv2.cvtColor(fresh['rgb'],cv2.COLOR_RGB2GRAY)
-        tracked, status, _ = cv2.calcOpticalFlowPyrLK(previous['gray'],current,previous['points'],None)
-        if tracked is None or status is None or np.count_nonzero(status) < 3:
-            raise ValueError('放置后电池跟踪丢失')
-        good = status.ravel().astype(bool)
-        delta = np.median((tracked-previous['points'])[good,0,:],axis=0)
-        previous['shift'] += delta
-        previous.update(gray=current, points=tracked[good], frame=fresh)
-        xy_mm = inverse_scale@previous['shift']
+        matched = cv2.matchTemplate(fresh['rgb'], template, cv2.TM_SQDIFF, mask=template_mask)
+        _, _, location, _ = cv2.minMaxLoc(matched)
+        previous['frame'] = fresh
+        xy_mm = inverse_scale@(np.asarray(location)-[x0,y0])
         return dict(image_time=fresh['image_time'],center_base_m=[*list(xy_mm/1000),0.])
 
     # GPU recognition time does not count toward the existing three-second stability check.
