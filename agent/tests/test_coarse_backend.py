@@ -53,6 +53,15 @@ class CoarseBackendTests(unittest.TestCase):
         self.assertEqual(self.start()['status'],'unknown')
         self.assertEqual(self.step.calls,[])
 
+    def test_opening_gripper_is_a_running_coarse_stage(self):
+        self.step.start=lambda:dict(status='opening_gripper',stop_required=False)
+        self.start()
+        self.assertTrue(self.step.seen.wait(1),self.result())
+        self.assertEqual(self.result()['status'],'running')
+        self.assertNotIn('stop',self.step.calls)
+        self.step.finish.set();self.assertTrue(self.backend.wait(1))
+        self.assertEqual(self.result()['status'],'completed')
+
     def test_wrong_operation_cannot_start(self):
         self.assertFalse(self.backend.available('execute_pick'))
         self.assertEqual(self.backend.invoke('execute_pick',self.payload,'run:coarse')['status'],'rejected')
