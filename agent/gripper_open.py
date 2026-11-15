@@ -16,7 +16,7 @@ class OpenThenApproachStep:
         if q.shape!=(6,) or not np.isfinite(q).all() or not np.isfinite(self.target) or not low<=self.target<=high:
             raise ValueError('Finite planned start and configured open target required')
         self.start_pose=self.monitor.model.wrist_transform(q,self.monitor.feedback_policy['expected_lift_rad'])@self.monitor.tcp
-        self.arrival=ArrivalMonitor([self.target],started_at=self.controller.clock(),**self.monitor.gripper_policy)
+        self.arrival=ArrivalMonitor([2.9],minimum=[2.9],started_at=self.controller.clock(),**self.monitor.gripper_policy)
         self.lock=Lock();self.started=False;self.approaching=False;self.failure=None
         # The driver submission and subsequent approach polls must also keep the jaws open.
         self.approach.preflight=self._approach_ready
@@ -24,7 +24,7 @@ class OpenThenApproachStep:
     def _open(self,snapshot,now):
         arm=snapshot['arms']['right']
         return (arm.get('fresh') is True and 0<=now-arm['received']<=self.arrival.max_age
-                and np.isfinite(arm['gripper']) and abs(arm['gripper']-self.target)<=self.arrival.tolerance[0])
+                and np.isfinite(arm['gripper']) and arm['gripper']<=-2.9)
 
     def _approach_ready(self,snapshot,now):
         return self._open(snapshot,now) and self.preflight(snapshot,now) is True
@@ -54,7 +54,7 @@ class OpenThenApproachStep:
             if self.started or self.failure:raise ValueError('Opening cannot be replayed or resumed')
             self.started=True
             try:
-                self.arrival=ArrivalMonitor([self.target],started_at=self.controller.clock(),**self.monitor.gripper_policy)
+                self.arrival=ArrivalMonitor([2.9],minimum=[2.9],started_at=self.controller.clock(),**self.monitor.gripper_policy)
                 result=self.controller.submit({'type':'gripper','arm':'right','position':self.target},
                                               self.token,preflight=self._guard)
                 if result.get('ok') is not True:return self._abort('opening_not_confirmed')
@@ -82,7 +82,7 @@ class OpenThenApproachStep:
                 snapshot=self.controller.snapshot();now=self.controller.clock()
                 if not self._guard(snapshot,now):return self._abort('opening_preflight_failed')
                 arm=snapshot['arms']['right']
-                receipt=self.arrival.update([arm['gripper']],arm['received'],now)
+                receipt=self.arrival.update([-arm['gripper']],arm['received'],now)
                 if receipt['stop_required']:return self._abort(receipt['status'])
                 if receipt['arrived']:
                     self.approaching=True

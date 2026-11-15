@@ -32,6 +32,19 @@ class OpenTests(unittest.TestCase):
         self.assertEqual(self.step.poll()['status'],'ready_to_reobserve')
         self.assertEqual(len(self.f.adapter.calls),1)
         with self.assertRaises(ValueError):self.step.start()
+    def test_open_threshold_is_one_sided_and_used_by_approach_preflight(self):
+        for grip in (-2.9, -3.01, -3.14):
+            with self.subTest(grip=grip):
+                self.setUp();self.step.start()
+                for t in (10.01,10.11,10.22):
+                    self.f.feedback(t,grip);result=self.step.poll()
+                self.assertEqual(result['status'],'awaiting_trajectory')
+                self.assertTrue(self.child.preflight(self.f.c.snapshot(),self.f.now))
+        self.setUp();self.step.start()
+        self.f.feedback(10.1,-2.89)
+        self.assertEqual(self.step.poll()['status'],'opening_gripper')
+        self.assertFalse(self.step._open(self.f.c.snapshot(),self.f.now))
+
     def test_frozen_feedback_never_starts_approach(self):
         self.step.start();self.f.now=10.2
         self.assertTrue(self.step.poll()['stop_required']);self.assertEqual(self.child.starts,0)
