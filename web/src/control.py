@@ -520,7 +520,7 @@ class Controller:
                     "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
                     "logs": list(self.logs)}
 
-    def submit(self, data, client, *, preflight=None):
+    def submit(self, data, client, *, preflight=None, automatic_joint_speed=False):
         try:
             if preflight is not None and (not callable(preflight) or not isinstance(data, dict)
                     or data.get("type") not in ("gripper", "lift")):
@@ -534,7 +534,7 @@ class Controller:
                     if preflight(self.snapshot(), self.clock()) is not True:
                         return {"ok": False, "deferred": True, "message": "执行复查未许可，未下发"}
                 was_moving = self.chassis_owner is not None
-                result = self._submit(data, client)
+                result = self._submit(data, client, automatic_joint_speed=automatic_joint_speed)
                 self.command_epoch += 1
                 confirmation = (result or {}).pop("_confirmation", None)
             # ROS feedback callbacks need this lock while the driver confirms.
@@ -551,7 +551,7 @@ class Controller:
             self.log("拒绝：" + str(e), "warning")
             raise
 
-    def _submit(self, data, client):
+    def _submit(self, data, client, *, automatic_joint_speed=False):
         if not isinstance(data, dict):
             raise Rejected("指令必须是对象")
         sequence_client = client
@@ -614,7 +614,9 @@ class Controller:
             mode = requested_mode if kind == "arm.mode" else (4 if kind == "arm.tcp" else 5)
             confirmation = None
             if c.get("command_result_topic"):
-                confirmation = self.adapter.arm(side, joints, gripper, tcp, mode, kind=kind, wait=False)
+                driver_kind = ('arm.joints.auto' if automatic_joint_speed and kind == 'arm.joints' and isinstance(client, _MotionToken)
+                               and c.get('automatic_joint_speed_deg_s') else kind)
+                confirmation = self.adapter.arm(side, joints, gripper, tcp, mode, kind=driver_kind, wait=False)
             else:
                 self.adapter.arm(side, joints, gripper, tcp, mode)
             if kind == "arm.mode":

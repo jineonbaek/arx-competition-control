@@ -51,7 +51,7 @@ class WristExtractionStep:
             self.return_monitor=ArrivalMonitor(np.radians(self.carry_joints_deg),
                 started_at=self.controller.clock(),**self.arm_policy)
             command=dict(type='arm.joints',arm='right',joints=self.carry_joints_deg[:])
-            if self.controller.submit(command,self.token).get('ok') is not True:
+            if self.controller.submit(command,self.token,automatic_joint_speed=True).get('ok') is not True:
                 raise ValueError('Transport return submission unconfirmed')
             return self._receipt('returning')
         except Exception:return self.cancel('extraction_feedback_failed')

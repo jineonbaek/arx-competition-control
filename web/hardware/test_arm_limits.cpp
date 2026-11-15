@@ -3,6 +3,17 @@
 #include <limits>
 #include <iostream>
 int main() {
+  {
+    ArmLimits caps{{{{-90,90},{-90,90},{-90,90},{-90,90},{-90,90},{-90,90}}},{{-3.14,0}},10};
+    std::vector<double> q(6,0),actual(7,0),target{.1,.2,.3,.4,.5,.6};
+    std::array<double,6> speeds{15,15,15,50,50,50};
+    auto next=caps.advance(q,target,actual,speeds,.01);
+    for(int j=0;j<6;++j)assert(std::abs(next[j])*180/M_PI<=speeds[j]*.01+1e-10);
+    assert(std::abs(next[2]*180/M_PI-.15)<1e-10);
+    target={0,0,0,.1,.2,.3};next=caps.advance(q,target,actual,speeds,.01);
+    assert(std::abs(next[5]*180/M_PI-.5)<1e-10);
+  }
+
   ArmLimits limits{{{{-89.9,89.9},{-5.7,206.2},{-5.7,171.8},{-73.9,73.9},{-84.7,84.7},{-99.6,99.6}}},{-3.14,0},5.7};
   std::vector<double> actual(7,0), target(6,0);
   assert(limits.valid(target,-1,actual,5));

@@ -75,6 +75,14 @@ int main(int argc,char** argv) {
   auto ack_pub=node->create_publisher<std_msgs::msg::String>(config.at("command_result_topic").get<std::string>(),10);
   double speed=config.at("joint_speed_deg_s").get<double>();
   if(!std::isfinite(speed) || speed<=0 || speed>5.7) throw std::runtime_error("Invalid joint speed");
+  std::array<double,6> automatic_speed{};
+  automatic_speed.fill(speed);
+  if(config.contains("automatic_joint_speed_deg_s"))
+    automatic_speed=config.at("automatic_joint_speed_deg_s").get<std::array<double,6>>();
+  for(double value:automatic_speed)
+    if(!std::isfinite(value)||value<=0)throw std::runtime_error("Invalid automatic joint speed");
+  auto active_speed=automatic_speed;
+  active_speed.fill(speed);
   bool initialized=false,healthy=false,was_fresh=false,seen_feedback=false,fault_latched=false;
   bool joint_active=false;
   int current_mode=2;
@@ -156,7 +164,7 @@ int main(int argc,char** argv) {
       else if(trajectory && trajectory->active()) reason="Trajectory active; use arm stop first";
       else if(kind=="gripper") {
         if(msg->mode!=5 || !limits.valid_gripper(msg->gripper)) reason="Gripper target outside software limits";
-      } else if(kind=="arm.joints") {
+      } else if(kind=="arm.joints" || kind=="arm.joints.auto") {
         if(msg->mode!=5 || !limits.valid(target,limits.gripper[1],actual,5)) reason="Joint target outside software limits";
       } else if(kind=="arm.mode") {
         if(msg->mode<0 || msg->mode>3) reason="Unsupported manual mode";
@@ -167,7 +175,9 @@ int main(int argc,char** argv) {
           // Gripper commands preserve the arm goal; 0 is a valid close target.
           if(current_mode!=5) {joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
           arm->setCatch(msg->gripper);arm->setArmStatus(5);current_mode=5;
-        } else if(kind=="arm.joints") {
+        } else if(kind=="arm.joints" || kind=="arm.joints.auto") {
+          active_speed=automatic_speed;
+          if(kind=="arm.joints")active_speed.fill(speed);
           reference.assign(actual.begin(),actual.begin()+6);goal=target;joint_active=true;last_step=Clock::now();
           arm->setJointPositions(reference);arm->setArmStatus(5);current_mode=5;
         } else {joint_active=false;arm->setArmStatus(msg->mode);current_mode=msg->mode;}
@@ -208,7 +218,7 @@ int main(int argc,char** argv) {
     if(!fresh || !valid) return;
     if(healthy && joint_active) {
       auto now=Clock::now();double dt=std::min(.02,std::chrono::duration<double>(now-last_step).count());last_step=now;
-      reference=limits.advance(reference,goal,pos,speed,dt);arm->setJointPositions(reference);
+      reference=limits.advance(reference,goal,pos,active_speed,dt);arm->setJointPositions(reference);
       if(reference==goal) joint_active=false;
     }
     auto xyz=arx::solve::Isometry2Xyzrpy(arm->getEndPose());

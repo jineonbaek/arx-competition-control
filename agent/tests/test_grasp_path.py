@@ -104,11 +104,24 @@ class TimingTests(unittest.TestCase):
             with self.assertRaises(ValueError):TimedJointPath(bad,.7,**self.policy())
         for reach in (0.,-1.,float('nan')):
             with self.assertRaises(ValueError):TimedJointPath(q,reach,**self.policy())
-        policy=self.policy();policy['joint_speed_deg_s']=[9.]*6
+        policy=self.policy();policy['joint_speed_deg_s']=[16.]*6
         with self.assertRaises(ValueError):TimedJointPath(q,.7,**policy)
         path=TimedJointPath(q,.7,**self.policy())
         for t in (-1.,float('nan'),path.times[-1]+1):
             with self.assertRaises(ValueError):path.sample(t)
+
+    def test_requested_group_speed_caps_bound_the_planned_curve(self):
+        limits=self.policy();limits.update(joint_speed_deg_s=[15.]*3+[50.]*3,
+            joint_acceleration_deg_s2=[1e9]*6,tcp_speed_mm_s=1e9,tcp_acceleration_mm_s2=1e9)
+        for joint in range(6):
+            q=np.zeros((2,6));q[1,joint]=.5
+            path=TimedJointPath(q,.7,**limits)
+            velocity=path.sample(path.times[-1]/2)[1]
+            self.assertAlmostEqual(np.degrees(abs(velocity[joint])),limits['joint_speed_deg_s'][joint])
+        for joint in range(6):
+            bad=dict(limits);bad['joint_speed_deg_s']=limits['joint_speed_deg_s'][:]
+            bad['joint_speed_deg_s'][joint]+=.1
+            with self.assertRaises(ValueError):TimedJointPath(q,.7,**bad)
 
     def test_real_tcp_bounds_cover_large_wrist_rotation_without_arm_reach_inflation(self):
         model=ColumnModel();tcp=np.eye(4);tcp[:3,3]=[.148,.00018,-.00114]
