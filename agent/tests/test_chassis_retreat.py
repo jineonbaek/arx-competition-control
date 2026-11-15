@@ -49,6 +49,20 @@ class RetreatTests(unittest.TestCase):
         self.assertEqual(self.commands[0][0],{'type':'chassis.stop','sequence':1})
         self.reader.close.assert_called_once()
 
+    def test_drift_after_arrival_resumes_tracking_and_restarts_stop_window(self):
+        self.step.start();self.step.poll()
+        self.odom=self.step.target.copy();self.now+=.1
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.odom[0]+=.06;self.now+=.1
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        self.assertEqual(self.commands[-1][0]['type'],'chassis.nav_sdk')
+        self.odom=self.step.target.copy();self.now+=.1
+        self.assertEqual(self.step.poll()['status'],'backing_chassis')
+        for _ in range(12):
+            self.now+=.1
+            receipt=self.step.poll()
+        self.assertEqual(receipt['status'],'chassis_stopped')
+
     def test_existing_pose_failure_is_not_hidden_and_cancel_stops(self):
         self.step.start();self.step.poll()
         self.reader.read.side_effect=ValueError('motion_pose_stale_or_invalid')

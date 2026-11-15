@@ -118,6 +118,15 @@ class PickBackendTests(unittest.TestCase):
         self.assertEqual(self.make().invoke('execute_pick',self.payload,self.ident)['status'],'unknown')
         self.assertEqual(self.step.calls,['start','stop'])
 
+    def test_stop_required_preserves_failure_detail_in_memory_and_journal(self):
+        self.step.poll=lambda **kwargs:dict(status='feedback_invalid',stop_required=True,
+            stop_request='sent_unverified',failure_detail='ValueError: motion_pose_stale_or_invalid')
+        self.invoke();self.assertTrue(self.backend.wait(2.))
+        receipt=self.backend.status('execute_pick',self.ident)
+        self.assertEqual(receipt['data']['failure_detail'],'ValueError: motion_pose_stale_or_invalid')
+        self.assertEqual(__import__('json').loads(self.journal.read_text())['receipt']['data']['failure_detail'],
+                         'ValueError: motion_pose_stale_or_invalid')
+
     def test_malformed_step_result_does_not_advance(self):
         self.step.poll=lambda **kwargs:dict(status='success')
         self.invoke();self.assertTrue(self.backend.wait(2.))

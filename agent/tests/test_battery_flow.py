@@ -122,11 +122,14 @@ class FlowTests(unittest.TestCase):
         flow=self.flow();base=self.tools.execute
         def execute(name,args,ident):
             if name in ('execute_coarse_alignment','get_execution_status'):
-                self.store.state['pending']={'last_receipt':{'data':{'recovery_required':True}}}
+                self.store.state['pending']={'last_receipt':{'data':{'recovery_required':True,
+                    'failure_detail':'ValueError: motion_pose_stale_or_invalid'}}}
                 return dict(ok=False,error=dict(code='execution_unknown',message='uncertain'))
             return base(name,args,ident)
         self.tools.execute=execute
-        self.assertEqual(flow.run()['status'],'needs_attention')
+        result=flow.run()
+        self.assertEqual(result['status'],'needs_attention')
+        self.assertIn('motion_pose_stale_or_invalid',result['reason'])
         self.assertEqual(self.tools.cancelled_count,1)
         self.assertNotIn('execute_battery_approach',self.tools.calls)
 

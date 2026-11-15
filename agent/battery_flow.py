@@ -56,7 +56,8 @@ class BatteryFlow:
                 if (data.get('recovery_required') or data.get('reason')=='recovery_required'
                         or any(data.get(k) in ('recovery_required','receipt_unavailable','execution_unknown')
                                for k in ('coarse_stage','approach_stage','pick_stage'))):
-                    raise AgentError('execution_unknown','Existing motion receipt requires recovery; will not replay')
+                    raise AgentError('execution_unknown',data.get('failure_detail')
+                                     or 'Existing motion receipt requires recovery; will not replay')
                 if self.store.state.get('pending'):time.sleep(.1)
         if self.store.cancelled:raise AgentError('cancelled','Task cancelled during tool completion')
         if not result['ok']:

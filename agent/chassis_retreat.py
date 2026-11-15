@@ -121,12 +121,12 @@ class ChassisRetreatStep:
         if dt<PERIOD:return dict(status='backing_chassis')
         self.last=tick
         command,arrived=tracking_command(self.route,odom,self.target,self.previous,dt)
-        if self.stop is not None:
-            if not arrived:raise ValueError('outside_arrival_tolerance')
+        if self.stop is not None and arrived:
             if self.stop.add(source,odom):
                 self.done=True;self.close()
                 return dict(status='chassis_stopped')
         else:
+            self.stop=None
             self.reader.check_motion(command,source)
             self.transport.send(command);self.previous=command
             if arrived:self.stop=StopWindow(after=self.reader.now())

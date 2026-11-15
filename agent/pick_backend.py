@@ -47,7 +47,8 @@ class _PreparedExecutionBackend:
     @staticmethod
     def _stop_data(receipt):
         return dict(stop_request=receipt.get('stop_request'),
-                    stop_requests=receipt.get('stop_requests',{}),stopped_verified=False)
+                    stop_requests=receipt.get('stop_requests',{}),stopped_verified=False,
+                    failure_detail=receipt.get('failure_detail'))
 
     def _save(self,receipt):
         with self.lock:
