@@ -49,6 +49,10 @@ def detect(rgb):
                 try:full.append((c,inside,_quad(inside)))
                 except ValueError:continue
     if len(full)>1:return dict(status='ambiguous',reason='存在多个红框，未自动选择')
+    if not full and not partial:
+        from .cabinet_red_edges import fit_open_red_edges
+        fitted=fit_open_red_edges(red)
+        if fitted is not None:return fitted
     if not full:return dict(status='partial' if partial else 'not_found',reason='仓口红框出界，不能补齐隐藏边' if partial else '未识别到完整红色仓口',partial_boxes_px=partial)
     outer,inner,q=full[0]
     return dict(status='complete',outer_contour_px=outer[:,0,:][::max(1,len(outer)//160)].tolist(),
@@ -121,7 +125,7 @@ def localize(frame,profile=None,now=None):
         'rim_plane_p90_mm':float(np.percentile(residual,90)),'executable':False}
 
 
-def horizontal_plan(window,slot,battery,*,tip_point_object_mm,preclearance_mm=50.,back_margin_mm=10.):
+def horizontal_plan(window,slot,battery,*,tip_point_object_mm,preclearance_mm=50.,back_margin_mm=10.,max_insertion_depth_mm=None):
     center=np.asarray(window['center_base_m'],float);out= np.asarray(window['outward_normal_base'],float);inside=-out
     axis=inside.copy();axis[2]=0.;axis/=np.linalg.norm(axis)
     L=np.asarray(window['left_axis_base'],float);V=np.asarray(window['up_axis_base'],float)
@@ -138,6 +142,10 @@ def horizontal_plan(window,slot,battery,*,tip_point_object_mm,preclearance_mm=50
     if depth is None or not np.isfinite(depth):raise ValueError('尚未确认CAD仓内第一处障碍深度')
     if not 0<preclearance_mm<=100 or not 0<back_margin_mm<depth:raise ValueError('仓外/后壁余量无效')
     usable=depth-back_margin_mm
+    if max_insertion_depth_mm is not None:
+        if (type(max_insertion_depth_mm) not in (int,float) or not np.isfinite(max_insertion_depth_mm)
+                or not 0<max_insertion_depth_mm<=30):raise ValueError('浅入测试深度须为0到30mm以内')
+        usable=min(usable,float(max_insertion_depth_mm))
     cross=np.asarray(battery['cross_section_xy_mm'],float)-bounds.mean(0)[:2];cross[:,1]*=-1
     offsets=cross[:,0,None]*tool_left+cross[:,1,None]*tool_up
     normal_extent=float(np.max(offsets@inside))

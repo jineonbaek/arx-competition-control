@@ -48,7 +48,7 @@ def solve_quad_pose(quad, intrinsics, size_mm):
     return sorted(candidates,key=lambda c:c['reprojection_rms_px'])
 
 
-def localize_rgb(frame, profile, now=None):
+def localize_rgb(frame, profile, now=None,*,detection=None):
     now=time.time() if now is None else now
     try:
         stamp=float(frame['image_time']);arm=float(frame['arm_time']);body=float(frame['body_time'])
@@ -62,7 +62,7 @@ def localize_rgb(frame, profile, now=None):
         if not frame.get('camera_serial') or k.get('serial')!=str(frame['camera_serial']):
             raise ValueError('相机序列号与定位标定不一致')
         T=rigid(frame['base_from_color'])
-        detected=detect(rgb)
+        detected=detect(rgb) if detection is None else dict(detection)
         if detected['status']!='complete':raise ValueError(detected['reason'])
         detected.pop('_red',None)
         candidates=solve_quad_pose(detected['inner_quad_px'],k,profile['size_mm'])

@@ -62,3 +62,27 @@ class CabinetTests(unittest.TestCase):
         p=json.loads((ROOT/'config/cabinet-profiles.json').read_text());b=json.loads((ROOT/'config/battery-envelope.json').read_text())
         w={'center_base_m':[.6,0,.65],'outward_normal_base':[-1,0,0],'left_axis_base':[0,1,0],'up_axis_base':[0,0,1],'measured_size_mm':[169.2,74.76]}
         with self.assertRaises(ValueError):g.horizontal_plan(w,g.opening(p,'demo'),b,tip_point_object_mm=TIP)
+
+class ShallowGeometryTests(unittest.TestCase):
+    def test_shallow_depth_is_bounded_and_fixed_z(self):
+        p=json.loads((ROOT/'config/cabinet-profiles.json').read_text());b=json.loads((ROOT/'config/battery-envelope.json').read_text())
+        w={'center_base_m':[.6,0,.65],'outward_normal_base':[-1,0,0],'left_axis_base':[0,1,0],'up_axis_base':[0,0,1]}
+        r=g.horizontal_plan(w,g.opening(p,'demo'),b,tip_point_object_mm=TIP,max_insertion_depth_mm=10,preclearance_mm=80.)
+        self.assertEqual(r['leading_insertion_depth_mm'],10);self.assertEqual(r['z_range_mm'],0)
+        self.assertAlmostEqual(r['stroke_mm'],90.)
+        for depth in [0,-1,31,float('nan'),True]:
+            with self.assertRaises(ValueError):g.horizontal_plan(w,g.opening(p,'demo'),b,tip_point_object_mm=TIP,max_insertion_depth_mm=depth)
+    def test_shallow_mode_still_rejects_aperture_collision(self):
+        p=json.loads((ROOT/'config/cabinet-profiles.json').read_text());b=json.loads((ROOT/'config/battery-envelope.json').read_text())
+        w={'center_base_m':[.6,0,.65],'outward_normal_base':[-1,0,0],'left_axis_base':[0,1,0],'up_axis_base':[0,0,1],'measured_size_mm':[169.6,74.]}
+        with self.assertRaises(ValueError):g.horizontal_plan(w,g.opening(p,'demo'),b,tip_point_object_mm=TIP,max_insertion_depth_mm=10)
+
+class ShallowTiltTests(unittest.TestCase):
+    def test_ten_mm_bounds_deepest_corner_not_center_travel(self):
+        p=json.loads((ROOT/'config/cabinet-profiles.json').read_text());b=json.loads((ROOT/'config/battery-envelope.json').read_text());a=np.radians(10.)
+        w={'center_base_m':[.6,0,.65],'outward_normal_base':[-np.cos(a),0,-np.sin(a)],'left_axis_base':[0,1,0],'up_axis_base':[-np.sin(a),0,np.cos(a)]}
+        r=g.horizontal_plan(w,g.opening(p,'demo'),b,tip_point_object_mm=TIP,max_insertion_depth_mm=10)
+        cross=np.array(b['cross_section_xy_mm'])-np.array(b['bounds_mm']).mean(0)[:2]
+        R=np.array(r['R_base_from_tool']);offsets=cross[:,0,None]*R[:,1]-cross[:,1,None]*R[:,2]
+        end=np.array(r['leading_points_base_mm'][-1]);depth=(end+offsets-np.array(w['center_base_m'])*1000)@(-np.array(w['outward_normal_base']))
+        self.assertLessEqual(float(depth.max()),10.+1e-5)
