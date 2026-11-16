@@ -85,16 +85,30 @@ class CompetitionTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls, [])
 
     def test_map_start_prewarms_grasp_while_navigation_is_running(self):
-        battery=Mock();battery.lock=threading.RLock()
+        battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}
         self.task.register('pick',GraspModule(battery))
+        self.modules['navigate_pick'].navigation=True
         self.modules['navigate_pick'].status='running'
         self.action('start')
         deadline=time.monotonic()+2
         while not battery.prewarm.called and time.monotonic()<deadline:time.sleep(.01)
         battery.prewarm.assert_called_once()
         battery.start_owned.assert_not_called()
+        self.assertIn(('lift',(5.52,)),self.adapter.calls)
         self.action('stop');self.wait('paused')
         battery.discard_prewarm.assert_called()
+        self.assertIn(('lift',(5.0,)),self.adapter.calls)
+
+    def test_pick_start_failure_stops_prepositioned_lift_before_releasing_control(self):
+        battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}
+        battery.start_owned.side_effect=ValueError('fixture start failure')
+        self.task.register('pick',GraspModule(battery))
+        self.modules['navigate_pick'].navigation=True
+        self.action('start');self.wait('needs_attention')
+        self.assertIn(('lift',(5.52,)),self.adapter.calls)
+        self.assertIn(('lift',(5.0,)),self.adapter.calls)
+        self.assertFalse(self.controller.snapshot()['motion_reserved'])
+        self.assertFalse(self.task.snapshot()['control_owned'])
 
     def test_missing_navigation_is_not_faked_and_releases_control(self):
         self.task.modules.pop('navigate_pick')
@@ -223,7 +237,8 @@ class CompetitionTests(unittest.TestCase):
     def test_borrowed_grasp_keeps_parent_token_and_details_until_parent_finishes(self):
         class Flow:
             def run(self):return dict(status='completed')
-        task=BatteryTask(Path(self.temp.name)/'grasp',self.controller,lambda *args:Flow())
+        factory=lambda *args:Flow();factory.task_settings={'lift_target_rad':5.52}
+        task=BatteryTask(Path(self.temp.name)/'grasp',self.controller,factory)
         self.addCleanup(task.close)
         carry=self.modules['carry'];carry.status='running'
         self.task.register('pick',GraspModule(task))
@@ -242,7 +257,8 @@ class CompetitionTests(unittest.TestCase):
             def run(self):
                 while not self.store.cancelled:time.sleep(.01)
                 return dict(status='cancelled')
-        battery=BatteryTask(Path(self.temp.name)/'grasp',self.controller,lambda store,*args:Flow(store))
+        factory=lambda store,*args:Flow(store);factory.task_settings={'lift_target_rad':5.52}
+        battery=BatteryTask(Path(self.temp.name)/'grasp',self.controller,factory)
         self.addCleanup(battery.close)
         self.task.register('pick',GraspModule(battery))
         self.action('start')

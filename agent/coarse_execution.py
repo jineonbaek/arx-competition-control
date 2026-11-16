@@ -131,8 +131,13 @@ class CoarseAlignmentStep:
                     minimum=[self.acceptance],**self.lift_policy)
                     if self.has_acceptance
                     else ArrivalMonitor([self.target],started_at=self.controller.clock(),**self.lift_policy))
-                r=self.controller.submit({'type':'lift','target':self.target},self.token,preflight=self._guard)
-                if r.get('ok') is not True:raise ValueError('Lift submission not confirmed')
+                prestarted=self.controller.take_prestarted_lift(self.token,self.target)
+                if prestarted:
+                    if self._guard(self.controller.snapshot(),self.controller.clock()) is not True:
+                        raise ValueError('Lift preflight rejected')
+                else:
+                    r=self.controller.submit({'type':'lift','target':self.target},self.token,preflight=self._guard)
+                    if r.get('ok') is not True:raise ValueError('Lift submission not confirmed')
                 self.stage='lifting'
                 if not self.controller.motion_valid(self.token):raise ValueError('Interrupted')
             except Exception as error:

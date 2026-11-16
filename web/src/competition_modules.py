@@ -14,6 +14,12 @@ class GraspModule:
 
     def prewarm(self,cancelled):self.task.prewarm(cancelled)
     def discard_prewarm(self):self.task.discard_prewarm()
+    def preposition_lift(self,controller,token):
+        controller.submit_competition_lift(
+            {'type':'lift','target':self.task.task_settings['lift_target_rad']},token)
+    def stop_preposition_lift(self,controller,token):
+        controller.set_competition_navigation(token,True)
+        controller.submit_competition_lift({'type':'lift.stop'},token)
 
     def start(self, context):
         request = context['request_id']

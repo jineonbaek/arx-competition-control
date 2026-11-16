@@ -124,7 +124,7 @@ class CompetitionTask:
                     directory.mkdir(parents=True, mode=0o700)
                     s = dict(run_id=run_id, directory=directory, index=0, records={}, logs=[],
                         current=None, halt_lock=threading.Lock(), token=None, competition_token=None,
-                        worker=threading.Thread(), reason='', status='idle')
+                        worker=threading.Thread(), reason='', status='idle', lift_prepositioned=False)
                 lease = self.controller.reserve_competition(data['expected_epoch'])
                 s.update(token=None, competition_token=lease, cancel=threading.Event(), status='running', reason='', current=None)
                 self.active = s
@@ -135,9 +135,17 @@ class CompetitionTask:
                     pick=self.modules.get('pick')
                     if s['index']<=1 and callable(getattr(pick,'prewarm',None)):
                         pick.prewarm(s['cancel'])
+                    if (action=='start' and s['index']==0
+                            and callable(getattr(pick,'preposition_lift',None))):
+                        self.controller.set_competition_navigation(lease,True)
+                        pick.preposition_lift(self.controller,lease)
+                        s['lift_prepositioned']=True
                     worker.start()
                 except Exception:
                     s['status'] = 'needs_attention'
+                    if s.get('lift_prepositioned'):
+                        pick.stop_preposition_lift(self.controller,lease)
+                        s['lift_prepositioned']=False
                     self.controller.release_competition(lease)
                     s['competition_token'] = None
                     raise
@@ -209,6 +217,7 @@ class CompetitionTask:
         else:
             if self.navigation and self.navigation.active:self.navigation.before_work(context,stage)
             result = module.start(context)
+            if stage=='pick':s['lift_prepositioned']=False
         while True:
             if not isinstance(result, dict):
                 raise ValueError('模块返回无效结果')
@@ -318,6 +327,13 @@ class CompetitionTask:
     def _finish(self, s, status, reason):
         stopped = status == 'completed' or self._stop_module(s)
         pick=self.modules.get('pick')
+        if s.get('lift_prepositioned'):
+            try:
+                pick.stop_preposition_lift(self.controller,s['competition_token'])
+                s['lift_prepositioned']=False
+            except Exception as error:
+                stopped=False
+                reason='预升降停止失败：'+str(error)[:300]
         try:
             if callable(getattr(pick,'discard_prewarm',None)):pick.discard_prewarm()
         except Exception as error:self.controller.log('视觉预热清理失败：'+str(error)[:200],'warning')
