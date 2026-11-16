@@ -72,16 +72,19 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
                   '连续位置界限仅适用于所检查的关节线性插值；控制服务必须采用匹配的插值'])
 
 
-def plan_correction(model,start_q,lift_rad,wrist_from_tool,target,limits_deg,*,timing_limits):
+def plan_correction(model,start_q,lift_rad,wrist_from_tool,target,limits_deg,*,timing_limits,translation_step_mm=2.,rotation_step_deg=.5):
     """Follow a short TCP translation and rotation together, reusing the checked IK path."""
     from .grasp_geometry import rigid
     tcp=rigid(wrist_from_tool);target=rigid(target)
     q=np.asarray(start_q,float)
+    for step,maximum in ((translation_step_mm,5.),(rotation_step_deg,2.)):
+        if type(step) not in (int,float) or not np.isfinite(step) or not 0<step<=maximum:
+            raise ValueError('Correction sampling outside checked step range')
     actual=rigid(model.wrist_transform(q,lift_rad)@tcp)
     displacement=target[:3,3]-actual[:3,3]
     rotation=Rotation.from_matrix(actual[:3,:3].T@target[:3,:3]).as_rotvec()
-    steps=max(1,int(np.ceil(np.linalg.norm(displacement)*1000/2)),
-              int(np.ceil(np.degrees(np.linalg.norm(rotation))/.5)))
+    steps=max(1,int(np.ceil(np.linalg.norm(displacement)*1000/translation_step_mm)),
+              int(np.ceil(np.degrees(np.linalg.norm(rotation))/rotation_step_deg)))
     waypoints=[q];checks=[]
     for t in np.linspace(0,1,steps+1)[1:]:
         tool=actual.copy();tool[:3,3]+=t*displacement

@@ -52,29 +52,31 @@ def main():
     parser.add_argument('--execute', action='store_true', help='Publish to dedicated gamepad driver topic')
     args=parser.parse_args()
     import rclpy
-    from arm_control.msg import PosCmd
+    import sys
+    from pathlib import Path
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'navigation/polarbear_adapt'))
+    from chassis_command import WebChassis
     from std_msgs.msg import Bool, String
     rclpy.init()
     node=rclpy.create_node('arx_gamepad_chassis')
-    publisher=node.create_publisher(PosCmd,'/web/gamepad/command',1) if args.execute else None
+    transport=WebChassis(source_id='gamepad-'+__import__('uuid').uuid4().hex) if args.execute else None
+    if transport:
+        transport.command_kind='chassis.gamepad_sdk';transport.sdk_units=True;transport.native_sdk=True
     health={'ready':False,'ready_at':0.,'ack_at':0.,'rejected':False}
     def ready(msg):
         health['ready']=msg.data;health['ready_at']=time.monotonic()
-    def status(msg):
-        if msg.data=='accepted:gamepad':
-            health['ack_at']=time.monotonic()
-        elif msg.data.startswith('rejected:') or msg.data=='stop:web':
-            health['rejected']=True
     node.create_subscription(Bool,'/web/body/calibrated',ready,1)
-    node.create_subscription(String,'/web/gamepad/status',status,10)
     gate=EnableGate();was_active=False;active_since=0.
     device_session = None
     report='/tmp/arx-gamepad-teleop-state.json'
     def send(command):
-        if publisher is not None:
-            msg=PosCmd();msg.chx,msg.chy,msg.chz=map(float,command)
-            msg.mode1=1 if any(command) else 2
-            publisher.publish(msg)
+        if transport is not None:
+            transport.send(command)
+            health['ack_at']=time.monotonic()
+    def end():
+        if transport is not None:
+            try:transport.end_output()
+            except (OSError,RuntimeError,ValueError):pass # driver watchdog still expires
     try:
         while rclpy.ok():
             start=time.monotonic()
@@ -85,7 +87,7 @@ def main():
                     state=json.load(response)
                 connected=state['connected'] and state.get('initialized',False) and state.get('mode') in PROFILES
                 if state.get('device_session') != device_session:
-                    if was_active: send((0.,0.,0.))
+                    if was_active:end()
                     gate=EnableGate();was_active=False
                     device_session=state.get('device_session')
                 axes=state['logical_axes'];held=bool(state['lt_pressed'])
@@ -99,10 +101,12 @@ def main():
             enabled=gate.update(connected,held,neutral,healthy)
             if enabled and not was_active:
                 active_since=start;health['ack_at']=0.
+                if transport is not None:transport.begin_task()
             if enabled:
-                send(command)
-            elif was_active:
-                send((0.,0.,0.))
+                try:send(command)
+                except (OSError,RuntimeError,ValueError):
+                    health['rejected']=True;enabled=False;gate.active=False;end()
+            elif was_active:end()
             if not held:
                 health['rejected']=False
             reason='按住 LT 控制' if enabled else ('松开 LT 并回中，再按住 LT' if healthy else '底盘未就绪或控制权被占用')
@@ -118,7 +122,7 @@ def main():
             time.sleep(max(0,.05-(time.monotonic()-start)))
     finally:
         if was_active:
-            send((0.,0.,0.));rclpy.spin_once(node,timeout_sec=.02)
+            end();rclpy.spin_once(node,timeout_sec=.02)
         node.destroy_node();rclpy.shutdown()
 
 if __name__=='__main__':main()

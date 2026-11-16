@@ -84,7 +84,14 @@ def main():
     infer(args)
 
 
+def tracking_seed(base_from_camera,previous_base_from_object,motion_seed=None):
+    source=np.asarray(previous_base_from_object if motion_seed is None else motion_seed,float)
+    if source.shape!=(4,4) or not np.isfinite(source).all():raise ValueError('Invalid visual tracking seed')
+    return np.linalg.inv(base_from_camera)@source
+
+
 def infer(args,state=None):
+    import trimesh
     state={} if state is None else state
     started=time.perf_counter()
     with np.load(args.frame,allow_pickle=False) as f:
@@ -112,7 +119,7 @@ def infer(args,state=None):
     tracking='base_from_object' in state
     if tracking:
         # The wrist camera moved: seed tracking in this frame, using the centered-mesh convention.
-        seed=np.linalg.inv(base)@state['base_from_object']
+        seed=tracking_seed(base,state['base_from_object'],getattr(args,'seed_base_from_object',None))
         est.pose_last=torch.as_tensor(seed,dtype=torch.float32,device='cuda')@torch.linalg.inv(est.get_tf_to_centered_mesh())
         pose=est.track_one(K=K,rgb=color,depth=z,iteration=2)
     else:

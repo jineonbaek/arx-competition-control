@@ -1,8 +1,10 @@
 Panels:
 - Class: rviz_common/Displays
   Name: Displays
-- Class: arx_waypoints/MappingPanel
-  Name: "\u5EFA\u56FE\u64CD\u4F5C"
+  Tree Height: 600
+  Help Height: 0
+- Class: arx_waypoints/Panel
+  Name: "\u591A\u70B9\u5BFC\u822A"
 Visualization Manager:
   Class: ''
   Global Options:
@@ -10,6 +12,30 @@ Visualization Manager:
     Background Color: 45; 45; 45
     Frame Rate: 20
   Displays:
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Map
+    Enabled: true
+    Topic:
+      Value: /pb/display/map
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Global costmap
+    Enabled: true
+    Topic:
+      Value: /pb/display/global
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: Local costmap
+    Enabled: false
+    Topic:
+      Value: /pb/display/local
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
   - Class: rviz_default_plugins/PointCloud2
     Name: "\u53CC\u96F7\u8FBE\u8054\u5408 LIO \u70B9\u4E91"
     Enabled: true
@@ -62,42 +88,6 @@ Visualization Manager:
     Color Transformer: FlatColor
     Color: 0; 255; 0
     Decay Time: 0
-  - Class: rviz_default_plugins/MarkerArray
-    Name: Map
-    Enabled: true
-    Topic:
-      Value: /pb/display/map
-      Reliability Policy: Reliable
-      Durability Policy: Transient Local
-      Depth: 2
-  - Class: rviz_default_plugins/MarkerArray
-    Name: Global costmap
-    Enabled: true
-    Topic:
-      Value: /pb/display/global
-      Reliability Policy: Reliable
-      Durability Policy: Transient Local
-      Depth: 2
-  - Class: rviz_default_plugins/MarkerArray
-    Name: Local costmap
-    Enabled: false
-    Topic:
-      Value: /pb/display/local
-      Reliability Policy: Reliable
-      Durability Policy: Transient Local
-      Depth: 2
-  - Class: arx_waypoints/ForegroundPolygon
-    Name: Actual CAD footprint
-    Enabled: true
-    Topic:
-      Value: /pb/rviz/footprint
-      Reliability Policy: Reliable
-      Durability Policy: Transient Local
-      Depth: 2
-    Color: 255; 255; 0
-    Alpha: 1.0
-    Draw Priority: 1
-    Frame Locked: true
   - Class: arx_waypoints/ForegroundPolygon
     Name: Padded CAD planner footprint
     Enabled: true
@@ -109,6 +99,18 @@ Visualization Manager:
     Color: 255; 0; 255
     Alpha: 1.0
     Draw Priority: 2
+    Frame Locked: true
+  - Class: arx_waypoints/ForegroundPolygon
+    Name: "\u5E95\u76D8\u5B9E\u9645\u6295\u5F71\uFF08\u4E0D\u542B\u5916\u6269\uFF09"
+    Enabled: true
+    Topic:
+      Value: /pb/rviz/base_projection
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
+    Color: 255; 255; 255
+    Alpha: 1.0
+    Draw Priority: 3
     Frame Locked: true
   - Class: rviz_default_plugins/Path
     Name: Planned path
@@ -133,6 +135,14 @@ Visualization Manager:
       Reliability Policy: Reliable
       Durability Policy: Volatile
       Depth: 2
+  - Class: rviz_default_plugins/MarkerArray
+    Name: "\u6709\u5E8F\u822A\u70B9"
+    Enabled: true
+    Topic:
+      Value: /pb/waypoints/markers
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Depth: 2
   Tools:
   - Class: rviz_default_plugins/Interact
   - Class: rviz_default_plugins/MoveCamera
@@ -142,6 +152,7 @@ Visualization Manager:
   - Class: rviz_default_plugins/PublishPoint
     Topic: /clicked_point
     Single click: true
+  - Class: arx_waypoints/Add
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho

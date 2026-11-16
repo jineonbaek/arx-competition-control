@@ -49,6 +49,16 @@ class Steps:
         self.offsets=WRIST_OFFSETS
         self.spec=None
         self.owner=None
+        self.maintenance=None
+
+    def reserve_chassis(self):
+        # Lock order remains Steps -> Controller everywhere. Recheck under the
+        # Controller lock; a command arriving after the preview cannot slip
+        # between the stationary check and maintenance activation.
+        with self.ctrl.lock:
+            if self.ctrl.snapshot()['chassis_active']:
+                raise ValueError('底盘已开始运动，不能启动维护测试')
+            self.maintenance=self.ctrl.reserve_chassis_maintenance()
 
     def record(self, status, message, point=None):
         self.history.append({"point":point,"status":status,"message":message,"time":time.time()})
@@ -131,6 +141,10 @@ class Steps:
             if op=="probe":
                 if not self.spec:raise ValueError("请先确认字典、标记编号和黑框边长")
                 token=self.depth_control.acquire_handeye(False)
+                try:self.reserve_chassis()
+                except Exception:
+                    self.release_depth(token)
+                    raise
                 self.active=True;self.motion=False;self.cancelled=False
                 self.record("静止试采","原地检查标记与位姿，无运动指令",0)
                 self.start_worker(client,{"point":0,"lift":h},q.copy(),token)
@@ -175,7 +189,12 @@ class Steps:
                 raise ValueError("机械臂或升降尚未停稳，请重新预览")
             token=self.depth_control.acquire_handeye(False)
             p=dict(p, start=q2.tolist())
-            self.active=True;self.motion=True;self.cancelled=False
+            try:
+                self.reserve_chassis()
+                self.active=True;self.motion=True;self.cancelled=False
+            except Exception:
+                self.release_depth(token)
+                raise
             try:
                 self.ctrl.submit({"type":"arm.joints","arm":"right","joints":np.degrees(target).tolist()},client)
             except Exception:
@@ -193,8 +212,13 @@ class Steps:
         try:
             self.depth_control.release_handeye(token)
         finally:
-            self.active=False
-            self.motion=False
+            try:
+                if self.maintenance is not None:
+                    self.ctrl.release_chassis_maintenance(self.maintenance)
+                    self.maintenance=None
+            finally:
+                self.active=False
+                self.motion=False
 
     def start_worker(self,client,p,target,token):
         try:

@@ -1,0 +1,16 @@
+{
+  "mode": "recorded_preview",
+  "candidate_dir": "/home/arx/t2-nav-git-20261116/experiments/t2-navigation-preview",
+  "workspace": "/home/arx/arx-place-hold-20261116",
+  "support_dirs": [
+    "/home/arx/arx-place-hold-20261116/experiments/placement-path-20261116",
+    "/home/arx/arx-place-hold-20261116/experiments/placement-flow-20261116",
+    "/home/arx/arx-place-hold-20261116",
+    "/home/arx/arx-competition-control",
+    "/home/arx/arx-competition-control/web/src"
+  ],
+  "frame": "/home/arx/arx-place-hold-20261116/reports/d435-visual-level-active/estimate-1794782014072959960/frame.npz",
+  "pose": "/home/arx/arx-place-hold-20261116/reports/d435-visual-level-active/estimate-1794782014072959960/pose.json",
+  "control_config": "/home/arx/arx-competition-control/web/config/control.json",
+  "timeout_s": 30.0
+}

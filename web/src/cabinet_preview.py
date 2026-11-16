@@ -79,6 +79,12 @@ class CabinetPreview:
             try:
                 window=localize_rgb(frame,slot,now=now)
                 result.update(status='localized',window=window,target_slot=slot['slot_id'])
+                try:
+                    from agent.cabinet_loaded_sweep import infer_table
+                    mesh=(self.root/'vision/models/cabinet'/(mode+'.stl')).read_bytes()
+                    result['table_estimate']=infer_table(frame,window,self.profiles[mode],slot,mesh)
+                except (ValueError,KeyError,OSError) as error:
+                    result['table_estimate']={'status':'unavailable','reason':str(error)}
                 result['readiness']['blockers'].append(window['scale_assumption'])
                 if window['pose_ambiguous']:result['readiness']['blockers'].append('平面PnP存在近似等价姿态，预览选最低像素误差候选')
                 cv2.polylines(image,[np.rint(window['inner_quad_px']).astype(np.int32)],True,(255,230,0),2)
@@ -116,7 +122,7 @@ class CabinetPreview:
     def _source_hashes(self,camera):
         paths=[CALIBRATIONS[camera],'config/right-grip-tcp.json','config/cabinet-profiles.json',
             'config/battery-envelope.json','web/public/cad/battery-grip.json',
-            'agent/cabinet_rgb_geometry.py','agent/cabinet_preview_geometry.py','agent/grasp_path.py',
+            'agent/cabinet_red_edges.py','agent/cabinet_loaded_sweep.py','vision/models/cabinet/demo.stl','agent/cabinet_rgb_geometry.py','agent/cabinet_preview_geometry.py','agent/grasp_path.py',
             'web/src/cabinet_preview.py','web/src/cabinet_capture.py','web/src/handeye_column.py','web/config/control.json']
         package=Path('web/public/models/lift2/diy-20261105');urdf=package/'urdf/lift2_with_sensors.urdf';paths.append(str(urdf))
         if (self.root/urdf).is_file():

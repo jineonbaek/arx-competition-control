@@ -10,6 +10,7 @@ from functools import lru_cache
 import numpy as np
 from scipy.spatial.transform import Rotation
 from handeye_column import ColumnModel
+from chassis_scheduler import ChassisScheduler, InvalidChassis, IDENTITY_FIELDS
 
 DIRECTIONS = {
     "forward": (1, 0, 0), "backward": (-1, 0, 0),
@@ -87,6 +88,8 @@ class Controller:
         self.chassis_deadline = 0
         self.chassis_message = None
         self.base_sequences = {}
+        self.chassis = ChassisScheduler(lambda output:self.adapter.chassis_output(output), clock=clock,
+                                        lease=config["chassis_lease_s"], lock=self.lock)
 
     def reserve_competition(self, expected_epoch):
         with self.lock:
@@ -106,8 +109,8 @@ class Controller:
         with self.lock:
             if token is None or token is not self.competition_owner:
                 raise Rejected('整场任务控制权已失效')
-            if enabled and (token.interrupted or self.motion_owner is not None):
-                raise Rejected('当前作业尚未交还运动占用或已被停止')
+            if enabled and token.interrupted:
+                raise Rejected('整场任务已被明确停止')
             token.navigation = bool(enabled)
 
     def submit_competition_lift(self, data, token):
@@ -116,7 +119,7 @@ class Controller:
             if token is None or token is not self.competition_owner or token.interrupted:
                 raise Rejected('整场任务控制权已失效')
             kind = data.get('type') if isinstance(data, dict) else None
-            if kind == 'lift' and set(data) == {'type', 'target'}:
+            if (kind == 'lift' and set(data) == {'type', 'target'}):
                 result = self.submit(data, token.nav_client)
                 token.prestarted_lift_target = float(data['target'])
                 return result
@@ -129,14 +132,15 @@ class Controller:
     def stop_competition_navigation(self, token):
         with self.lock:
             self.set_competition_navigation(token, False)
-            self._stop_chassis('整场任务请求停车')
+            # The route cancellation ends its captured output identity in ROS.
+            # Do not close every generation belonging to the HTTP caller.
 
     def release_competition(self, token):
         with self.lock:
             if token is None or token is not self.competition_owner:
                 raise Rejected('整场任务控制权已失效')
-            if self.motion_owner is not None or self.chassis_owner is not None:
-                raise Rejected('运动占用尚未清理，不能归还手动控制')
+            if self.motion_owner is not None:
+                raise Rejected('机械臂作业令牌尚未清理')
             self.competition_owner = None
             self.command_epoch += 1
 
@@ -149,16 +153,14 @@ class Controller:
             return self.competition_owner is not None and self.competition_owner.nav_session == client
 
     def navigation_client(self, data, client):
+        # Identity translation is not a chassis ownership grant.
         with self.lock:
-            if not isinstance(data, dict) or data.get('type') not in ('chassis.nav_sdk', 'chassis.stop'):
-                raise Rejected('导航通道仅接受底盘速度和停止')
+            if not isinstance(data, dict) or data.get('type') not in (
+                    'chassis.nav_sdk', 'chassis.end_output', 'chassis.stop'):
+                raise Rejected('导航通道仅接受底盘执行或结束输出')
             owner = self.competition_owner
             if owner is not None:
-                if data['type'] != 'chassis.stop' and (not owner.navigation or owner.interrupted):
-                    raise Rejected('导航等待当前作业交还控制权或整场已停止')
-                if owner.nav_session is None: owner.nav_session = client
-                if owner.nav_session != client: raise Rejected('已有导航调用者占用本轮控制权')
-                client = owner.nav_client
+                if owner.nav_session is None:owner.nav_session = client
             return client
 
     def reserve_motion(self, expected_epoch, *, competition=None):
@@ -213,6 +215,7 @@ class Controller:
                 self._trajectory_abort(self.motion_trajectory['side'],token)
                 if self.motion_trajectory is not None:
                     raise Rejected("轨迹停止请求未发出，不能释放控制权")
+            self.end_chassis_output(token)
             self.motion_owner = None
             self.motion_interrupted = False
             self.command_epoch += 1
@@ -417,6 +420,7 @@ class Controller:
         return ""
 
     def body_reason(self, kind):
+        if kind=="chassis.stop":return "" # Explicit all-car stop bypasses ordinary motion gates.
         c = self.config["body"]
         if not self.config["execution_enabled"]:
             return "观察模式，真实控制尚未启用"
@@ -438,7 +442,7 @@ class Controller:
                 return "底盘方向、速度和超时停车待验证"
             if not all(number(c[x]) and c[x] > 0 for x in ("max_linear_m_s", "max_angular_rad_s")):
                 return "底盘速度限制未配置"
-            if not self.adapter.has_subscriber(c["command_topic"], "body"):
+            if not self.adapter.chassis_ready():
                 return "专用底盘控制节点未连接"
         return ""
 
@@ -547,10 +551,11 @@ class Controller:
                                "linear": self.config["body"]["max_linear_m_s"],
                                "angular": self.config["body"]["max_angular_rad_s"]},
                     "chassis_active": self.chassis_owner is not None,
+                    "chassis_scheduler": self.chassis.snapshot(),
                     "motion_reserved": self.motion_owner is not None,
                     "competition_reserved": self.competition_owner is not None,
                     "motion_interrupted": self.motion_interrupted, "command_epoch": self.command_epoch,
-                    "nav_sdk_ready": self.adapter.has_subscriber("/web/nav/sdk_command","body"),
+                    "nav_sdk_ready": self.adapter.chassis_ready(),
                     "logs": list(self.logs)}
 
     def submit(self, data, client, *, preflight=None, automatic_joint_speed=False):
@@ -587,6 +592,8 @@ class Controller:
     def _submit(self, data, client, *, automatic_joint_speed=False):
         if not isinstance(data, dict):
             raise Rejected("指令必须是对象")
+        if isinstance(data.get("type"),str) and data["type"].startswith("chassis"):
+            return self._submit_chassis(data, client)
         sequence_client = client
         if data.get("type") in ("chassis", "chassis.stop") and "control_id" in data:
             control_id = data["control_id"]
@@ -670,56 +677,80 @@ class Controller:
                 raise Rejected("升降目标超出已配置范围或反馈参考无效")
             self.adapter.lift(v)
             return
-        sequence = data.get("sequence")
-        previous_sequence = self.base_sequences.get(sequence_client, 0)
-        if (type(sequence) is not int or sequence <= 0
-                or (kind != "chassis.stop" and sequence <= previous_sequence)):
-            raise Rejected("底盘指令序号已过期")
-        if self.chassis_owner and self.chassis_owner != client and kind != "chassis.stop":
-            raise Rejected("底盘正在由另一网页控制")
-        self.base_sequences[sequence_client] = max(sequence, previous_sequence)
-        if kind == "chassis.stop":
-            self._stop_chassis("底盘停止", force=True)
-            return
-        c = self.config["body"]
-        max_linear, max_angular = c["max_linear_m_s"], c["max_angular_rad_s"]
-        if nav_sdk:
-            if not self.adapter.has_subscriber("/web/nav/sdk_command", "body"):
-                raise Rejected("导航 SDK 接收端未启动")
-            max_linear, max_angular = 1.0, .112
-        if chassis_vector:
-            x, y, omega = data["x"], data["y"], data["omega"]
-            if (not all(type(v) in (int, float) and -limit <= v <= limit
-                        for v, limit in ((x, max_linear), (y, max_linear), (omega, max_angular)))
-                    or math.hypot(x, y) > max_linear + (1e-12 if nav_sdk else 0.) or (x, y, omega) == (0, 0, 0)):
-                raise Rejected("底盘三轴速度无效或超出已配置范围")
-        else:
-            direction, speed, turn = data["direction"], data["speed"], data["turn_speed"]
-            if direction not in DIRECTIONS or not number(speed) or not number(turn) or not 0 < speed <= max_linear or not 0 < turn <= max_angular:
-                raise Rejected("方向或速度超出已配置范围")
-            dx, dy, rotation = DIRECTIONS[direction]
-            x, y, omega = dx * speed, dy * speed, rotation * turn
-        self.chassis_message = copy.deepcopy(self.body)
-        if nav_sdk:
-            self.adapter.nav_chassis_sdk(x, y, omega)
-        else:
-            self.adapter.chassis(x, y, omega, self.chassis_message)
-        self.chassis_owner = client
-        self.chassis_deadline = self.clock() + self.config["chassis_lease_s"]
+        raise Rejected("指令类型无效")
+
+    def _sync_chassis(self):
+        a=self.chassis.active
+        self.chassis_owner=None if a is None or not any(a['sdk']) else a['client']
+        self.chassis_deadline=0 if a is None else a['deadline']
+
+    def _submit_chassis(self, data, client):
+        kind=data.get('type')
+        if kind=='chassis.stop':
+            if set(data)-{'type','sequence','control_id'}:raise Rejected('全车停车字段无效')
+            if type(data.get('sequence')) is not int or data['sequence']<=0:raise Rejected('停车序号无效')
+            # Explicit operator stop keeps the existing manipulator interruption.
+            self._check_motion_owner(kind,client)
+            try:return self.chassis.stop('explicit_stop')
+            finally:self._sync_chassis()
+        if kind not in ('chassis','chassis.nav_sdk','chassis.gamepad_sdk','chassis.end_output'):
+            raise Rejected('底盘指令类型无效')
+        fields={'type'}|set(IDENTITY_FIELDS)
+        if kind!='chassis.end_output':fields|={'x','y','omega'}
+        if set(data)!=fields:raise Rejected('底盘身份、时效或执行字段无效')
+        if kind!='chassis.end_output':
+            # Manipulator capability validates its own stale callbacks, but never
+            # excludes ordinary chassis callers while the manipulator is working.
+            if isinstance(client,_MotionToken) and not self.motion_valid(client):
+                raise Rejected('作业身份已结束或被停止')
+            reason=self.body_reason(kind)
+            if reason:raise Rejected(reason)
+            c=self.config['body']
+            linear,angular=(c['max_linear_m_s'],c['max_angular_rad_s'])
+            if kind=='chassis.nav_sdk':linear,angular=1.,.112
+            if kind=='chassis.gamepad_sdk':linear,angular=2.,2.
+            values=tuple(data[k] for k in ('x','y','omega'))
+            if (not all(number(v) for v in values) or math.hypot(*values[:2])>linear+1e-12
+                    or abs(values[2])>angular):raise Rejected('底盘执行值无效或超出原有限制')
+            sdk=values
+            if kind=='chassis':sdk=tuple(v*c.get('chassis_input_scale',2.5)/2.5 for v in values)
+        else:sdk=None
+        try:
+            return self.chassis.submit(data,client,sdk,
+                maintenance=client if client is self.chassis.maintenance else None)
+        except InvalidChassis as error:raise Rejected(str(error)) from error
+        finally:self._sync_chassis()
+
+    def end_chassis_output(self,client):
+        with self.lock:
+            try:self.chassis.end_client(client)
+            finally:self._sync_chassis()
+
+    def reserve_chassis_maintenance(self):
+        with self.lock:
+            try:return self.chassis.reserve_maintenance()
+            except InvalidChassis as error:raise Rejected(str(error)) from error
+            finally:self._sync_chassis()
+
+    def release_chassis_maintenance(self,token):
+        with self.lock:
+            try:self.chassis.release_maintenance(token)
+            except InvalidChassis as error:raise Rejected(str(error)) from error
+            finally:self._sync_chassis()
 
     def _stop_chassis(self, reason, force=False):
-        if self.chassis_owner is not None or force:
-            self.adapter.chassis(0, 0, 0, self.chassis_message or self.body)
-            self.chassis_owner = None
-            self.chassis_message = None
-            self.log(reason)
+        # Internal expiry is scoped to the current accepted output sequence.
+        if self.chassis.active is not None:
+            self.chassis.expire(self.chassis.active['output_seq'])
+        elif force:self.chassis.stop(reason)
+        self._sync_chassis()
 
     def tick(self):
         with self.lock:
-            if self.chassis_owner is not None and (self.clock() > self.chassis_deadline or not self.fresh(self.body)):
-                self._stop_chassis("底盘指令超时或反馈过期，已请求停车")
+            self.chassis.tick(feedback_fresh=self.fresh(self.body))
+            self._sync_chassis()
 
-    def disconnected(self, client):
+    def disconnected(self, client, identity=None):
         with self.lock:
-            if self.chassis_owner == client:
-                self._stop_chassis("网页连接断开，已请求停车")
+            self.chassis.disconnect(client,identity)
+            self._sync_chassis()

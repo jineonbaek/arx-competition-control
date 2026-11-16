@@ -13,7 +13,8 @@
 #include <stdexcept>
 #include "slow_lift_config.hpp"
 #include "chassis_motion.hpp"
-#include "command_lease.hpp"
+#include "chassis_output.hpp"
+#include <nlohmann/json.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -75,57 +76,40 @@ int main(int argc, char **argv) {
   auto ready_pub = node->create_publisher<std_msgs::msg::Bool>("/web/body/calibrated", 1);
   auto last_command = std::chrono::steady_clock::time_point{};
   ChassisMotion chassis_motion(2.0, 2.0);
-  CommandLease command_lease;
-  auto gamepad_status_pub = node->create_publisher<std_msgs::msg::String>("/web/gamepad/status", 10);
-  auto gamepad_status = [&](const std::string &status) {
-    std_msgs::msg::String msg; msg.data = status; gamepad_status_pub->publish(msg);
-  };
-  auto chassis_sub = node->create_subscription<arm_control::msg::PosCmd>(
-      "/web/body/command", 1, [&](const arm_control::msg::PosCmd &msg) {
-        const double x = msg.chx / 2.5, y = -msg.chy / 2.5, yaw = msg.chz / 2.5;
-        if (!valid_chassis_target(x, y, yaw, msg.mode1) ||
-            (msg.mode1 == 1 && !control_loop->calibrated())) {
-          chassis_motion.protect();
-          RCLCPP_WARN(node->get_logger(), "Rejected chassis target: invalid range/mode or body not ready");
-          return;
+  const std::string driver_instance=std::to_string(getpid())+"-"+
+      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  ChassisOutputGate output_gate(driver_instance);
+  auto output_deadline=std::chrono::steady_clock::time_point{};
+  auto output_status=node->create_publisher<std_msgs::msg::String>("/web/chassis/output_status",1);
+  // Sole chassis input. Legacy web/nav/gamepad direct channels are intentionally
+  // absent: they would bypass Controller validation and maintenance exclusivity.
+  auto chassis_sub=node->create_subscription<std_msgs::msg::String>(
+      "/web/chassis/ordered_output",10,[&](const std_msgs::msg::String &msg){
+        try {
+          if(msg.data.size()>4096)return;
+          const auto j=nlohmann::json::parse(msg.data);
+          if(!j.at("output_seq").is_number_unsigned() || !j.at("sdk").is_array() ||
+             j.at("sdk").size()!=3)return;
+          for(const auto &v:j.at("sdk"))if(!v.is_number())return;
+          if(!j.at("issued_at").is_number() || !j.at("ttl_s").is_number())return;
+          ChassisOutput o{j.at("driver_instance").get<std::string>(),
+              j.at("output_seq").get<uint64_t>(),j.at("issued_at").get<double>(),
+              j.at("ttl_s").get<double>(),j.at("sdk").get<std::array<double,3>>()};
+          const auto now=std::chrono::steady_clock::now();
+          const double wall=std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+          if(!output_gate.accept(o,wall,control_loop->calibrated()))return;
+          const double stamp=std::chrono::duration<double>(now.time_since_epoch()).count();
+          last_command=now;
+          output_deadline=now+std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+              std::chrono::duration<double>(std::max(0.,o.issued+o.ttl-wall)));
+          const int mode=o.sdk==std::array<double,3>{0.,0.,0.}?2:1;
+          chassis_motion.request(o.sdk,mode,stamp);
+        }catch(const std::exception &e){
+          RCLCPP_WARN_THROTTLE(node->get_logger(),*node->get_clock(),2000,
+                              "Rejected chassis output: %s",e.what());
         }
-        const auto now = std::chrono::steady_clock::now();
-        if (!command_lease.accept(CommandSource::Web, msg.mode1,
-              std::chrono::duration<double>(now.time_since_epoch()).count())) return;
-        if (msg.mode1 == 2) gamepad_status("stop:web");
-        last_command = now;
-        chassis_motion.request({x, y, yaw}, msg.mode1,
-            std::chrono::duration<double>(last_command.time_since_epoch()).count());
       });
-  // Console owns both web and navigation leases. Navigation vectors arrive in SDK units.
-  auto nav_sub = node->create_subscription<arm_control::msg::PosCmd>(
-      "/web/nav/sdk_command", 1, [&](const arm_control::msg::PosCmd &msg) {
-        if (msg.mode1 != 1 || !control_loop->calibrated() ||
-            !valid_chassis_target(msg.chx, msg.chy, msg.chz, 1, 1.0000001, 0.1120001)) return;
-        const auto now = std::chrono::steady_clock::now();
-        const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
-        if (!command_lease.accept(CommandSource::Web, 1, stamp)) return;
-        last_command = now;
-        chassis_motion.request({msg.chx, msg.chy, msg.chz}, 1, stamp);
-      });
-  // Dedicated gamepad entry is already in SDK units, unlike the legacy web entry.
-  auto gamepad_sub = node->create_subscription<arm_control::msg::PosCmd>(
-      "/web/gamepad/command", 1, [&](const arm_control::msg::PosCmd &msg) {
-        if (!valid_chassis_target(msg.chx, msg.chy, msg.chz, msg.mode1, 2.0, 2.0) ||
-            (msg.mode1 == 1 && !control_loop->calibrated())) {
-          gamepad_status("rejected:invalid_or_not_ready");
-          return;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
-        if (!command_lease.accept(CommandSource::Gamepad, msg.mode1, stamp)) {
-          gamepad_status("rejected:busy");
-          return;
-        }
-        last_command = now;
-        chassis_motion.request({msg.chx, msg.chy, msg.chz}, msg.mode1, stamp);
-        gamepad_status("accepted:gamepad");
-      });
+  unsigned status_tick=0;
   auto stop_lift_service = node->create_service<std_srvs::srv::Trigger>(
       "/web/body/stop_lift", [&](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
                                 std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -145,7 +129,7 @@ int main(int argc, char **argv) {
     control_loop->setHeight(node->get_parameter("fixed_body_height").as_double());
     const auto now = std::chrono::steady_clock::now();
     chassis_motion.step(std::chrono::duration<double>(now.time_since_epoch()).count(),
-                        std::chrono::duration<double>(now - last_command).count(),
+                        now>=output_deadline ? WEB_CHASSIS_TIMEOUT : std::chrono::duration<double>(now - last_command).count(),
                         control_loop->calibrated());
     const auto &velocity = chassis_motion.velocity();
     control_loop->setChassisCmd(velocity[0], velocity[1], velocity[2], chassis_motion.mode());
@@ -154,6 +138,13 @@ int main(int argc, char **argv) {
     std_msgs::msg::Bool ready_msg;
     ready_msg.data = control_loop->calibrated();
     ready_pub->publish(ready_msg);
+    if(++status_tick%20==0){
+      std_msgs::msg::String state;
+      state.data=nlohmann::json{{"driver_instance",driver_instance},
+          {"output_seq",output_gate.sequence()},{"ordered_output",true},
+          {"calibrated",control_loop->calibrated()}}.dump();
+      output_status->publish(state);
+    }
     arm_control::msg::PosCmd msg;
     msg.head_yaw = control_loop->getHeadYaw();
     msg.head_pit = control_loop->getHeadPitch();

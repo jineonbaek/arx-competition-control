@@ -13,7 +13,7 @@ from agent.motion_feedback import ArrivalMonitor
 from agent.storage import RunStore, atomic_json
 
 ROOT = Path(__file__).resolve().parents[2]
-TERMINAL = ('idle', 'blocked', 'cancelled', 'completed', 'recovery_required')
+TERMINAL = ('idle', 'blocked', 'cancelled', 'completed', 'completed_hold_outside', 'recovery_required')
 
 
 class CabinetExecutionTask:
@@ -67,17 +67,17 @@ class CabinetExecutionTask:
             if token is not None and self.ctrl.motion_valid(token):
                 self.ctrl.submit(dict(type='arm.stop', arm='right'), token)
             return self.snapshot()
-        if (type(data) is not dict or set(data) != {'op', 'model'} or data['op'] != 'start'
+        if (type(data) is not dict or set(data) != {'op', 'model'} or data['op'] not in ('start','align_held','test_held')
                 or data['model'] not in ('demo', 'competition')):
             raise ValueError('Only current model start or cancel is accepted')
-        return self._start(data['model'])
+        return self._start(data['model'],keep_grip=data['op']!='start',align_only=data['op']=='align_held')
 
     def start_owned(self, token, model=None):
         return self._start(model or self.state['model'], token=token)
 
-    def _start(self, model, *, token=None):
+    def _start(self, model, *, token=None, keep_grip=False, align_only=False):
         with self.lock:
-            if self.state['status'] not in ('idle', 'blocked', 'cancelled', 'completed'):
+            if self.state['status'] not in ('idle', 'blocked', 'cancelled', 'completed','completed_hold_outside'):
                 raise ValueError('Task active or recovery unresolved')
             if self.thread is not None and self.thread.is_alive():
                 raise ValueError('Prior worker has not exited')
@@ -94,7 +94,8 @@ class CabinetExecutionTask:
             self.source_hash = digest(self.ctrl.config)
             self._save(status='planning', phase='d435_scan', reason='', model=model,
                        run_id=uuid.uuid4().hex, battery_placed=False, released=False,
-                       release_requested=False, motion_started=False, logs=[])
+                       release_requested=False, motion_started=False, keep_grip=keep_grip, align_only=align_only,
+                       shallow_insertion_mm=10. if keep_grip else None, control_retained=False, logs=[])
             if self.auto_worker:
                 self.thread = threading.Thread(target=self._run, name='cabinet-placement', daemon=True)
                 self.thread.start()
@@ -156,6 +157,7 @@ class CabinetExecutionTask:
         raise ValueError('Placement joint arrival timed out')
 
     def _release(self):
+        if self.state.get('keep_grip'):raise ValueError('Keep-grip rehearsal cannot release battery')
         self._save(phase='release')
         self._check_assets()
         self._check()
@@ -180,15 +182,31 @@ class CabinetExecutionTask:
             self.sleep(.02)
 
     def _run(self):
-        status, reason = 'completed', ''
+        status, reason, retain_motion = 'completed', '', False
         try:
             from agent.execution_policy import load
             self.pick_policy = load(self.preview.root/'config/battery-execution.json',
                 gripper_limits=self.ctrl.config['arms']['right']['gripper_limits_raw'])['pick']
             self.bundle = self.planner(self.state['model'])
             self._check()
-            for segment in self.bundle['segments']:
+            parts=self.bundle['segments']
+            if self.state.get('align_only'):parts=[part for part in parts if part['phase']=='outside_align']
+            if not parts:raise ValueError('No outside alignment segments')
+            for segment in parts:
                 self._move(segment)
+            if self.state.get('keep_grip'):
+                if not self.state.get('align_only'):
+                    # Reverse the exact checked quintic curve/timing, never open the claw.
+                    for part in reversed([part for part in parts if part['phase']=='insert']):
+                        plan=part['plan'];end=plan['time_from_start_s'][-1]
+                        reverse=dict(interpolation=plan['interpolation'],
+                            joint_waypoints_rad=list(reversed(plan['joint_waypoints_rad'])),
+                            time_from_start_s=[end-t for t in reversed(plan['time_from_start_s'])])
+                        self._move(dict(phase='retreat',plan=reverse))
+                self._check()
+                self._save(phase='outside_hold',reason='Held battery rehearsal ended outside; gripper never released')
+                status='completed_hold_outside'
+                return
             self._release()
             # Replan from measured insertion arrival; withdraw along the same axis and Z.
             for segment in self._retreat():
@@ -205,6 +223,8 @@ class CabinetExecutionTask:
             status = ('cancelled' if self.cancel.is_set() else
                       'recovery_required' if self.state['motion_started'] else 'blocked')
             if self.state['motion_started']:
+                if self.state.get('keep_grip'):
+                    retain_motion=True;status='recovery_required'
                 try:
                     self.ctrl.submit(dict(type='arm.stop', arm='right'), self.token)
                 except Exception as stop_error:
@@ -212,11 +232,12 @@ class CabinetExecutionTask:
         finally:
             if self.store is not None:
                 self.store.close()
-            if self.owns_motion:
+            if self.owns_motion and not retain_motion:
                 try:
                     self.ctrl.release_motion(self.token)
                 except Exception as error:
                     status, reason = 'recovery_required', reason+'; control handoff failed: '+str(error)[:100]
+            if retain_motion:self._save(control_retained=True)
             self._save(status=status, phase='completed' if status=='completed' else self.state['phase'], reason=reason)
 
     def close(self):
@@ -255,6 +276,15 @@ class CabinetExecutionTask:
 
     def _plan(self, model):
         result = self.preview.action({'camera':'d435','model':model}, include_arm_preview=False, token=self.token)
+        if self.state.get('keep_grip') and result.get('window'):
+            from agent.cabinet_preview_geometry import horizontal_plan,opening
+            root=self.preview.root
+            slot=opening(json.loads((root/'config/cabinet-profiles.json').read_text()),model)
+            result['plan']=horizontal_plan(result['window'],slot,
+                json.loads((root/'config/battery-envelope.json').read_text()),
+                tip_point_object_mm=json.loads((root/'web/public/cad/battery-grip.json').read_text())['points_object_mm']['tip'],
+                preclearance_mm=100.,max_insertion_depth_mm=10.)
+            result['status']='localized'
         if result.get('status') != 'localized' or not result.get('plan'):
             raise ValueError('D435 path rejected: '+result.get('reason', result.get('status','unknown')))
         self.assets = result['source_hashes']
@@ -263,17 +293,27 @@ class CabinetExecutionTask:
         tcp = np.asarray(json.loads((self.preview.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
         self.bundle = dict(tcp_matrix=tcp, observation=result,
             timing=dict(joint_speed_deg_s=[3.]*6, joint_acceleration_deg_s2=[6.]*6,
-                        tcp_speed_mm_s=12., tcp_acceleration_mm_s2=25.))
+                        tcp_speed_mm_s=12.,tcp_acceleration_mm_s2=25.))
         target = np.eye(4)
         target[:3,:3] = p['R_base_from_tool']
         target[:3,3] = np.asarray(p['tcp_pre_base_mm'])/1000
         q = self.ctrl.snapshot()['arms']['right']['joints']
         outside = self._path(q, target)
+        if self.state.get('keep_grip'):
+            from agent.cabinet_loaded_sweep import check_outside_sweep
+            battery=json.loads((self.preview.root/'config/battery-envelope.json').read_text())
+            battery['contact_mm']=json.loads((self.preview.root/'web/public/cad/battery-grip.json').read_text())['points_object_mm']['tip']
+            self.bundle['loaded_sweep']=check_outside_sweep(self.ctrl.models['right'],self.ctrl.models['left'],
+                self.initial['arms']['left']['joints'],self.initial['body']['height'],outside['joint_waypoints_rad'],
+                tcp,battery,result['window'],result.get('table_estimate',{}))
+        if self.state.get('align_only'):
+            self.bundle['segments']=list(self._segments('outside_align',outside));return self.bundle
         from agent.grasp_path import plan_insert
         insert = plan_insert(self.ctrl.models['right'], outside['joint_waypoints_rad'][-1],
             self.initial['body']['height'], p['tcp_pre_base_mm'], p['tcp_end_base_mm'],
             p['R_base_from_tool'], tcp, self.ctrl.config['arms']['right']['joint_limits_deg'],
-            timing_limits=self.bundle['timing'])
+            timing_limits=(dict(self.bundle['timing'],tcp_speed_mm_s=3.,tcp_acceleration_mm_s2=6.)
+                           if self.state.get('keep_grip') else self.bundle['timing']))
         self.bundle['segments'] = list(self._segments('outside_align', outside))+list(self._segments('insert', insert))
         return self.bundle
 

@@ -33,9 +33,12 @@ from agent.cabinet_readiness import readiness as cabinet_readiness, admission_pr
 from cabinet_preview import CabinetPreview
 from cabinet_rehearsal import CabinetRehearsal
 from cabinet_execution import CabinetExecutionTask
+from visual_docking_live import LiveDockTask
+from fast_visual_level import FastVisualLevel
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from competition_modules import GraspModule, CarryReceiptModule, PlacementModule, QwenRecovery
+from t2_preview_backend import make_t2_placement
 from agent.battery_production import workflow_factory
 
 WEB_ROOT = Path(__file__).resolve().parents[1]
@@ -50,18 +53,27 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
     cabinet_rehearsal=cabinet_rehearsal or CabinetRehearsal(controller)
     cabinet_execution=cabinet_execution or CabinetExecutionTask(controller,cabinet_preview)
+    visual_docking=visual_docking or LiveDockTask(controller,cabinet_preview)
+    fast_level=fast_level or FastVisualLevel(controller,depth_control)
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
     tcp_calibration = TcpCalibration(controller)
+    def competition_view(view):
+        if t2_preview is not None:
+            view['t2_preview']={'mode':'recorded_preview','preview_only':True,
+                                'notice':'T2 仅历史数据预览，不执行放置，不发送完成回执'}
+            for task in view.get('tasks',[]):
+                if task.get('id')=='place':task['label']='T2 历史数据预览（不执行放置）'
+        return view
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -95,6 +107,16 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/t2-preview':
+                if not self.client():return self.json(403,{'message':'请先打开地图与任务页面'})
+                return self.json(200,t2_preview.snapshot() if t2_preview else
+                    dict(enabled=False,mode='existing_placement',preview_only=False))
+            if path == '/api/fast-level':
+                if not self.client():return self.json(403,{'message':'请先打开控制页面'})
+                return self.json(200,fast_level.snapshot())
+            if path == '/api/visual-docking':
+                if not self.client():return self.json(403,{'message':'请先打开控制页面'})
+                return self.json(200,visual_docking.snapshot())
             if path == '/api/cabinet-execution':
                 if not self.client():return self.json(403,{'message':'请先打开控制页面'})
                 return self.json(200,cabinet_execution.snapshot())
@@ -114,7 +136,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             if path == '/api/competition-task':
                 if not self.client():return self.json(403, {'message':'请先打开地图与任务页'})
                 if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
-                return self.json(200, competition_task.snapshot(self.client()))
+                return self.json(200, competition_view(competition_task.snapshot(self.client())))
             if path == "/api/battery-task/result":
                 if not self.client():return self.json(403,{"message":"请先打开控制台"})
                 if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
@@ -192,7 +214,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 data = read_snapshot()
                 task = battery_task.snapshot(self.client()) if battery_task else {"status": "unavailable", "phase": "idle"}
                 data["task"] = {key: task.get(key) for key in ("status", "phase", "mission_stage", "reason", "run_id", "recovery_required")}
-                data['competition'] = competition_task.snapshot(self.client()) if competition_task else None
+                data['competition'] = competition_view(competition_task.snapshot(self.client())) if competition_task else None
                 return self.json(200, data)
             if path == '/api/cabinet-rehearsal':
                 if not self.client():return self.json(403,{'message':'请先打开控制页'})
@@ -233,14 +255,14 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/map.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html", "/placement.html") and not self.client():
+            if path in ("/", "/map.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html", "/placement.html", "/visual-docking.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -253,6 +275,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/fast-level':
+                    return self.json(200,fast_level.action(strict_json(raw)))
+                if path == '/api/visual-docking':
+                    return self.json(200,visual_docking.action(strict_json(raw)))
                 if path == '/api/cabinet-execution':
                     return self.json(200,cabinet_execution.action(strict_json(raw)))
                 if path == '/api/cabinet-controller/probe':
@@ -269,7 +295,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     return self.json(202,placement_task.action(self.client(),strict_json(raw)))
                 if path == '/api/competition-task':
                     if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
-                    return self.json(202, competition_task.action(self.client(), strict_json(raw)))
+                    return self.json(202, competition_view(competition_task.action(self.client(), strict_json(raw))))
                 if path == '/api/battery-task':
                     if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
                     return self.json(202,battery_task.action(self.client(),strict_json(raw)))
@@ -305,12 +331,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     data = strict_json(raw)
                     return self.json(202, arxgent.handle(self.client(), data))
                 data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
-                if isinstance(data,dict) and data.get("type")=="chassis.nav_sdk" and self.client_address[0] not in ("127.0.0.1","::1"):
-                    raise Rejected("导航 SDK 入口仅接受本机执行器")
-                if isinstance(data,dict) and (data.get('type')=='chassis.nav_sdk' or
-                        data.get('type')=='chassis.stop' and self.client_address[0] in ('127.0.0.1','::1')
-                        and controller.is_navigation_client(self.client())):
-                    return self.json(200,steps.manual_submit(data,controller.navigation_client(data,self.client())))
+                if isinstance(data,dict) and str(data.get('type','')).startswith('chassis'):
+                    kind=data.get('type')
+                    if kind in ('chassis.nav_sdk','chassis.gamepad_sdk') and self.client_address[0] not in ('127.0.0.1','::1'):
+                        raise Rejected('SDK 原值入口仅接受本机适配器')
+                    if kind=='chassis.nav_sdk' or kind=='chassis.end_output' and str(data.get('source_id','')).startswith('navigation-'):
+                        return self.json(200,controller.submit_navigation(data,self.client()))
+                    return self.json(200,controller.submit(data,self.client()))
                 return self.json(200, steps.manual_submit(data, self.client()))
             except ChatError as error:
                 return self.json(error.status, {'ok': False, 'message': error.message})
@@ -341,12 +368,16 @@ def main():
     cabinet_rehearsal=CabinetRehearsal(controller)
     cabinet_preview=CabinetPreview(controller,depth_control)
     cabinet_execution=CabinetExecutionTask(controller,cabinet_preview)
+    visual_docking=LiveDockTask(controller,cabinet_preview)
+    fast_level=FastVisualLevel(controller,depth_control)
     placement_preview=PlacementPreview(controller,depth_control)
     placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     navigation=NavigationSession(controller,RouteMailbox(STATE_FILE.parent,read_snapshot))
+    t2_placement=make_t2_placement(cabinet_execution,WEB_ROOT.parent/'config/t2-preview.local.json',
+        WEB_ROOT.parent/'navigation/reports/t2-recorded-preview')
     modules={'navigate_pick':navigation.stage('point_1'),'navigate_place':navigation.stage('point_2'),
-             'place':PlacementModule(cabinet_execution)}
+             'place':t2_placement}
     if battery_task:
         grasp=GraspModule(battery_task)
         modules.update(pick=grasp,carry=CarryReceiptModule(grasp))
@@ -354,10 +385,13 @@ def main():
         modules=modules,navigation=navigation,recovery=QwenRecovery(arxgent.config))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution))
+        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution,visual_docking=visual_docking,fast_level=fast_level,
+        t2_preview=t2_placement if getattr(t2_placement,'preview_only',False) else None))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
+    print('T2 backend: '+('recorded_preview; no placement or completion receipt' if
+        getattr(t2_placement,'preview_only',False) else 'existing_placement'),flush=True)
     def stop(signum, frame):
         server.stopping.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -369,10 +403,13 @@ def main():
         server.serve_forever(poll_interval=0.1)
     finally:
         server.stopping.set()
+        fast_level.close()
+        visual_docking.close()
         cabinet_execution.close()
         cabinet_rehearsal.close()
         if placement_task is not None:placement_task.close()
         competition_task.close()
+        if getattr(t2_placement,'preview_only',False):t2_placement.close()
         foundation.close()
         vision.close()
         arxgent.close()

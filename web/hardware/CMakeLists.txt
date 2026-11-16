@@ -30,3 +30,6 @@ target_compile_options(test_arm_limits PRIVATE -UNDEBUG)
 
 add_executable(test_arm_trajectory test_arm_trajectory.cpp)
 target_compile_options(test_arm_trajectory PRIVATE -UNDEBUG)
+
+add_executable(test_chassis_output test_chassis_output.cpp)
+target_compile_options(test_chassis_output PRIVATE -UNDEBUG)

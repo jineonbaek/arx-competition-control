@@ -51,12 +51,14 @@ class GraspModule:
             (state['store'].path / 'cancel.flag').touch(mode=0o600)
             flow = state['runner']
         backend = getattr(getattr(flow, 'tools', None), 'backends', None)
-        if backend is not None: backend.cancel_and_wait(2.)
         controller = context['controller']
+        try:
+            if backend is not None:backend.cancel_and_wait(2.)
+        finally:controller.end_chassis_output(context['token'])
         if controller.motion_valid(context['token']): controller.interrupt_motion(context['token'])
         # Existing stop commands hold measured positions and never open or power off.
         for command in ({'type':'arm.stop', 'arm':'right'}, {'type':'arm.stop', 'arm':'left'},
-                        {'type':'lift.stop'}, {'type':'chassis.stop', 'sequence':1}):
+                        {'type':'lift.stop'}):
             controller.submit(command, context['token'])
         state['worker'].join(2.)
         return dict(stopped=not state['worker'].is_alive())

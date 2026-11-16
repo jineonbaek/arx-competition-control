@@ -30,9 +30,11 @@ class Commands(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             bridge.send((.01,0.,0.))
         requests=[entry.args[0] for entry in transport.call_args_list[1:]]
-        self.assertEqual(json.loads(requests[0].data),dict(type='chassis',x=.04,y=-.03,omega=.1,sequence=1))
+        m=json.loads(requests[0].data)
+        self.assertEqual((m['type'],m['x'],m['y'],m['omega'],m['seq']),('chassis',.04,-.03,.1,1))
         self.assertEqual(requests[0].get_header('Origin'),bridge.origin)
-        self.assertEqual(json.loads(requests[1].data),dict(type='chassis.stop',sequence=2))
+        m=json.loads(requests[1].data)
+        self.assertEqual((m['type'],m['x'],m['y'],m['omega'],m['seq']),('chassis',0.,0.,0.,2))
 
 
 if __name__=='__main__':

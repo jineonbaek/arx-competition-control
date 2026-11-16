@@ -78,7 +78,7 @@ class NavigationSession:
                 task=state.get('task')
                 if task and task['status']!='acknowledged':self.client.task()
                 if stop_event.is_set():return
-                with self.lock:self.latest=state
+                with self.lock:self.latest=state;self.error=''
                 deadline=time.monotonic()+self.lease_seconds
                 if task and task['status']=='cancelling' and not self.clear_requested:
                     self.context['cancelled'].set()
@@ -86,28 +86,36 @@ class NavigationSession:
                 if stop_event.is_set():return
                 if time.monotonic()>=deadline:
                     with self.lock:self.error='导航通信/保活失败：'+str(exc)
-                    return
+                # The same client instance can renew its own expired lease.
+                # Registration never replaces an active visit or another valid worker.
+                try:self.client.register(['point_1','point_2'])
+                except Exception:pass
             stop_event.wait(.2)
 
     def check(self):
-        if self.active and self.error:raise ValueError(self.error)
+        if self.active and self.error:return self.error
         if self.active:
             task=self.latest.get('task') or {}
-            if task.get('status')=='needs_attention':raise ValueError('导航交接暂停：'+str(task.get('error')))
+            if task.get('status')=='needs_attention':return '导航交接暂停：'+str(task.get('error'))
+        return None
+
+    def await_channel(self,context):
+        while self.active and self.check():
+            if context['cancelled'].wait(.1):raise ValueError('整场停止，不自动恢复交接')
+        if not self.active or context['cancelled'].is_set():raise ValueError('原导航任务已结束')
 
     def _receipt(self,ident):
         receipt=self.route.receipt(ident)
-        if receipt and receipt['status']!='published':raise ValueError(receipt.get('reason') or '路线请求被拒绝')
-        if not receipt and time.monotonic()-self.command_started>3:
-            raise ValueError('路线请求未取得观察服务回执，不重复启动')
         return receipt
 
     def arrival(self,context,point):
-        self.check()
+        waiting=self.check()
         if not self.active:return dict(status='unknown',reason='原导航会话已停止，不能重放')
-        if not self._receipt(self.start_id):return dict(status='running',reason='等待路线启动回执')
+        if waiting:return dict(status='running',reason=waiting)
+        receipt=self._receipt(self.start_id)
+        if not receipt or receipt['status']!='published':return dict(status='running',reason='停车等待原路线启动回执，不重复启动')
         route=self.route.snapshot().get('route') or {};status=route.get('status','')
-        if not route.get('available'):raise ValueError('导航执行端离线')
+        if not route.get('available'):return dict(status='running',reason='等待导航执行端/观察通道恢复')
         if (route.get('definition') or {}).get('route_id')!=self.route_id:
             raise ValueError('本轮路线已被替换，停止推进作业')
         drive_failed=route.get('drive_received',0)>=self.command_started and route.get('drive_status','').startswith('stopped:')
@@ -132,33 +140,44 @@ class NavigationSession:
         if key not in self.events:
             self.events[key]=(str(uuid.uuid5(uuid.NAMESPACE_URL,self.context['run_id']+':'+':'.join(key))),values)
         ident,original=self.events[key]
-        for attempt in range(2):
+        if event=='cancelled':
+            # The operator cancellation flag must not prohibit its own receipt.
+            for attempt in range(2):
+                try:return self.client.event(visit,event,request_id=ident,**original)
+                except (TimeoutError,URLError) as error:
+                    if isinstance(error,HTTPError) or attempt:raise
+        while self.active:
+            self.await_channel(self.context)
             try:return self.client.event(visit,event,request_id=ident,**original)
-            except (TimeoutError,URLError) as error:
-                if isinstance(error,HTTPError) or attempt:raise
+            except (TimeoutError,URLError,OSError) as error:
+                with self.lock:self.error='等待原交接回执：'+str(error)
+                if self.context['cancelled'].wait(.2):raise ValueError('整场停止，不重放交接')
+        raise ValueError('原导航任务已结束')
 
     def before_work(self,context,stage):
-        self.check()
+        self.await_channel(context)
         expected={'pick':'point_1','place':'point_2'}.get(stage)
         if not expected:return
         if not self.visit or self.visit['point_id']!=expected:raise ValueError('当前作业缺少匹配的导航到点通知')
-        if not self.controller.motion_valid(context['token']):raise ValueError('作业运动占用尚未接管')
+        if not self.controller.motion_valid(context['token']):raise ValueError('作业机械臂保护令牌尚未就绪')
         self._event('accept')
 
     def complete_visit(self,context):
-        self.check();robot=self.controller.snapshot()
-        if robot['motion_reserved'] or robot['chassis_active']:raise ValueError('作业仍占用运动，不能回传可导航')
+        while True:
+            self.await_channel(context)
+            if not self.controller.snapshot()['chassis_active']:break
+            if context['cancelled'].wait(.1):raise ValueError('整场停止，不自动恢复交接')
         self._event('complete',control_released=True,navigation_ready=True)
 
     def complete_route(self,context):
         self.complete_visit(context)
         while not context['cancelled'].wait(.1):
-            self.check()
+            if self.check():continue
             task=self.latest.get('task') or {};view=self.route.snapshot().get('route') or {}
             if task.get('status')=='acknowledged' and task.get('outcome')=='completed' and view.get('status','').startswith('全部到达并停稳'):
                 self.close();return
             if not view.get('available') or view.get('drive_status','').startswith('stopped:'):
-                raise ValueError('放置完成后导航路线未正常结束')
+                continue # Keep the acknowledged work; never replay it to repair a view outage.
         raise ValueError('整场停止，不自动完成剩余路线')
 
     def stop(self,context):
@@ -173,7 +192,7 @@ class NavigationSession:
             if receipt and receipt['status']=='rejected':raise ValueError(receipt.get('reason') or '导航取消未确认')
             state=self.client.state();task=state.get('task') or {}
             robot=self.controller.snapshot()
-            if task.get('status')=='cancelling' and not robot['motion_reserved'] and not robot['chassis_active']:
+            if task.get('status')=='cancelling' and not robot['chassis_active']:
                 self.visit=task;self._event('cancelled',control_released=True)
             if receipt and receipt['status']=='published' and view.get('status','').startswith('已取消'):
                 self.close();return dict(stopped=True)

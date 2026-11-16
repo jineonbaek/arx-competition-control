@@ -7,9 +7,13 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from rclpy.time import Time
 from std_msgs.msg import Bool, Empty, String
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped,PoseArray,PoseWithCovarianceStamped
+from rclpy.qos import QoSProfile,DurabilityPolicy
+from chassis_pose_policy import SnapshotLease
+from chassis_pose import valid_pose,planar as authority_planar
 from visualization_msgs.msg import Marker
 from waypoint_controls import Waypoints
 from axis_trial import AxisTrial, body_delta
@@ -39,6 +43,9 @@ class Driver(AxisTrial):
         if self.require_dual_origin:
             self.create_subscription(Bool, '/pb/dual_origin/ready', self.receive_dual_origin_health, 1)
         self.previous_alignment = None
+        self.pose_snapshot=None;self.pose_lease=SnapshotLease()
+        self.create_subscription(PoseArray,'/pb/chassis_pose',self.receive_chassis_snapshot,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.create_subscription(PoseWithCovarianceStamped,'/initialpose',self.relocalizing,10)
         self.boot=self.now()
         self.target=self.route=None
         self.seq=self.seen=0
@@ -49,9 +56,16 @@ class Driver(AxisTrial):
         self.create_subscription(Empty,'/pb/drive_cancel',lambda _:self.cancel('cancelled'),5)
 
     def brake(self):
-        was_moving=self.active
-        super().brake()
-        if was_moving:self.intent.publish(Bool(data=False))
+        # Temporary input/replan hold. Remain in the same task generation.
+        if self.active:
+            self.transport.send((0.,0.,0.))
+            self.active=False;self.intent.publish(Bool(data=False))
+
+    def end_output(self,handle=None):
+        handle=self.transport.current if handle is None else handle
+        self.transport.end_output(handle)
+        if handle==self.transport.current:
+            self.active=False;self.intent.publish(Bool(data=False))
 
     def status(self,value):
         msg=String(data=value);self.state.publish(msg);self.get_logger().info(value)
@@ -61,7 +75,7 @@ class Driver(AxisTrial):
         self.mark.publish(m)
 
     def cancel(self,why):
-        self.brake()
+        self.end_output()
         if self.target is not None:self.finished.publish(self.arrow)
         self.seq+=1;self.target=self.route=None
         self.status(why)
@@ -85,6 +99,7 @@ class Driver(AxisTrial):
             self.seq+=1
             self.route=None
             self.status('waiting_for_plan')
+        self.transport.begin_task(task_id='goal-'+str(self.seq))
         t=stamp(m.header.stamp);q=m.pose.orientation
         goal=planar(m.pose)
         if (m.header.frame_id!='map' or t<self.boot or not 0<=self.now()-t<=2 or
@@ -120,7 +135,7 @@ class Driver(AxisTrial):
     def receive_dual_origin_health(self, msg):
         self.dual_origin_health = time.monotonic() if msg.data else None
 
-    def checked(self):
+    def checked(self, *, occupancy=True):
         if self.require_dual_origin and (self.dual_origin_health is None or
                 time.monotonic()-self.dual_origin_health > .8):
             raise ValueError('dual_origin_mapping_stale')
@@ -128,10 +143,11 @@ class Driver(AxisTrial):
         if self.require_bottom_mark and not 0<=self.now()-self.bottom_mark_stamp<1.:raise ValueError('bottom_obstacles_stale')
         if stale := self.stale_inputs():
             raise ValueError('sensor_or_costmap_stale ' + ','.join(stale))
-        poses={f:self.pose(f,self.now()) for f in ('map','odom')}
-        for f,p in poses.items():
-            if self.grids[f][1].inspect(p)['first_cell']:raise ValueError(f+'_footprint_blocked')
-        if self.grids['map'][1].inspect(self.target)['first_cell']:raise ValueError('goal_blocked')
+        mp,op,_=self.motion_poses();poses={'map':mp,'odom':op}
+        if occupancy:
+            for f,p in poses.items():
+                if self.grids[f][1].inspect(p)['first_cell']:raise ValueError(f+'_footprint_blocked')
+            if self.grids['map'][1].inspect(self.target)['first_cell']:raise ValueError('goal_blocked')
         if self.watch_slam:
             # Compose map->base with inverse(odom->base) to isolate SLAM correction.
             yaw = angle(poses['map'][2] - poses['odom'][2])
@@ -144,6 +160,57 @@ class Driver(AxisTrial):
                                          abs(angle(yaw-previous[2])) > .15):
                 raise ValueError('slam_alignment_jump_resend_goal')
         return poses['map']
+
+    def motion_poses(self):
+        # Use one source-stamped map/odom batch. Keep the stricter existing
+        # motion deadline, independent of the body-free visualization lease.
+        m=self.pose_snapshot;now=self.get_clock().now().nanoseconds
+        if (m is None or not self.pose_lease.usable(now) or len(m.poses)!=2
+                or not all(valid_pose(p) for p in m.poses)
+                or not 0<=now*1e-9-stamp(m.header.stamp)<=.4):
+            raise ValueError('motion_pose_stale_or_invalid')
+        return np.array(authority_planar(m.poses[0])),np.array(authority_planar(m.poses[1])),stamp(m.header.stamp)
+
+    def validate_motion_proof(self,source):
+        # The batch used for all geometric proofs must still be authoritative
+        # and within the unchanged400ms bound at the actual send boundary.
+        _,_,current=self.motion_poses()
+        if current!=source:raise ValueError('motion_pose_changed_during_proof')
+
+    def pose(self,frame,now):
+        if frame not in ('map','odom'):raise ValueError('invalid_motion_frame')
+        batch=self.motion_poses();return batch[0 if frame=='map' else 1]
+
+    def special_stale_inputs(self):
+        stale=[s for s in self.stale_inputs() if not s.endswith('_costmap')]
+        if self.require_bottom_mark and not 0<=self.now()-self.bottom_mark_stamp<1.:stale.append('bottom_obstacles_stale')
+        return stale
+
+    def receive_chassis_snapshot(self,m):
+        if (m.header.frame_id=='map' and len(m.poses)==2 and all(valid_pose(p) for p in m.poses)
+                and self.pose_lease.offer(Time.from_msg(m.header.stamp).nanoseconds,self.get_clock().now().nanoseconds)):
+            self.pose_snapshot=m
+        else:self.pose_snapshot=None;self.pose_lease.withdraw()
+
+    def relocalizing(self,m):
+        if m.header.frame_id=='map':self.pose_snapshot=None;self.pose_lease.withdraw(self.get_clock().now().nanoseconds)
+
+    def special_poses(self):
+        if self.require_dual_origin and (self.dual_origin_health is None or time.monotonic()-self.dual_origin_health>.8):
+            raise ValueError('dual_origin_mapping_stale')
+        if stale:=self.special_stale_inputs():raise ValueError('special_sensor_stale '+','.join(stale))
+        m=self.pose_snapshot
+        if m is None or not self.pose_lease.usable(self.get_clock().now().nanoseconds):
+            self.pose_snapshot=None;raise ValueError('special_pose_authority_invalid（定位尚未有效或正在重定位）')
+        if not all(valid_pose(p) for p in m.poses):raise ValueError('special_invalid_pose')
+        return np.array(authority_planar(m.poses[0])),np.array(authority_planar(m.poses[1])),stamp(m.header.stamp)
+
+    def accept_special_goal(self,m):
+        if self.target is not None or self.waypoints.blocking():raise ValueError('special_control_busy')
+        if self.ready_file is not None and not self.ready_file.is_file():raise ValueError('execution_gate_closed')
+        self.seq+=1;self.transport.begin_task(task_id='special-'+str(self.seq))
+        self.target=planar(m.pose);self.arrow=m;self.request=stamp(m.header.stamp);self.started=time.monotonic();self.route=None
+        self._special_execution=True;self.status('special_straight_selected')
 
     def verify_arrival(self):
         self.brake()
@@ -270,20 +337,24 @@ class Driver(AxisTrial):
             self.spin(max(.001, PERIOD - (time.monotonic() - tick)))
         raise ValueError('goal_timeout')
 
+    def prepare_execution(self):
+        with self.transport.client.open(self.transport.origin+"/api/state",timeout=.3) as res:console=json.load(res)
+        if (not console["execution_enabled"] or not console["body"]["fresh"] or console["capabilities"]["chassis"]):raise ValueError("console_not_ready_or_busy")
+        self.transport.native_sdk=bool(console.get("nav_sdk_ready",False))
+
     def serve(self):
         self.spin(.5);self.clear_marker();self.status('ready_for_new_rviz_arrow')
         while rclpy.ok():
             self.spin(.08)
             if self.target is None:continue
             self.seen=self.seq
+            output_handle=self.transport.current
             try:
-                with self.transport.client.open(self.transport.origin+"/api/state",timeout=.3) as res:console=json.load(res)
-                if (not console["execution_enabled"] or not console["body"]["fresh"] or console["chassis_active"] or console["capabilities"]["chassis"]):raise ValueError("console_not_ready_or_busy")
-                self.transport.native_sdk = bool(console.get("nav_sdk_ready", False))
+                self.prepare_execution()
                 self.status("following_new_arrow")
-                result=self.run_goal()
+                with self.transport.task_scope(output_handle):result=self.run_goal()
             except Exception as e:result='stopped: '+str(e)
-            finally:self.brake()
+            finally:self.end_output(output_handle)
             if self.seen==self.seq:self.cancel(result)
 
 
@@ -295,4 +366,4 @@ if __name__=='__main__':
     fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     rclpy.init();n=Driver()
     try:n.serve()
-    finally:n.brake();n.destroy_node();rclpy.try_shutdown()
+    finally:n.end_output();n.destroy_node();rclpy.try_shutdown()

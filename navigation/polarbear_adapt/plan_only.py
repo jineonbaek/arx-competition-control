@@ -16,7 +16,9 @@ from geometry_msgs.msg import PointStamped, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path as NavPath
 from sensor_msgs.msg import PointCloud2, LaserScan
 from visualization_msgs.msg import Marker
-from nav2_msgs.action import ComputePathToPose
+from nav2_msgs.action import ComputePathToPose, ComputePathThroughPoses
+from std_msgs.msg import String,Bool
+from mission_route import point,path_covers_vias
 from path_audit import AuditGrid, heading, planar
 
 ERRORS={205:'start_occupied',206:'goal_occupied',208:'no_valid_path'}
@@ -33,6 +35,9 @@ class Planner(Node):
         poly=np.asarray(footprint['polygon_m']); self.poly=poly+np.sign(poly)*footprint['padding_m']
         self.buf=Buffer(); self.listener=TransformListener(self.buf,self)
         self.client=ActionClient(self,ComputePathToPose,'/compute_path_to_pose')
+        self.through=ActionClient(self,ComputePathThroughPoses,'/compute_path_through_poses')
+        self.mission_constraints={};self.handoff_active=False;self.deferred_goal=None;self.accept_after_ns=0
+        self.execution_mode='navigation';self.mode_generation_ns=0;self.special_deferred={}
         self.path_pub=self.create_publisher(NavPath,'/pb/path',1)
         self.issue_pub=self.create_publisher(Marker,'/pb/path_issue',10)
         self.grid=None; self.times={}; self.target=None; self.pending=False
@@ -49,7 +54,57 @@ class Planner(Node):
         self.create_subscription(PoseStamped,'/pb/plan_goal',self.set_goal,5)
         self.create_subscription(PoseStamped,'/pb/dock_goal',self.dock_goal,5)
         self.create_subscription(PoseStamped,'/pb/drive_finished',self.finished,5)
+        self.create_subscription(String,'/pb/mission/constraints',self.constraints_changed,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.create_subscription(Bool,'/pb/mission/handoff_active',self.handoff_changed,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_timer(.2,self.tick)
+
+    def vias(self):
+        if self.target is None:return []
+        s=self.target.header.stamp
+        return self.mission_constraints.get(s.sec*1000000000+s.nanosec,[])
+
+    def constraints_changed(self,m):
+        try:
+            value=json.loads(m.data);stamp=value['terminal_stamp_ns']
+            mode=value.get('execution_mode','navigation');generation=value.get('mode_generation_ns',0)
+            if mode not in ('navigation','direct') or type(generation) is not int or generation<0:return
+            if generation<self.mode_generation_ns or (generation==self.mode_generation_ns and generation>0):return
+            if type(stamp) is not int or stamp<0 or len(value['vias'])>200:return
+            vias=[point(v) for v in value['vias']]
+            if any(v['type']!='via' for v in vias):return
+            fence=value.get('accept_after_ns',0)
+            if type(fence) is not int or fence<0:return
+            self.accept_after_ns=max(self.accept_after_ns,fence)
+            self.mode_generation_ns=generation;self.execution_mode=mode
+            if mode=='direct':
+                self.seq+=1;self.target=None;self.pending=False;self.deferred_goal=None
+                if self.goal_handle:self.goal_handle.cancel_goal_async()
+                self.goal_handle=None;self.clear();self.report('special_straight_active');return
+            old=self.mission_constraints.get(stamp)
+            self.mission_constraints={stamp:vias}
+            if old!=vias and self.target is not None and self.vias()==vias:
+                self.seq+=1;self.pending=False;self.last=0.
+                if self.goal_handle:self.goal_handle.cancel_goal_async()
+                self.goal_handle=None
+            self.accept_deferred()
+            deferred=self.special_deferred.pop(stamp,None);self.special_deferred.clear()
+            if deferred is not None:self.set_goal(deferred)
+        except (KeyError,TypeError,ValueError):return
+
+    def accept_deferred(self):
+        m=self.deferred_goal
+        if m is None or self.handoff_active:return
+        stamp=m.header.stamp.sec*1000000000+m.header.stamp.nanosec
+        if stamp in self.mission_constraints and stamp>self.accept_after_ns and 0<=self.get_clock().now().nanoseconds-stamp<=2000000000:
+            self.deferred_goal=None;self.set_goal(m)
+
+    def handoff_changed(self,m):
+        self.handoff_active=m.data
+        if not m.data:self.accept_deferred()
+        if m.data and self.target is not None:
+            self.seq+=1;self.target=None;self.pending=False
+            if self.goal_handle:self.goal_handle.cancel_goal_async()
+            self.goal_handle=None;self.clear()
 
     def finished(self,m):
         if self.target is None or m.header.stamp!=self.target.header.stamp:return
@@ -94,6 +149,7 @@ class Planner(Node):
         p=NavPath();p.header.frame_id='map';self.path_pub.publish(p);self.mark()
 
     def point_goal(self,m):
+        if self.target is not None:return # Preserve an active navigation plan during inspection.
         p=PoseStamped();p.header=m.header;p.pose.position=m.point;p.pose.orientation.w=1.
         self.set_goal(p)
 
@@ -101,6 +157,15 @@ class Planner(Node):
         self.set_goal(m,dock=True)
 
     def set_goal(self,m,dock=False):
+        stamp=m.header.stamp.sec*1000000000+m.header.stamp.nanosec
+        if self.execution_mode=='direct':
+            if len(self.special_deferred)>=32:self.special_deferred.pop(next(iter(self.special_deferred)))
+            self.special_deferred[stamp]=copy.deepcopy(m)
+            self.report('special_straight_active');return
+        if self.accept_after_ns and stamp<=self.accept_after_ns:self.report('pre_handoff_goal_rejected');return
+        if self.handoff_active:
+            if self.deferred_goal is None or stamp>self.deferred_goal.header.stamp.sec*1000000000+self.deferred_goal.header.stamp.nanosec:self.deferred_goal=copy.deepcopy(m)
+            self.report('task_owns_chassis_goal_rejected');return
         q=m.pose.orientation;p=m.pose.position
         if m.header.frame_id!='map' or not np.isfinite([p.x,p.y,p.z,q.x,q.y,q.z,q.w]).all() or abs(np.linalg.norm([q.x,q.y,q.z,q.w])-1)>.002:
             self.report('invalid_goal');return
@@ -124,12 +189,15 @@ class Planner(Node):
         self.last=0.
 
     def short_omni_path(self,start,goal,grid,ctx):
+        if self.vias():return False
         if self.dock is not None:return False
         delta=goal[:2]-start[:2]
         yaw=math.atan2(math.sin(goal[2]-start[2]),math.cos(goal[2]-start[2]))
         forward=delta@[math.cos(start[2]),math.sin(start[2])]
         lateral=delta@[-math.sin(start[2]),math.cos(start[2])]
-        if not ((abs(forward)<.035 and abs(lateral)<=.38 and abs(yaw)<.09)
+        short_translation = (np.linalg.norm(delta)<=.38
+                             or (abs(forward)<.035 and abs(lateral)<=.38))
+        if not ((short_translation and abs(yaw)<.09)
                 or np.linalg.norm(delta)<.035):
             return False
         steps=max(1,math.ceil((np.linalg.norm(delta)+grid.radius*abs(yaw))/.025))
@@ -148,6 +216,7 @@ class Planner(Node):
         return True
 
     def tick(self):
+        if self.execution_mode=='direct':return
         if self.target is None:return
         if not self.fresh():
             self.clear()
@@ -165,7 +234,8 @@ class Planner(Node):
             return
         if time.monotonic()-self.last<2:return
         self.last=time.monotonic()
-        if not self.client.server_is_ready():self.report('waiting_for_planner');return
+        vias=self.vias();client=self.through if vias else self.client
+        if not client.server_is_ready():self.report('waiting_for_planner');return
         m=self.grid
         try:
             # The grid stamp is its publication time. Nav2 plans from the latest robot pose.
@@ -194,13 +264,22 @@ class Planner(Node):
         ctx['grid_sequence']=self.audit_index
         np.savez_compressed(self.run/ctx['grid_file'],grid=grid.grid,origin=grid.origin,
                             resolution=grid.res,stamp=ctx['grid_stamp'],sequence=self.audit_index)
-        g=ComputePathToPose.Goal();g.planner_id='GridBased';g.goal=copy.deepcopy(self.target);g.goal.header.stamp=self.get_clock().now().to_msg()
+        g=ComputePathThroughPoses.Goal() if vias else ComputePathToPose.Goal();g.planner_id='GridBased'
+        terminal=copy.deepcopy(self.target);terminal.header.stamp=self.get_clock().now().to_msg()
+        ctx['vias']=vias
+        if vias:
+            goals=[]
+            for value in vias:
+                v=PoseStamped();v.header=terminal.header;v.pose.position.x,v.pose.position.y=map(float,value['pose'][:2]);a=value['pose'][2]
+                v.pose.orientation.z=math.sin(a/2);v.pose.orientation.w=math.cos(a/2);goals.append(v)
+            g.goals=goals+[terminal]
+        else:g.goal=terminal
         g.start.header = pose.header
         g.start.pose.position.x, g.start.pose.position.y, g.start.pose.position.z = tf.translation.x, tf.translation.y, tf.translation.z
         g.start.pose.orientation = tf.rotation
         g.use_start = True
         seq=self.seq;self.pending=True;self.sent=time.monotonic()
-        self.client.send_goal_async(g).add_done_callback(lambda f:self.accepted(f,seq,ctx,grid))
+        client.send_goal_async(g).add_done_callback(lambda f:self.accepted(f,seq,ctx,grid))
 
     def accepted(self,f,seq,ctx,grid):
         try:
@@ -226,7 +305,10 @@ class Planner(Node):
                 self.report(ERRORS.get(r.error_code,'planner_failed'),error_code=int(r.error_code),**ctx)
                 if r.error_code in (206,208):self.try_next_dock()
                 return
-            poses=[planar(p.pose) for p in r.path.poses];audit=grid.along(poses)
+            poses=[planar(p.pose) for p in r.path.poses]
+            if not path_covers_vias(poses,ctx.get('vias',[])):
+                self.clear();self.report('planner_bypassed_via',**ctx);return
+            audit=grid.along(poses)
             self.path_pub.publish(r.path);self.mark(audit['first'])
             self.report('candidate_with_lethal' if audit['max_lethal'] else 'candidate_with_unknown' if audit['max_unknown'] else 'path_ready',
                         poses=len(poses),audit=audit,**ctx)

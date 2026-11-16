@@ -33,7 +33,7 @@ class AxisTrial(Follow):
 
     def brake(self):
         if self.active:
-            self.transport.send((0,0,0))
+            self.transport.end_output()
             self.active=False
 
     def guarded_pose(self,direction):
@@ -51,6 +51,7 @@ class AxisTrial(Follow):
         return poses['odom']
 
     def pulse(self,direction,level,seconds=.65):
+        self.transport.begin_task()
         direction=np.asarray(direction)
         start=self.guarded_pose(direction)
         t=time.monotonic()

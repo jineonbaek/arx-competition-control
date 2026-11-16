@@ -1,5 +1,7 @@
 import { newEditor, followFeedback, checkedNumber, validBounds, CHASSIS_KEYS, chassisKeyIntent } from './state.js';
 
+import {ChassisOutput} from './chassis-output.js';
+
 const $ = id => document.getElementById(id);
 const armName = side => side === 'left' ? '左臂' : '右臂';
 const fmt = (v, digits = 2) => Number.isFinite(v) ? v.toFixed(digits) : '—';
@@ -16,6 +18,7 @@ let heartbeat = null;
 let heartbeatBusy = false;
 let baseSequence = 0;
 const baseControlId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join('');
+const chassisOutput=new ChassisOutput('web-'+baseControlId);
 let lastLogKey = '';
 let localLogId = 0;
 let toastTimer;
@@ -222,7 +225,7 @@ function render(force=false) {
   renderLogs();
 }
 async function command(data, quiet=false) {
-  if(data.type==='chassis' || data.type==='chassis.stop')data={...data,control_id:baseControlId};
+  if(data.type==='chassis.stop')data={...data,control_id:baseControlId};
   if(!quiet)localLog('发送请求：'+JSON.stringify(data));
   try {
     const response=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),keepalive:true});
@@ -305,10 +308,11 @@ function editable(target) {
 async function driveTick() {
   if(!held || !motionMode || heartbeatBusy)return;
   heartbeatBusy=true;
-  const data={type:'chassis',x:held.x,y:held.y,omega:held.omega,sequence:++baseSequence};
+  const generation=chassisOutput.generation;
+  const data=chassisOutput.move({x:held.x,y:held.y,omega:held.omega},generation);
   const ok=await command(data,true);
   heartbeatBusy=false;
-  if(!ok){
+  if(!ok && chassisOutput.active && chassisOutput.generation===generation){
     localLog('底盘请求失败，已退出运动模式；请查看反馈。','warning');
     exitMotionMode();
   }
@@ -319,6 +323,7 @@ function startDrive(intent) {
   const turn=checkedNumber($('angular-speed').value,Number.MIN_VALUE,snapshot?.limits.angular??0);
   if(!speed.valid || !turn.valid){toast('请检查底盘速度输入');exitMotionMode();return;}
   const linearScale=speed.value/Math.max(1,Math.hypot(intent.x,intent.y));
+  chassisOutput.begin();
   held={x:intent.x*linearScale,y:intent.y*linearScale,omega:intent.omega*turn.value,
         keys:intent.codes.map(code=>code.slice(3)).join('+'),
         label:intent.codes.map(code=>CHASSIS_KEYS[code].label).join(' + ')};
@@ -327,7 +332,8 @@ function startDrive(intent) {
 function stopDrive(force=false) {
   const wasHeld=Boolean(held);
   held=null;clearInterval(heartbeat);heartbeat=null;
-  if(wasHeld || force)command({type:'chassis.stop',sequence:++baseSequence},true);
+  const end=chassisOutput.end();
+  if(end)command(end,true);
 }
 function exitMotionMode() {
   const wasEnabled=motionMode;
@@ -349,7 +355,8 @@ $('chassis-motion-toggle').addEventListener('click',()=>{
 });
 $('chassis-stop').addEventListener('click',()=>{
   keyBlocked=pressedDriveKeys.size>0;
-  stopDrive(true);render();
+  stopDrive(true);
+  command({type:'chassis.stop',sequence:++baseSequence},true);render();
 });
 document.addEventListener('keydown',event=>{
   if(!motionMode)return;
@@ -360,6 +367,7 @@ document.addEventListener('keydown',event=>{
   event.preventDefault();
   if(event.repeat || pressedDriveKeys.has(event.code))return;
   pressedDriveKeys.add(event.code);
+  if(event.code==='Space'){stopDrive();command({type:'chassis.stop',sequence:++baseSequence},true);}
   updateKeyboardDrive(event.code==='Space');
 });
 document.addEventListener('keyup',event=>{
