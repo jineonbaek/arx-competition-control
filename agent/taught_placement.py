@@ -73,9 +73,13 @@ def load_preobservation_waypoint(path,current_lift):
     try:data=json.loads(Path(path).read_text())
     except (OSError,ValueError) as error:raise ValueError('Invalid D405 pre-observation waypoint') from error
     q=np.asarray(data.get('joints_rad'),float);w=np.asarray(data.get('wrist_base_mm_deg'),float)
+    tool=np.asarray(data.get('tool_base_matrix'),float);tcp_hash=data.get('source_hashes',{}).get('config/right-grip-tcp.json')
     try:values=np.r_[q,w,float(data.get('lift_rad')),float(current_lift),float(data.get('captured_at'))]
     except (TypeError,ValueError) as error:raise ValueError('Invalid D405 pre-observation waypoint') from error
     if (data.get('version')!=1 or data.get('arm')!='right' or q.shape!=(6,) or w.shape!=(6,)
+            or tool.shape!=(4,4) or not np.isfinite(tool).all() or not np.allclose(tool[3],[0,0,0,1])
+            or not np.allclose(tool[:3,:3].T@tool[:3,:3],np.eye(3),atol=1e-6)
+            or not isinstance(tcp_hash,str) or len(tcp_hash)!=64
             or not np.isfinite(values).all() or data.get('gripper_command_target')!=0
             or abs(float(data['lift_rad'])-float(current_lift))>.10
             or not isinstance(data.get('source'),str) or not data['source']):
@@ -115,12 +119,21 @@ def validate_preobservation_pose(tool,joints,joint_limits_deg,route):
         j6_error_deg=j6_error,j5_margin_deg=j5_margin,elbow_margin_deg=elbow_margin)
 
 
-def validate_preobservation_waypoint(waypoint,planned_wrist,planned_tool,joints,joint_limits_deg,route):
+def validate_preobservation_waypoint(waypoint,planned_wrist,planned_tool,joints,joint_limits_deg,route,tcp_sha256):
     """Bind a recorded waypoint to FK and validate it before dispatch."""
-    wrist=np.asarray(planned_wrist,float);record=np.asarray(waypoint.get('wrist_base_mm_deg'),float)
+    wrist=np.asarray(planned_wrist,float);tool=np.asarray(planned_tool,float)
+    record=np.asarray(waypoint.get('wrist_base_mm_deg'),float);recorded_tool=np.asarray(waypoint.get('tool_base_matrix'),float)
+    recorded_hash=waypoint.get('source_hashes',{}).get('config/right-grip-tcp.json')
     if (wrist.shape!=(4,4) or record.shape!=(6,) or not np.isfinite(np.r_[wrist.ravel(),record]).all()
             or not np.allclose(wrist[3],[0,0,0,1])):
         raise ValueError('Invalid recorded wrist pose')
+    if (tool.shape!=(4,4) or recorded_tool.shape!=(4,4)
+            or not np.isfinite(np.r_[tool.ravel(),recorded_tool.ravel()]).all()
+            or not np.allclose(recorded_tool[3],[0,0,0,1])
+            or not np.allclose(recorded_tool[:3,:3].T@recorded_tool[:3,:3],np.eye(3),atol=1e-6)):
+        raise ValueError('Invalid recorded tool pose')
+    if (not isinstance(tcp_sha256,str) or len(tcp_sha256)!=64 or recorded_hash!=tcp_sha256):
+        raise ValueError('Pre-observation TCP hash changed')
     expected=np.eye(4);expected[:3,3]=record[:3]/1000.
     expected[:3,:3]=Rotation.from_euler('xyz',record[3:],degrees=True).as_matrix()
     position_error=float(np.linalg.norm(wrist[:3,3]-expected[:3,3])*1000.)
@@ -128,9 +141,16 @@ def validate_preobservation_waypoint(waypoint,planned_wrist,planned_tool,joints,
     rotation_error=float(Rotation.from_matrix(relative).magnitude()*180./np.pi)
     if position_error>route.preobservation_z_tolerance_mm or rotation_error>route.preobservation_rotation_tolerance_deg:
         raise ValueError('Pre-observation recorded wrist does not match FK')
+    tool_position_error=float(np.linalg.norm(tool[:3,3]-recorded_tool[:3,3])*1000.)
+    tool_relative=recorded_tool[:3,:3].T@tool[:3,:3]
+    tool_rotation_error=float(Rotation.from_matrix(tool_relative).magnitude()*180./np.pi)
+    if tool_position_error>route.preobservation_z_tolerance_mm or tool_rotation_error>route.preobservation_rotation_tolerance_deg:
+        raise ValueError('Pre-observation recorded tool does not match FK')
     result=validate_preobservation_pose(planned_tool,joints,joint_limits_deg,route)
     result.update(recorded_wrist_position_error_mm=position_error,
         recorded_wrist_rotation_error_deg=rotation_error)
+    result.update(recorded_tool_position_error_mm=tool_position_error,
+        recorded_tool_rotation_error_deg=tool_rotation_error,tcp_sha256=tcp_sha256)
     return result
 
 

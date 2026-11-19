@@ -53,6 +53,7 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
             frame() if value is None else value,
             target_offset_mm=42.4,
             correction_axis_base=(0., 1., 0.),
+            expected_battery_center_base_m=(0., .040, .5),
             max_step_mm=3.,
             expected_calibration_sha256=CALIBRATION,
             after_image_time=after,
@@ -124,6 +125,17 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
         no_battery["xyz"][28:68, 38:123, 2] = .9
         with self.assertRaisesRegex(ValueError, "battery front edge"):
             self.estimate(no_battery)
+
+    def test_plausible_dark_object_not_bound_to_gripper_cannot_authorize(self):
+        value = frame()
+        battery = np.all(value["rgb"] < 20, axis=2)
+        value["rgb"][battery] = 255
+        value["rgb"][52:70, 60:101] = 0
+        value["xyz"][52:70, 60:101, 0] = .15
+        value["xyz"][52:70, 60:101, 1] = .040
+        value["xyz"][52:70, 60:101, 2] = .55
+        with self.assertRaisesRegex(ValueError, "battery front edge"):
+            self.estimate(value)
 
     def test_existing_vertical_alignment_contract_remains_available(self):
         self.assertTrue(callable(estimate_vertical_alignment))

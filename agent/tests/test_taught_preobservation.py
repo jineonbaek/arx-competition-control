@@ -44,7 +44,9 @@ class TaughtPreobservationTests(unittest.TestCase):
         payload = dict(version=1, arm="right", joints_rad=self.joints.tolist(),
                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.],
                        lift_rad=.34, gripper_command_target=0,
-                       captured_at=10., source="stationary-feedback")
+                       captured_at=10., source="stationary-feedback",
+                       tool_base_matrix=self.tool.tolist(),
+                       source_hashes={"config/right-grip-tcp.json":"a" * 64})
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "waypoint.json"
             path.write_text(json.dumps(payload))
@@ -90,14 +92,23 @@ class TaughtPreobservationTests(unittest.TestCase):
     def test_waypoint_fk_must_match_recorded_wrist_before_motion(self):
         wrist = np.eye(4); wrist[:3, 3] = [.61, -.21, .53]
         waypoint = dict(joints_rad=self.joints.tolist(),
-                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.])
+                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.],
+                        tool_base_matrix=wrist.tolist(),
+                        source_hashes={"config/right-grip-tcp.json":"a" * 64})
         checked = validate_preobservation_waypoint(
-            waypoint, wrist, wrist, self.joints, self.limits, self.route)
+            waypoint, wrist, wrist, self.joints, self.limits, self.route, "a" * 64)
         self.assertEqual(checked["tcp_z_m"], .53)
         stale = dict(waypoint, wrist_base_mm_deg=[611., -210., 530., 0., 0., 0.])
         with self.assertRaisesRegex(ValueError, "recorded wrist"):
             validate_preobservation_waypoint(
-                stale, wrist, wrist, self.joints, self.limits, self.route)
+                stale, wrist, wrist, self.joints, self.limits, self.route, "a" * 64)
+        wrong_tool = dict(waypoint, tool_base_matrix=(wrist + np.diag([0, 0, 0, .001])).tolist())
+        with self.assertRaisesRegex(ValueError, "recorded tool"):
+            validate_preobservation_waypoint(
+                wrong_tool, wrist, wrist, self.joints, self.limits, self.route, "a" * 64)
+        with self.assertRaisesRegex(ValueError, "TCP hash"):
+            validate_preobservation_waypoint(
+                waypoint, wrist, wrist, self.joints, self.limits, self.route, "b" * 64)
 
 
 if __name__ == "__main__":

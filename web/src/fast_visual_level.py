@@ -555,10 +555,15 @@ class FastVisualLevel:
             frame=None
             try:
                 _,frame=self.capture_pair(self.route.d405_capture_timeout_s)
+                frame_q=np.asarray(frame.get('joints'),float);frame_lift=float(np.asarray(frame.get('lift_rad')).item())
+                if frame_q.shape!=(6,) or not np.isfinite(np.r_[frame_q,frame_lift]).all():
+                    raise ValueError('D405 paired tool pose unavailable')
+                expected_battery=(model.wrist_transform(frame_q,frame_lift)@tcp)[:3,3]
                 measurement=estimate_horizontal_alignment(frame,
                     target_offset_mm=self.route.d405_target_offset_mm,
                     correction_axis_base=(0.,1.,0.),max_step_mm=self.route.d405_step_limit_mm,
-                    expected_calibration_sha256=expected,after_image_time=after_image_time)
+                    expected_calibration_sha256=expected,
+                    expected_battery_center_base_m=expected_battery,after_image_time=after_image_time)
             except (OSError,ValueError,TimeoutError) as error:
                 reason=str(error);result=dict(converged=False,degraded=True,attempt=attempt,
                     cumulative_correction_mm=total,reason=reason)
@@ -612,20 +617,25 @@ class FastVisualLevel:
                 or not np.isfinite(np.r_[points.ravel(),times]).all() or times[0]!=0.
                 or np.any(np.diff(times)<=0) or np.max(np.abs(points[0]-q))>np.radians(.25)):
             raise ValueError('Invalid D405 lateral path')
-        checks=[]
+        checks=[];sample_count=0
         for point in points:
             tool=model.wrist_transform(point,self.height)@tcp
             checks.append(validate_lateral_endpoint(preobservation,tool,point,self.route))
         for a,b in zip(points,points[1:]):
             if not model.check(a,b,self.height)['clear']:
                 raise ValueError('D405 lateral path approaches central column')
+            samples=max(2,int(np.ceil(np.max(np.abs(b-a))/np.radians(.05))))
+            for t in np.linspace(0.,1.,samples+1)[1:-1]:
+                point=a+t*(b-a);tool=model.wrist_transform(point,self.height)@tcp
+                validate_lateral_endpoint(preobservation,tool,point,self.route);sample_count+=1
         driver=self.ctrl.adapter.trajectory_status('right')
         self.motion.arm(split_plan(points.tolist(),times.tolist()),lambda:self.guard(),
             expected_start=dict(joints=q.tolist(),height=self.height),
             expected_driver=dict(driver_instance=self.driver,command_epoch=driver['command_epoch']))
         require_joint_arrival(self.ctrl.snapshot()['arms']['right']['joints'],points[-1],.5)
         self.reached_route.extend(points[1:].tolist())
-        self.save(d405_planned_endpoint=checks[-1],d405_planned_duration_s=float(times[-1]))
+        self.save(d405_planned_endpoint=checks[-1],d405_interpolation_samples=sample_count,
+            d405_planned_duration_s=float(times[-1]))
 
     def auto_d405_trim(self,model,tcp,window,table,nominal_z):
         total=0.;measurement=None;aligned=False
@@ -744,12 +754,13 @@ class FastVisualLevel:
         self.attachment[:3,3]=-(OBJECT_TO_TOOL@contact)/1000.
         target_q=np.asarray(preobservation['joints_rad'],float)
         planned_wrist=model.wrist_transform(target_q,self.height);planned_tool=planned_wrist@tcp
-        planned_lock=validate_preobservation_waypoint(preobservation,planned_wrist,planned_tool,target_q,limits,self.route)
+        tcp_sha256=hashlib.sha256((ROOT/'config/right-grip-tcp.json').read_bytes()).hexdigest()
+        planned_lock=validate_preobservation_waypoint(preobservation,planned_wrist,planned_tool,target_q,limits,self.route,tcp_sha256)
         self.save(planned_preobservation_lock=planned_lock)
         self._timed('d405_preobservation',lambda:self.arm_to(target_q))
         q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float);T=model.wrist_transform(q,self.height)@tcp
         self.preobservation_lock=validate_preobservation_waypoint(preobservation,
-            model.wrist_transform(q,self.height),T,q,limits,self.route)
+            model.wrist_transform(q,self.height),T,q,limits,self.route,tcp_sha256)
         self.save(preobservation_lock=self.preobservation_lock)
         self._timed('d405_horizontal_trim',lambda:self.auto_d405_horizontal_trim(model,tcp,T),
             planned_duration_s=self.route.d405_capture_timeout_s*self.route.d405_attempts)

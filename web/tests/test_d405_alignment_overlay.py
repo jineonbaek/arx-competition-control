@@ -21,6 +21,7 @@ class D405AlignmentOverlayTests(unittest.TestCase):
             frame() if value is None else value,
             target_offset_mm=42.4,
             correction_axis_base=(0., 1., 0.),
+            expected_battery_center_base_m=(0., .040, .5),
             max_step_mm=3.,
             expected_calibration_sha256=CALIBRATION,
             after_image_time=9.,

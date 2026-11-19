@@ -84,7 +84,8 @@ class D405HorizontalFlowTests(unittest.TestCase):
         level = self.make_level(); frames = []
         for stamp in (10., 11.):
             frames.append({"id": np.array(f"f-{stamp}"), "image_time": np.array(stamp),
-                           "calibration_sha256": np.array("a" * 64)})
+                           "calibration_sha256": np.array("a" * 64),
+                           "joints":level.ctrl.q.copy(),"lift_rad":np.array(level.height)})
         level.capture_pair = lambda timeout_s: (level.run, frames.pop(0))
         observed_after = []
         measurements = iter([
@@ -126,7 +127,8 @@ class D405HorizontalFlowTests(unittest.TestCase):
 
     def test_cumulative_limit_degrades_before_dispatch(self):
         level = self.make_level(); level.route = types.SimpleNamespace(**(level.route.__dict__ | {"d405_total_limit_mm": 1.}))
-        level.capture_pair = lambda timeout_s: (level.run, {"id": np.array("f"), "image_time": np.array(10.), "calibration_sha256": np.array("a" * 64)})
+        level.capture_pair = lambda timeout_s: (level.run, {"id": np.array("f"), "image_time": np.array(10.), "calibration_sha256": np.array("a" * 64),
+            "joints":level.ctrl.q.copy(),"lift_rad":np.array(level.height)})
         measurement = dict(status="visual_guidance_only", frame_id="f", image_time=10., calibration_sha256="a" * 64,
                            axis_base=[0., 1., 0.], target_offset_mm=42.4, raw_error_mm=2., step_mm=2.)
         start = level.ctrl.models["right"].wrist_transform(level.ctrl.q, level.height)
@@ -151,6 +153,28 @@ class D405HorizontalFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lateral endpoint"):
             FastVisualLevel.execute_d405_lateral_path(
                 level, path, level.ctrl.models["right"], np.eye(4), start)
+        self.assertEqual(dispatched, [])
+
+    def test_joint_interpolation_is_sampled_not_only_its_endpoints(self):
+        level = self.make_level(); dispatched = []
+        class CurvedModel(FakeModel):
+            def wrist_transform(self, q, height):
+                tool = super().wrist_transform(q, height)
+                tool[0, 3] += .001 * np.sin(np.pi * float(q[0]) / .002)
+                return tool
+        model = CurvedModel(level.ctrl)
+        level.motion = types.SimpleNamespace(arm=lambda *args, **kwargs: dispatched.append(args))
+        level.ctrl.adapter = types.SimpleNamespace(trajectory_status=lambda side: {
+            "driver_instance":"driver", "command_epoch":1})
+        level.driver = "driver"; level.guard = lambda: True; level.reached_route = []
+        start_q = level.ctrl.q.copy(); start_q[0] = 0.; level.ctrl.q = start_q
+        end_q = start_q.copy(); end_q[0] = .002
+        start = model.wrist_transform(start_q, level.height)
+        path = {"joint_waypoints_rad":[start_q.tolist(), end_q.tolist()],
+                "timing":{"time_from_start_s":[0., 1.]}}
+        with self.assertRaisesRegex(ValueError, "lateral endpoint"):
+            FastVisualLevel.execute_d405_lateral_path(
+                level, path, model, np.eye(4), start)
         self.assertEqual(dispatched, [])
 
 
