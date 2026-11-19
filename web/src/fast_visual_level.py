@@ -1,5 +1,5 @@
 """One fixed entry/height/visual-level task on the EXISTING motor controllers."""
-import copy,json,time,threading,uuid,subprocess,urllib.request,http.cookiejar,sys
+import copy,hashlib,json,time,threading,uuid,subprocess,urllib.request,http.cookiejar,sys
 from pathlib import Path
 import numpy as np,cv2
 from scipy.spatial.transform import Rotation
@@ -17,9 +17,12 @@ from agent.docking_fit import evaluate_fit
 from agent.shallow_aperture import evaluate_shallow_fit,aperture_relevant
 from agent.storage import atomic_json
 from docking_motion import DockingMotion
-from agent.taught_placement import PhaseTimeline,load_taught_route,outer_alignment_error,reverse_reached_route
-from agent.d405_aperture_alignment import estimate_vertical_alignment
+from agent.taught_placement import (PhaseTimeline,load_preobservation_waypoint,load_taught_route,
+    outer_alignment_error,reverse_reached_route,validate_preobservation_pose)
+from agent.d405_aperture_alignment import estimate_horizontal_alignment,estimate_vertical_alignment
 from agent.visual_chassis_correction import load_chassis_policy,load_locked_handoff
+from d405_alignment_overlay import write_horizontal_overlay
+from handeye_validation import CANDIDATE as D405_CALIBRATION
 
 ROOT=Path(__file__).resolve().parents[2]
 WORK=ROOT
@@ -108,6 +111,36 @@ def d405_correction_target(tool,measurement,*,limit_mm=5.):
             or not np.isfinite(step) or abs(step)>limit_mm):
         raise ValueError('D405 correction unavailable or out of range')
     result=T.copy();result[2,3]+=step/1000.;return result
+
+def d405_horizontal_correction_target(tool,measurement,*,limit_mm=3.):
+    T=np.asarray(tool,float);step=float(measurement.get('step_mm',float('nan')))
+    axis=np.asarray(measurement.get('axis_base'),float)
+    if (T.shape!=(4,4) or not np.isfinite(T).all() or measurement.get('status')!='visual_guidance_only'
+            or axis.shape!=(3,) or not np.allclose(axis,[0.,1.,0.],atol=1e-9)
+            or not np.isfinite([step,limit_mm]).all() or not 0<limit_mm<=3. or abs(step)>limit_mm):
+        raise ValueError('D405 horizontal correction unavailable or out of range')
+    result=T.copy();result[1,3]+=step/1000.;return result
+
+def validate_lateral_endpoint(start_tool,end_tool,end_joints,route):
+    start=np.asarray(start_tool,float);end=np.asarray(end_tool,float);q=np.asarray(end_joints,float)
+    if (start.shape!=(4,4) or end.shape!=(4,4) or q.shape!=(6,)
+            or not np.isfinite(np.r_[start.ravel(),end.ravel(),q]).all()):
+        raise ValueError('Invalid D405 lateral endpoint')
+    delta=(end[:3,3]-start[:3,3])*1000.
+    relative=start[:3,:3].T@end[:3,:3]
+    rotation_error=float(np.degrees(np.arccos(np.clip((np.trace(relative)-1.)/2.,-1.,1.))))
+    axis=end[:3,0]/np.linalg.norm(end[:3,0])
+    axis_error=float(np.degrees(np.arccos(np.clip(axis@[1.,0.,0.],-1.,1.))))
+    if (abs(delta[0])>route.preobservation_z_tolerance_mm
+            or abs(delta[2])>route.preobservation_z_tolerance_mm
+            or rotation_error>route.preobservation_rotation_tolerance_deg
+            or axis_error>route.preobservation_axis_tolerance_deg):
+        raise ValueError('D405 lateral endpoint changed locked X/Z/rotation/axis')
+    j6_error=abs(float(np.degrees(q[5])-route.preobservation_j6_target_deg))
+    if j6_error>route.preobservation_j6_tolerance_deg:
+        raise ValueError('D405 lateral endpoint left J6 branch')
+    return dict(delta_y_mm=float(delta[1]),x_drift_mm=float(delta[0]),z_drift_mm=float(delta[2]),
+        rotation_drift_deg=rotation_error,axis_drift_deg=axis_error,j6_error_deg=j6_error)
 
 def alignment_goal(fit,T,window,plan):
     if not fit['qualified_fit']:
@@ -504,13 +537,72 @@ class FastVisualLevel:
         except Exception as error:
             self.timeline.finish('failed',str(error));self.save(**self.timeline.snapshot());raise
 
-    def capture_pair(self):
+    def capture_pair(self,timeout_s=47.):
         self.guard();base='http://127.0.0.1:9987'
         request=urllib.request.Request(base+'/api/capture',data=b'',headers={'Origin':base})
-        result=guarded_read(lambda:json.load(urllib.request.urlopen(request,timeout=45)),self.guard,timeout_s=47.)
+        timeout=float(timeout_s)
+        if not np.isfinite(timeout) or not 0<timeout<=47.:raise ValueError('Invalid D405 capture timeout')
+        result=guarded_read(lambda:json.load(urllib.request.urlopen(request,timeout=max(1.,timeout-.5))),self.guard,timeout_s=timeout)
         folder=Path(result['capture_directory'])
         with np.load(folder/'d405.npz',allow_pickle=False) as data:frame={k:data[k] for k in data.files}
         return folder,frame
+
+    def auto_d405_horizontal_trim(self,model,tcp,preobservation):
+        total=0.;after_image_time=None;last=None
+        expected=hashlib.sha256(D405_CALIBRATION.read_bytes()).hexdigest()
+        output=ROOT/'web/public/camera-overlay'
+        for attempt in range(1,self.route.d405_attempts+1):
+            frame=None
+            try:
+                _,frame=self.capture_pair(self.route.d405_capture_timeout_s)
+                measurement=estimate_horizontal_alignment(frame,
+                    target_offset_mm=self.route.d405_target_offset_mm,
+                    correction_axis_base=(0.,1.,0.),max_step_mm=self.route.d405_step_limit_mm,
+                    expected_calibration_sha256=expected,after_image_time=after_image_time)
+            except (OSError,ValueError,TimeoutError) as error:
+                reason=str(error);result=dict(converged=False,degraded=True,attempt=attempt,
+                    cumulative_correction_mm=total,reason=reason)
+                if frame is not None:
+                    unavailable=dict(status='unavailable',reason=reason,
+                        frame_id=str(np.asarray(frame.get('id','')).item()),
+                        image_time=float(np.asarray(frame.get('image_time',0.)).item()),
+                        calibration_sha256=str(np.asarray(frame.get('calibration_sha256','')).item()))
+                    write_horizontal_overlay(frame,unavailable,output)
+                self.save(d405_attempt=attempt,d405_raw_error_mm=None,d405_step_mm=None,
+                    d405_cumulative_correction_mm=total,d405_converged=False,d405_degraded=True,d405_reason=reason)
+                return result
+            raw=float(measurement['raw_error_mm']);step=float(measurement['step_mm'])
+            converged=abs(raw)<self.route.d405_convergence_mm
+            last=measurement|dict(attempt=attempt,cumulative_correction_mm=total,converged=converged)
+            write_horizontal_overlay(frame,last,output)
+            self.save(d405_attempt=attempt,d405_raw_error_mm=raw,d405_step_mm=step,
+                d405_cumulative_correction_mm=total,d405_converged=converged,d405_degraded=False,
+                d405_reason='',d405_frame_id=measurement['frame_id'],d405_image_time=measurement['image_time'])
+            if converged:
+                return dict(converged=True,degraded=False,attempt=attempt,
+                    cumulative_correction_mm=total,reason='',measurement=last)
+            if attempt==self.route.d405_attempts:
+                reason='D405 horizontal alignment exhausted observations'
+                self.save(d405_degraded=True,d405_reason=reason)
+                return dict(converged=False,degraded=True,attempt=attempt,
+                    cumulative_correction_mm=total,reason=reason,measurement=last)
+            if abs(total+step)>self.route.d405_total_limit_mm:
+                reason='D405 cumulative horizontal correction exceeds taught bound'
+                self.save(d405_degraded=True,d405_reason=reason)
+                return dict(converged=False,degraded=True,attempt=attempt,
+                    cumulative_correction_mm=total,reason=reason,measurement=last)
+            s=self.ctrl.snapshot();q=np.asarray(s['arms']['right']['joints'],float)
+            current=model.wrist_transform(q,self.height)@tcp
+            target=d405_horizontal_correction_target(current,measurement,limit_mm=self.route.d405_step_limit_mm)
+            path=continuous_correction(plan_correction,model,q,self.height,tcp,target,
+                self.ctrl.config['arms']['right']['joint_limits_deg'],timing_limits=self.limits)
+            self.arm_to(np.asarray(path['joint_waypoints_rad'][-1],float),tolerance_deg=.5)
+            end_q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float)
+            endpoint=model.wrist_transform(end_q,self.height)@tcp
+            endpoint_check=validate_lateral_endpoint(preobservation,endpoint,end_q,self.route)
+            total+=step;after_image_time=float(measurement['image_time'])
+            self.save(d405_cumulative_correction_mm=total,d405_endpoint=endpoint_check)
+        raise AssertionError('Unreachable D405 correction state')
 
     def auto_d405_trim(self,model,tcp,window,table,nominal_z):
         total=0.;measurement=None;aligned=False
@@ -623,14 +715,17 @@ class FastVisualLevel:
         policy=load_chassis_policy(ROOT/self.route.visual_chassis_policy)
         self.chassis_handoff=load_locked_handoff(ROOT/self.route.visual_chassis_handoff,
             now=time.time(),max_age_s=policy['handoff_max_age_s'])
-        self.save(chassis_handoff=self.chassis_handoff,entry_source='visual_chassis+fixed_arm')
-        entry=load_fixed_entry(ROOT/self.route.fixed_entry_waypoint,self.height)
+        self.save(chassis_handoff=self.chassis_handoff,entry_source='visual_chassis+d405_preobservation')
+        preobservation=load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint,self.height)
         contact=np.asarray(self.contact,float);self.attachment=np.eye(4);self.attachment[:3,:3]=OBJECT_TO_TOOL
         self.attachment[:3,3]=-(OBJECT_TO_TOOL@contact)/1000.
-        self._timed('fixed_entry',lambda:self.arm_to(np.asarray(entry['joints_rad'],float)))
+        self._timed('d405_preobservation',lambda:self.arm_to(np.asarray(preobservation['joints_rad'],float)))
         q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float);T=model.wrist_transform(q,self.height)@tcp
-        axis=T[:3,0];axis/=np.linalg.norm(axis)
-        self._timed('full_insert',lambda:self.execute_locked_axis(model,tcp,axis,160.0,fixed_z=False))
+        self.preobservation_lock=validate_preobservation_pose(T,q,limits,self.route)
+        self.save(preobservation_lock=self.preobservation_lock)
+        self._timed('d405_horizontal_trim',lambda:self.auto_d405_horizontal_trim(model,tcp,T),
+            planned_duration_s=self.route.d405_capture_timeout_s*self.route.d405_attempts)
+        self._timed('full_insert',lambda:self.execute_locked_axis(model,tcp,np.array([1.,0.,0.]),160.0,fixed_z=True))
         self._timed('release_and_return',self.release_and_return)
         self.timeline.complete();self.save(status='complete',phase='complete',reason='160mm automatic placement completed and returned',insertion=True,depth_mm=160.,**self.timeline.snapshot())
         atomic_json(self.run/'timeline.json',self.timeline.snapshot());atomic_json(self.run/'executed-route.json',dict(joint_waypoints_rad=self.reached_route))

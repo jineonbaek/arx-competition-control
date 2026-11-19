@@ -14,15 +14,20 @@ class VisualChassisIntegrationTests(unittest.TestCase):
         self.assertEqual(route["visual_chassis_policy"], "config/visual-chassis-placement.json")
         self.assertEqual(route["visual_chassis_handoff"], "reports/visual-chassis-active/handoff.json")
 
-    def test_arm_route_uses_locked_handoff_and_no_arm_visual_correction(self):
+    def test_arm_route_uses_locked_handoff_then_d405_preobservation_and_true_x_insert(self):
         source = (ROOT / "web" / "src" / "fast_visual_level.py").read_text()
         tree = ast.parse(source)
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "auto_insert_160_place")
         text = ast.get_source_segment(source, method)
         self.assertIn("load_locked_handoff", text)
-        self.assertIn("fixed_entry", text)
+        self.assertIn("d405_preobservation", text)
+        self.assertIn("auto_d405_horizontal_trim", text)
         self.assertNotIn("d435_reference_align", text)
-        self.assertLess(text.index("load_locked_handoff"), text.index("fixed_entry"))
+        self.assertLess(text.index("load_locked_handoff"), text.index("d405_preobservation"))
+        self.assertLess(text.index("d405_preobservation"), text.index("auto_d405_horizontal_trim"))
+        self.assertLess(text.index("auto_d405_horizontal_trim"), text.index("full_insert"))
+        self.assertIn("np.array([1.,0.,0.])", text)
+        self.assertIn("fixed_z=True", text)
         self.assertIn("dict(op='auto_insert_160',visual_chassis_handoff='locked_admitted')", source)
 
     def test_page_records_reference_and_displays_side_by_side_comparison(self):
