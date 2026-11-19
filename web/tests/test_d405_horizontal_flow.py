@@ -63,6 +63,8 @@ class D405HorizontalPureTests(unittest.TestCase):
         self.assertTrue(require_gripper_retained(-1.12, -1.30, tolerance=.25))
         with self.assertRaisesRegex(ValueError, "Gripper feedback changed"):
             require_gripper_retained(-.9, -1.30, tolerance=.25)
+        with self.assertRaisesRegex(ValueError, "Loaded battery clamp"):
+            require_gripper_retained(-.05, -.26, tolerance=.25)
 
 
 class FakeModel:
@@ -213,6 +215,28 @@ class D405HorizontalFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "authorized Y"):
             FastVisualLevel.execute_d405_lateral_path(
                 level, path, model, np.eye(4), start, y_start_mm=0., y_end_mm=2.)
+        self.assertEqual(dispatched, [])
+
+    def test_segment_endpoints_also_reserve_analytic_gap_margin(self):
+        level = self.make_level(); dispatched = []
+        base_q = level.ctrl.q.copy()
+        class NearLimitModel(FakeModel):
+            def wrist_transform(self, q, height):
+                tool = super().wrist_transform(q, height)
+                tool[0, 3] += .49 * (float(q[2]) - float(base_q[2]))
+                return tool
+        model = NearLimitModel(level.ctrl)
+        level.motion = types.SimpleNamespace(arm=lambda *args, **kwargs: dispatched.append(args))
+        level.ctrl.adapter = types.SimpleNamespace(trajectory_status=lambda side: {
+            "driver_instance":"driver", "command_epoch":1})
+        level.driver = "driver"; level.guard = lambda: True; level.reached_route = []
+        end_q = base_q.copy(); end_q[2] += .001
+        start = model.wrist_transform(base_q, level.height)
+        path = {"joint_waypoints_rad":[base_q.tolist(), end_q.tolist()],
+                "timing":{"time_from_start_s":[0., 1.]}}
+        with self.assertRaisesRegex(ValueError, "lateral endpoint"):
+            FastVisualLevel.execute_d405_lateral_path(
+                level, path, model, np.eye(4), start)
         self.assertEqual(dispatched, [])
 
 

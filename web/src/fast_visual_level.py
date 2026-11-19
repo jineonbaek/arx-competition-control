@@ -106,6 +106,7 @@ def require_grip(evidence):
         raise ValueError('Held battery image evidence unavailable: '+str((evidence or {}).get('reason',(evidence or {}).get('status','none'))))
 
 def require_gripper_retained(feedback,baseline,*,tolerance=.25):
+    require_loaded_gripper(feedback);require_loaded_gripper(baseline)
     if (not np.isfinite([feedback,baseline,tolerance]).all() or not 0<tolerance<=.25
             or abs(float(feedback)-float(baseline))>tolerance):
         raise ValueError('Gripper feedback changed while battery must remain held')
@@ -662,7 +663,7 @@ class FastVisualLevel:
             rotation_bound=np.degrees(joint_length)/(2*samples)
             max_position_bound=max(max_position_bound,position_bound)
             max_rotation_bound=max(max_rotation_bound,rotation_bound)
-            for t in np.linspace(0.,1.,samples+1)[1:-1]:
+            for t in np.linspace(0.,1.,samples+1):
                 point=a+t*(b-a);tool=model.wrist_transform(point,self.height)@tcp
                 validate_lateral_endpoint(preobservation,tool,point,self.route,y_bounds_mm=y_bounds,
                     position_margin_mm=position_bound,rotation_margin_deg=rotation_bound);sample_count+=1
