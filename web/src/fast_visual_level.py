@@ -105,6 +105,12 @@ def require_grip(evidence):
     if not evidence or evidence.get('stable') is not True or evidence.get('status')!='stable_visible':
         raise ValueError('Held battery image evidence unavailable: '+str((evidence or {}).get('reason',(evidence or {}).get('status','none'))))
 
+def require_gripper_retained(feedback,baseline,*,tolerance=.25):
+    if (not np.isfinite([feedback,baseline,tolerance]).all() or not 0<tolerance<=.25
+            or abs(float(feedback)-float(baseline))>tolerance):
+        raise ValueError('Gripper feedback changed while battery must remain held')
+    return True
+
 def d405_correction_target(tool,measurement,*,limit_mm=5.):
     T=np.asarray(tool,float);step=float(measurement.get('step_mm',float('nan')))
     if (T.shape!=(4,4) or not np.isfinite(T).all() or measurement.get('status')!='visual_guidance_only'
@@ -121,26 +127,39 @@ def d405_horizontal_correction_target(tool,measurement,*,limit_mm=3.):
         raise ValueError('D405 horizontal correction unavailable or out of range')
     result=T.copy();result[1,3]+=step/1000.;return result
 
-def validate_lateral_endpoint(start_tool,end_tool,end_joints,route):
+def validate_lateral_endpoint(start_tool,end_tool,end_joints,route,*,y_bounds_mm=None,
+                              position_margin_mm=0.,rotation_margin_deg=0.):
     start=np.asarray(start_tool,float);end=np.asarray(end_tool,float);q=np.asarray(end_joints,float)
     if (start.shape!=(4,4) or end.shape!=(4,4) or q.shape!=(6,)
-            or not np.isfinite(np.r_[start.ravel(),end.ravel(),q]).all()):
+            or not np.isfinite(np.r_[start.ravel(),end.ravel(),q,position_margin_mm,rotation_margin_deg]).all()
+            or not 0<=position_margin_mm<route.preobservation_z_tolerance_mm
+            or not 0<=rotation_margin_deg<min(route.preobservation_rotation_tolerance_deg,route.preobservation_axis_tolerance_deg)):
         raise ValueError('Invalid D405 lateral endpoint')
     delta=(end[:3,3]-start[:3,3])*1000.
     relative=start[:3,:3].T@end[:3,:3]
     rotation_error=float(np.degrees(np.arccos(np.clip((np.trace(relative)-1.)/2.,-1.,1.))))
     axis=end[:3,0]/np.linalg.norm(end[:3,0])
     axis_error=float(np.degrees(np.arccos(np.clip(axis@[1.,0.,0.],-1.,1.))))
-    if (abs(delta[0])>route.preobservation_z_tolerance_mm
-            or abs(delta[2])>route.preobservation_z_tolerance_mm
-            or rotation_error>route.preobservation_rotation_tolerance_deg
-            or axis_error>route.preobservation_axis_tolerance_deg):
+    position_limit=route.preobservation_z_tolerance_mm-position_margin_mm
+    rotation_limit=route.preobservation_rotation_tolerance_deg-rotation_margin_deg
+    axis_limit=route.preobservation_axis_tolerance_deg-rotation_margin_deg
+    if (abs(delta[0])>position_limit or abs(delta[2])>position_limit
+            or rotation_error>rotation_limit or axis_error>axis_limit):
         raise ValueError('D405 lateral endpoint changed locked X/Z/rotation/axis')
+    if abs(delta[1])>route.d405_total_limit_mm:
+        raise ValueError('D405 lateral endpoint exceeded total Y bound')
+    if y_bounds_mm is not None:
+        bounds=np.asarray(y_bounds_mm,float)
+        if bounds.shape!=(2,) or not np.isfinite(bounds).all():raise ValueError('Invalid authorized Y bounds')
+        low,high=sorted(bounds.tolist());tolerance=route.preobservation_z_tolerance_mm-position_margin_mm
+        if not low-tolerance<=delta[1]<=high+tolerance:
+            raise ValueError('D405 lateral endpoint exceeded authorized Y interval')
     j6_error=abs(float(np.degrees(q[5])-route.preobservation_j6_target_deg))
     if j6_error>route.preobservation_j6_tolerance_deg:
         raise ValueError('D405 lateral endpoint left J6 branch')
     return dict(delta_y_mm=float(delta[1]),x_drift_mm=float(delta[0]),z_drift_mm=float(delta[2]),
-        rotation_drift_deg=rotation_error,axis_drift_deg=axis_error,j6_error_deg=j6_error)
+        rotation_drift_deg=rotation_error,axis_drift_deg=axis_error,j6_error_deg=j6_error,
+        position_margin_mm=float(position_margin_mm),rotation_margin_deg=float(rotation_margin_deg))
 
 def alignment_goal(fit,T,window,plan):
     if not fit['qualified_fit']:
@@ -326,9 +345,8 @@ class FastVisualLevel:
         if not driver or driver['driver_instance']!=self.driver or not driver['ready'] or not driver['enabled']:raise ValueError('Arm driver changed')
         if self.initializing:
             require_stationary_pose(s,self.initial_q,self.height,driver['command_epoch'],self.initial_epoch)
-        if (not self.auto_insert_160 and not getattr(self,'released',False)
-                and abs(s['arms']['right']['gripper']-self.raw)>.1):
-            raise ValueError('Gripper feedback changed')
+        if not getattr(self,'released',False):
+            require_gripper_retained(s['arms']['right']['gripper'],self.raw)
         if self.motion.active!='lift' and abs(s['body']['height']-self.height)>.05:raise ValueError('Unexpected lift change')
         for camera in required_cameras(self.mode):
             m=json.loads((ROOT/'web/public/camera-live'/(camera+'.json')).read_text())
@@ -558,12 +576,16 @@ class FastVisualLevel:
                 frame_q=np.asarray(frame.get('joints'),float);frame_lift=float(np.asarray(frame.get('lift_rad')).item())
                 if frame_q.shape!=(6,) or not np.isfinite(np.r_[frame_q,frame_lift]).all():
                     raise ValueError('D405 paired tool pose unavailable')
-                expected_battery=(model.wrist_transform(frame_q,frame_lift)@tcp)[:3,3]
+                frame_tool=model.wrist_transform(frame_q,frame_lift)@tcp
+                bounds=np.asarray(self.battery['bounds_mm'],float)
+                front_object=np.array([[bounds[0,0],0.,bounds[1,2]],[bounds[1,0],0.,bounds[1,2]]])
+                front_tool=(front_object-np.asarray(self.contact,float))@OBJECT_TO_TOOL.T/1000.
+                expected_battery_front=front_tool@frame_tool[:3,:3].T+frame_tool[:3,3]
                 measurement=estimate_horizontal_alignment(frame,
                     target_offset_mm=self.route.d405_target_offset_mm,
                     correction_axis_base=(0.,1.,0.),max_step_mm=self.route.d405_step_limit_mm,
                     expected_calibration_sha256=expected,
-                    expected_battery_center_base_m=expected_battery,after_image_time=after_image_time)
+                    expected_battery_front_base_m=expected_battery_front,after_image_time=after_image_time)
             except (OSError,ValueError,TimeoutError) as error:
                 reason=str(error);result=dict(converged=False,degraded=True,attempt=attempt,
                     cumulative_correction_mm=total,reason=reason)
@@ -601,15 +623,18 @@ class FastVisualLevel:
             target=d405_horizontal_correction_target(current,measurement,limit_mm=self.route.d405_step_limit_mm)
             path=continuous_correction(plan_correction,model,q,self.height,tcp,target,
                 self.ctrl.config['arms']['right']['joint_limits_deg'],timing_limits=self.limits)
-            self.execute_d405_lateral_path(path,model,tcp,preobservation)
+            authorized=total+step
+            self.execute_d405_lateral_path(path,model,tcp,preobservation,
+                y_start_mm=total,y_end_mm=authorized)
             end_q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float)
             endpoint=model.wrist_transform(end_q,self.height)@tcp
-            endpoint_check=validate_lateral_endpoint(preobservation,endpoint,end_q,self.route)
-            total+=step;after_image_time=float(measurement['image_time'])
+            endpoint_check=validate_lateral_endpoint(preobservation,endpoint,end_q,self.route,
+                y_bounds_mm=(authorized,authorized))
+            total=float(endpoint_check['delta_y_mm']);after_image_time=float(measurement['image_time'])
             self.save(d405_cumulative_correction_mm=total,d405_endpoint=endpoint_check)
         raise AssertionError('Unreachable D405 correction state')
 
-    def execute_d405_lateral_path(self,path,model,tcp,preobservation):
+    def execute_d405_lateral_path(self,path,model,tcp,preobservation,*,y_start_mm=None,y_end_mm=None):
         points=np.asarray(path.get('joint_waypoints_rad'),float)
         times=np.asarray(path.get('timing',{}).get('time_from_start_s'),float)
         q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float)
@@ -617,17 +642,25 @@ class FastVisualLevel:
                 or not np.isfinite(np.r_[points.ravel(),times]).all() or times[0]!=0.
                 or np.any(np.diff(times)<=0) or np.max(np.abs(points[0]-q))>np.radians(.25)):
             raise ValueError('Invalid D405 lateral path')
-        checks=[];sample_count=0
+        y_bounds=None if y_start_mm is None or y_end_mm is None else (float(y_start_mm),float(y_end_mm))
+        checks=[];sample_count=0;max_position_bound=0.;max_rotation_bound=0.
         for point in points:
             tool=model.wrist_transform(point,self.height)@tcp
-            checks.append(validate_lateral_endpoint(preobservation,tool,point,self.route))
+            checks.append(validate_lateral_endpoint(preobservation,tool,point,self.route,y_bounds_mm=y_bounds))
         for a,b in zip(points,points[1:]):
             if not model.check(a,b,self.height)['clear']:
                 raise ValueError('D405 lateral path approaches central column')
-            samples=max(2,int(np.ceil(np.max(np.abs(b-a))/np.radians(.05))))
+            joint_length=float(np.abs(b-a).sum());radius=float(model.reach+np.linalg.norm(tcp[:3,3]))
+            samples=max(2,int(np.ceil(radius*joint_length*1000./(.1))),
+                int(np.ceil(np.degrees(joint_length)/.04)))
+            position_bound=radius*joint_length*1000./(2*samples)
+            rotation_bound=np.degrees(joint_length)/(2*samples)
+            max_position_bound=max(max_position_bound,position_bound)
+            max_rotation_bound=max(max_rotation_bound,rotation_bound)
             for t in np.linspace(0.,1.,samples+1)[1:-1]:
                 point=a+t*(b-a);tool=model.wrist_transform(point,self.height)@tcp
-                validate_lateral_endpoint(preobservation,tool,point,self.route);sample_count+=1
+                validate_lateral_endpoint(preobservation,tool,point,self.route,y_bounds_mm=y_bounds,
+                    position_margin_mm=position_bound,rotation_margin_deg=rotation_bound);sample_count+=1
         driver=self.ctrl.adapter.trajectory_status('right')
         self.motion.arm(split_plan(points.tolist(),times.tolist()),lambda:self.guard(),
             expected_start=dict(joints=q.tolist(),height=self.height),
@@ -635,6 +668,8 @@ class FastVisualLevel:
         require_joint_arrival(self.ctrl.snapshot()['arms']['right']['joints'],points[-1],.5)
         self.reached_route.extend(points[1:].tolist())
         self.save(d405_planned_endpoint=checks[-1],d405_interpolation_samples=sample_count,
+            d405_interpolation_position_bound_mm=max_position_bound,
+            d405_interpolation_rotation_bound_deg=max_rotation_bound,
             d405_planned_duration_s=float(times[-1]))
 
     def auto_d405_trim(self,model,tcp,window,table,nominal_z):

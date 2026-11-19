@@ -26,11 +26,15 @@ def frame(*, axis_source="camera_y"):
     if axis_source == "camera_y":
         xyz[red, 1] = 0.
         xyz[battery, 1] = .040
+        _, columns = np.nonzero(battery)
+        xyz[battery, 0] = (columns - 80.) / 1000.
     elif axis_source == "camera_x":
         # base Y is camera X, while the observed edge pixels stay unchanged.
         transform[:3, :3] = np.array([[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]])
         xyz[red, 0] = 0.
         xyz[battery, 0] = .040
+        _, columns = np.nonzero(battery)
+        xyz[battery, 1] = -(columns - 80.) / 1000.
     else:
         raise AssertionError(axis_source)
     return dict(
@@ -53,7 +57,7 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
             frame() if value is None else value,
             target_offset_mm=42.4,
             correction_axis_base=(0., 1., 0.),
-            expected_battery_center_base_m=(0., .040, .5),
+            expected_battery_front_base_m=((-0.026, .040, .5), (0.026, .040, .5)),
             max_step_mm=3.,
             expected_calibration_sha256=CALIBRATION,
             after_image_time=after,
@@ -131,9 +135,10 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
         battery = np.all(value["rgb"] < 20, axis=2)
         value["rgb"][battery] = 255
         value["rgb"][52:70, 60:101] = 0
-        value["xyz"][52:70, 60:101, 0] = .15
+        width = np.arange(41)[None, :]
+        value["xyz"][52:70, 60:101, 0] = (width - 20.) / 1000.
         value["xyz"][52:70, 60:101, 1] = .040
-        value["xyz"][52:70, 60:101, 2] = .55
+        value["xyz"][52:70, 60:101, 2] = .53
         with self.assertRaisesRegex(ValueError, "battery front edge"):
             self.estimate(value)
 

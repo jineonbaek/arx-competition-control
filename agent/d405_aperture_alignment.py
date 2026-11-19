@@ -12,10 +12,10 @@ def _scalar(value):
 
 def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=(0.,1.,0.),
                                   max_step_mm=3.,expected_calibration_sha256,
-                                  expected_battery_center_base_m,after_image_time=None):
+                                  expected_battery_front_base_m,after_image_time=None):
     """Compare visible D405 rim and battery-front evidence along one base axis."""
     rgb=np.asarray(frame.get('rgb'));xyz=np.asarray(frame.get('xyz'),float);T=np.asarray(frame.get('base_from_color'),float)
-    axis=np.asarray(correction_axis_base,float);expected_battery=np.asarray(expected_battery_center_base_m,float)
+    axis=np.asarray(correction_axis_base,float);expected_front=np.asarray(expected_battery_front_base_m,float)
     camera=str(_scalar(frame.get('camera_id','')))
     calibration=str(_scalar(frame.get('calibration_sha256','')));ident=str(_scalar(frame.get('id','')))
     try:image_time=float(_scalar(frame['image_time']));arm_time=float(_scalar(frame['arm_time']));body_time=float(_scalar(frame['body_time']))
@@ -24,7 +24,7 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
             or not isinstance(expected_calibration_sha256,str) or len(expected_calibration_sha256)!=64):
         raise ValueError('D405 camera or calibration identity mismatch')
     if (rgb.ndim!=3 or rgb.shape[2]!=3 or rgb.dtype!=np.uint8 or xyz.shape!=rgb.shape
-            or T.shape!=(4,4) or expected_battery.shape!=(3,) or not np.isfinite(expected_battery).all()
+            or T.shape!=(4,4) or expected_front.shape!=(2,3) or not np.isfinite(expected_front).all()
             or not np.isfinite(T).all() or not np.allclose(T[3],[0,0,0,1])
             or not np.allclose(T[:3,:3].T@T[:3,:3],np.eye(3),atol=1e-6)
             or not np.isfinite([image_time,arm_time,body_time,target_offset_mm,max_step_mm]).all()
@@ -34,6 +34,9 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
     length=float(np.linalg.norm(axis))
     if not np.isfinite(length) or length<.99 or length>1.01:raise ValueError('Invalid D405 correction axis')
     axis/=length
+    expected_vector=expected_front[1]-expected_front[0];expected_length=float(np.linalg.norm(expected_vector))
+    if not .03<=expected_length<=.15:raise ValueError('Invalid expected held-battery front edge')
+    expected_direction=expected_vector/expected_length;expected_center=expected_front.mean(axis=0)
     if after_image_time is not None and (not np.isfinite(after_image_time) or image_time<=float(after_image_time)):
         raise ValueError('Correction requires a newer D405 frame')
 
@@ -66,14 +69,22 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
     candidates=[i for i in range(1,n) if (stats[i,4]>.02*H*W
         and .25*opening_width<=stats[i,2]<=.90*opening_width
         and stats[i,3]>=.15*h and y+.45*h<=stats[i,1]<=y+1.35*h)]
-    bound=[]
+    bound=[];binding={}
     for candidate in candidates:
-        pixels=xyz[labels==candidate]
+        yy,xx=np.nonzero(labels==candidate);front_row=int(yy.min())
+        selected=(labels==candidate)&(np.indices(labels.shape)[0]<front_row+max(5,int(.12*h)))
+        pixels=xyz[selected]
         valid=np.isfinite(pixels).all(axis=1)&(pixels[:,2]>.06)&(pixels[:,2]<1.5)
         if valid.sum()<40:continue
         base=pixels[valid]@T[:3,:3].T+T[:3,3]
-        center=np.median(base,axis=0)
-        if np.linalg.norm(center-expected_battery)<=.075:bound.append(candidate)
+        center=np.median(base,axis=0);relative=base-expected_center
+        along=relative@expected_direction;perpendicular=relative-along[:,None]*expected_direction
+        span=float(np.quantile(along,.95)-np.quantile(along,.05))
+        center_error=float(np.linalg.norm(center-expected_center))
+        perpendicular_p90=float(np.quantile(np.linalg.norm(perpendicular,axis=1),.9))
+        if (center_error<=.025 and .30*expected_length<=span<=1.30*expected_length
+                and perpendicular_p90<=.020):
+            bound.append(candidate);binding[candidate]=(center_error,span,perpendicular_p90)
     candidates=bound
     if not candidates:raise ValueError('D405 battery front edge unavailable')
     expected=np.array([(rows[:,1:3].mean()),y+.85*h])
@@ -101,12 +112,12 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
     rim_center=projected(rim_pixels,'rim edge');battery_center=projected(edge_pixels,'battery front')
     edge_camera=xyz[edge_pixels[:,0],edge_pixels[:,1]]
     edge_base=edge_camera@T[:3,:3].T+T[:3,3]
-    battery_binding_error=float(np.linalg.norm(np.median(edge_base,axis=0)-expected_battery)*1000.)
-    if battery_binding_error>75.:raise ValueError('D405 battery front edge is not bound to held tool')
+    battery_binding_error,battery_front_span,battery_perpendicular_p90=binding[idx]
     observed=(battery_center-rim_center)*1000.;raw=float(target_offset_mm-observed);step=float(np.clip(raw,-max_step_mm,max_step_mm))
     return dict(status='visual_guidance_only',camera='d405',frame_id=ident,image_time=image_time,
         calibration_sha256=calibration,axis_base=axis.tolist(),target_offset_mm=float(target_offset_mm),
-        expected_battery_center_base_m=expected_battery.tolist(),battery_binding_error_mm=battery_binding_error,
+        expected_battery_front_base_m=expected_front.tolist(),battery_binding_error_mm=battery_binding_error*1000.,
+        battery_front_span_mm=battery_front_span*1000.,battery_perpendicular_p90_mm=battery_perpendicular_p90*1000.,
         rim_center_axis_m=rim_center,battery_front_axis_m=battery_center,observed_offset_mm=observed,
         raw_error_mm=raw,step_mm=step,direction='positive_y' if step>0 else ('negative_y' if step<0 else 'aligned'),
         rim_inner_px=rows[:,[1,2]].astype(float).tolist(),rim_rows_px=rows[:,0].astype(float).tolist(),

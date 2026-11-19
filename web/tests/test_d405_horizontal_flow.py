@@ -14,6 +14,7 @@ from agent.taught_placement import load_taught_route
 from fast_visual_level import (
     FastVisualLevel,
     d405_horizontal_correction_target,
+    require_gripper_retained,
     validate_lateral_endpoint,
 )
 
@@ -49,10 +50,19 @@ class D405HorizontalPureTests(unittest.TestCase):
         bad_q = self.q.copy(); bad_q[5] = np.radians(-86.)
         with self.assertRaisesRegex(ValueError, "J6"):
             validate_lateral_endpoint(self.tool, good, bad_q, self.route)
+        y_over = self.tool.copy(); y_over[1, 3] += .004
+        with self.assertRaisesRegex(ValueError, "authorized Y"):
+            validate_lateral_endpoint(self.tool, y_over, self.q, self.route,
+                                      y_bounds_mm=(0., 3.))
+
+    def test_gripper_feedback_is_locked_until_explicit_release(self):
+        self.assertTrue(require_gripper_retained(-1.12, -1.30, tolerance=.25))
+        with self.assertRaisesRegex(ValueError, "Gripper feedback changed"):
+            require_gripper_retained(-.9, -1.30, tolerance=.25)
 
 
 class FakeModel:
-    def __init__(self, state): self.state = state
+    def __init__(self, state): self.state = state; self.reach = .6
     def wrist_transform(self, q, height):
         tool = np.eye(4); tool[0, 3] = float(q[1]); tool[1, 3] = float(q[0]); tool[2, 3] = .53
         return tool
@@ -73,9 +83,11 @@ class D405HorizontalFlowTests(unittest.TestCase):
         level.route = load_taught_route(ROOT / "config" / "taught-placement.json")
         level.ctrl = FakeController(); level.height = .34; level.limits = {}
         level.tcp = np.eye(4); level.state = {}; level.run = Path(tempfile.mkdtemp())
+        level.battery = {"bounds_mm":[[-46., -37.5, 0.], [36., 37.5, 195.]]}
+        level.contact = np.array([0., 0., 169.])
         level.save = lambda **kw: level.state.update(kw)
         level.arm_to = lambda target, **kw: setattr(level.ctrl, "q", np.asarray(target, float))
-        def execute(path, model, tcp, preobservation):
+        def execute(path, model, tcp, preobservation, **kwargs):
             level.ctrl.q = np.asarray(path["joint_waypoints_rad"][-1], float)
         level.execute_d405_lateral_path = execute
         return level
@@ -175,6 +187,28 @@ class D405HorizontalFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lateral endpoint"):
             FastVisualLevel.execute_d405_lateral_path(
                 level, path, model, np.eye(4), start)
+        self.assertEqual(dispatched, [])
+
+    def test_joint_interpolation_cannot_overshoot_authorized_y(self):
+        level = self.make_level(); dispatched = []
+        class YCurvedModel(FakeModel):
+            def wrist_transform(self, q, height):
+                tool = super().wrist_transform(q, height)
+                tool[1, 3] += .002 * np.sin(np.pi * float(q[0]) / .002)
+                return tool
+        model = YCurvedModel(level.ctrl)
+        level.motion = types.SimpleNamespace(arm=lambda *args, **kwargs: dispatched.append(args))
+        level.ctrl.adapter = types.SimpleNamespace(trajectory_status=lambda side: {
+            "driver_instance":"driver", "command_epoch":1})
+        level.driver = "driver"; level.guard = lambda: True; level.reached_route = []
+        start_q = level.ctrl.q.copy(); start_q[0] = 0.; level.ctrl.q = start_q
+        end_q = start_q.copy(); end_q[0] = .002
+        start = model.wrist_transform(start_q, level.height)
+        path = {"joint_waypoints_rad":[start_q.tolist(), end_q.tolist()],
+                "timing":{"time_from_start_s":[0., 1.]}}
+        with self.assertRaisesRegex(ValueError, "authorized Y"):
+            FastVisualLevel.execute_d405_lateral_path(
+                level, path, model, np.eye(4), start, y_start_mm=0., y_end_mm=2.)
         self.assertEqual(dispatched, [])
 
 
