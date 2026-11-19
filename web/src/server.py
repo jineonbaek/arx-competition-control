@@ -50,7 +50,8 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     limits=controller.config['arms']['right']['gripper_limits_raw']
     factory=workflow_factory(policy_path,console_url=f'http://127.0.0.1:{port}',
                              gripper_limits=limits)
-    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
+    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control,
+                       plan_c_path=WEB_ROOT.parent/'config/battery-plan-c.local.json')
 
 
 def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None):

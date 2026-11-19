@@ -74,6 +74,7 @@ logs/
 
 /agent/placement-runs/
 /config/placement.local.json
+/config/battery-plan-c.local.json
 /.superpowers/
 
 # Read-only site dependency references in isolated development trees

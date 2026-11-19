@@ -74,7 +74,7 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if not np.array_equal(tcp,plan['T_wrist_from_tool']):raise ValueError('Plan TCP changed')
     model=controller.models['right'];reach=model.reach+np.linalg.norm(tcp[:3,3])
     approach=operation=='execute_battery_approach'
-    if (not approach and plan.get('vision_mode')!='d435'
+    if (not approach and plan.get('vision_mode') not in ('d435','fixed')
             and plan.get('refinement',{}).get('status')!='aligned'):
         raise ValueError('Post-approach fresh observation and alignment required')
     points=np.asarray(plan['joint_waypoints_rad'],float)

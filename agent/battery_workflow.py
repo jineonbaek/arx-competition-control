@@ -16,7 +16,7 @@ def build_workflow(config,store,controller,token,*,policies,refinement_policy,
         preflight=preflight,cancelled=lambda:store.cancelled,timeout_s=timeout_s)
     tools=BatteryExecutionTools(config,store,observations=observations,backends=backend,
                                pick_setup=setup,refinement_policy=refinement_policy)
-    if not hasattr(store,'perception_session'):
+    if vision_mode!='fixed' and not hasattr(store,'perception_session'):
         store.perception_session=PerceptionSession(store.path)
     return BatteryFlow(tools,review_plan=review_plan,clearance_mm=clearance_mm,
                        receipt_timeout_s=max(timeout_s.values())+5.,vision_mode=vision_mode)

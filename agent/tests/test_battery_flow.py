@@ -13,6 +13,11 @@ class Tools:
     def cancel_and_wait(self,timeout):self.cancelled_count+=1;return True
     def _save_pick_plan(self,plan):pass
     def available(self,name):return name=='verify_hold'
+    def fixed_coarse_plan(self):
+        return dict(plan_id='fixed-coarse',arm='right',lift={'fixed':True},
+                    observer={'status':'fixed_observer_candidate'})
+    def fixed_pick_plan(self):
+        return dict(plan_id='fixed-pick',result_file='fixed-pick-plan.json',arm='right',vision_mode='fixed')
     def execute(self,name,args,ident):
         self.calls.append(name);m=self.store.state['mission'];data={}
         if self.fail==name:return dict(ok=False,error=dict(code='test_failure',message='test'),data=None)
@@ -69,6 +74,14 @@ class FlowTests(unittest.TestCase):
             'verify_hold','stow_for_carry','return_to_carry'])
         self.assertEqual(self.store.state['mission']['target']['camera'],'d435')
         self.assertNotIn('execute_battery_approach',self.tools.calls)
+    def test_plan_c_uses_taught_points_then_reuses_existing_hold_retreat_and_carry(self):
+        self.tools.vision_mode='fixed'
+        out=self.flow(vision_mode='fixed').run()
+        self.assertEqual(out['status'],'completed')
+        self.assertEqual(self.tools.calls,['execute_coarse_alignment','execute_pick',
+            'verify_hold','stow_for_carry','return_to_carry'])
+        self.assertEqual(self.store.state['mission']['target']['target_id'],'plan_c_fixed')
+        self.assertNotIn('observe_battery',self.tools.calls)
     def test_missing_verifier_does_not_claim_success(self):
         self.tools.available=lambda name:False
         out=self.flow().run()

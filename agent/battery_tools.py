@@ -50,6 +50,12 @@ class BatteryExecutionTools(WorkflowTools):
         self.vision_mode=store.state.get('battery_task_settings',{}).get('vision_mode','d405')
         self.progress=lambda stage:None
 
+    def fixed_coarse_plan(self):
+        return self.backends.fixed_coarse_plan()
+
+    def fixed_pick_plan(self):
+        return self.backends.fixed_pick_plan()
+
     def _wrist_stage(self):
         mission=self.store.state['mission']
         return 'PICK_AT_PREGRASP' if mission.get('approach_plan') else 'COARSE_ALIGNED'
@@ -91,14 +97,15 @@ class BatteryExecutionTools(WorkflowTools):
                 if plan['pick_setup_sha256']!=setup_digest:raise ValueError('TCP changed')
             except (OSError,ValueError,KeyError,TypeError) as error:
                 raise AgentError('plan_changed','计划或 TCP 已变化，必须重新观察和规划') from error
+            fixed=plan.get('vision_mode')=='fixed'
             camera='d435' if plan.get('vision_mode')=='d435' else 'd405'
-            if plan.get('observation_id')!=self._localized(camera):
+            if not fixed and plan.get('observation_id')!=self._localized(camera):
                 raise AgentError('stale_observation','计划不再对应最新 '+camera.upper()+' 观察')
-            if camera=='d405':self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
+            if not fixed and camera=='d405':self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
             if (plan.get('arm')!='right' or any(plan.get(k) is not True for k in
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
-            if (name=='execute_pick' and camera=='d405'
+            if (name=='execute_pick' and not fixed and camera=='d405'
                     and plan.get('refinement',{}).get('status')!='aligned'):
                 raise AgentError('reobservation_required','必须先到预抓位，再用新画面确认对位')
         elif name=='execute_coarse_alignment':
@@ -106,7 +113,7 @@ class BatteryExecutionTools(WorkflowTools):
             plan=mission.data.get('plan') or {}
             if arguments['plan_id']!=plan.get('plan_id'):
                 raise AgentError('plan_missing','粗对位计划不是本轮已保存的计划')
-            if plan.get('observation_id')!=self._localized('d435'):
+            if plan.get('vision_mode')!='fixed' and plan.get('observation_id')!=self._localized('d435'):
                 raise AgentError('stale_observation','粗对位计划不再对应最新头部观察')
             if (plan.get('arm')!='right'
                     or any(plan.get(k) is not True for k in

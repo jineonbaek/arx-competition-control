@@ -5,13 +5,14 @@ import math
 import threading
 from pathlib import Path
 
-from agent.storage import RunStore
+from agent.storage import RunStore,atomic_json
 from agent.perception_session import PerceptionSession
 from control import Rejected
 
 
 class BatteryTask:
-    def __init__(self, root, controller, workflow_factory, *, depth_control=None, close_timeout_s=2.):
+    def __init__(self, root, controller, workflow_factory, *, depth_control=None, plan_c_path=None,
+                 close_timeout_s=2.):
         if not callable(workflow_factory) or close_timeout_s <= 0:
             raise ValueError('Workflow factory and bounded close timeout required')
         self.root=Path(root)
@@ -20,6 +21,8 @@ class BatteryTask:
         self.depth_control=depth_control
         self.close_timeout_s=float(close_timeout_s)
         self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
+        self.plan_c_path=None if plan_c_path is None else Path(plan_c_path)
+        self.plan_c=self._load_plan_c()
         self.lock=threading.RLock()
         self.active=None
         self.prepared=None
@@ -52,19 +55,54 @@ class BatteryTask:
         return output
 
     @staticmethod
-    def _task_settings(data):
-        target=data.get('lift_target_rad');observer_z=data.get('observer_z_mm')
-        if (type(target) not in (int,float) or not math.isfinite(target) or not 1<=target<=18
-                or type(observer_z) not in (int,float) or not math.isfinite(observer_z)
+    def _lift_settings(target):
+        if type(target) not in (int,float) or not math.isfinite(target) or not 1<=target<=18:
+            raise ValueError('升降目标须为 1–18 rad')
+        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target))}
+
+    @classmethod
+    def _task_settings(cls,data):
+        observer_z=data.get('observer_z_mm')
+        if (type(observer_z) not in (int,float) or not math.isfinite(observer_z)
                 or not 0<=observer_z<=1500):
             raise ValueError('升降目标须为 1–18 rad，预观察 Z 须为 0–1500 mm')
-        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target)),
-                'observer_z_mm':float(observer_z)}
+        return cls._lift_settings(data.get('lift_target_rad'))|{'observer_z_mm':float(observer_z)}
+
+    @staticmethod
+    def _plan_c_joints(value):
+        if (not isinstance(value,list) or len(value)!=6
+                or any(type(v) not in (int,float) or not math.isfinite(v) for v in value)):
+            raise ValueError('Plan C 点位须为六轴有限关节反馈')
+        return [float(v) for v in value]
+
+    def _load_plan_c(self):
+        profile={'lift_target_rad':self.task_settings.get('lift_target_rad'),
+                 'lift_acceptance_rad':self.task_settings.get('lift_acceptance_rad'),
+                 'pregrasp_joints_rad':None,'grasp_joints_rad':None}
+        if self.plan_c_path is None or not self.plan_c_path.exists():return profile
+        try:
+            saved=json.loads(self.plan_c_path.read_text(encoding='utf-8'))
+            profile.update(self._lift_settings(saved.get('lift_target_rad')))
+            for key in ('pregrasp_joints_rad','grasp_joints_rad'):
+                if saved.get(key) is not None:profile[key]=self._plan_c_joints(saved[key])
+            return profile
+        except (OSError,ValueError,TypeError) as error:
+            raise ValueError('Plan C 已保存点位无效：'+str(error)) from error
+
+    def _save_plan_c(self):
+        if self.plan_c_path is not None:
+            self.plan_c_path.parent.mkdir(parents=True,exist_ok=True)
+            atomic_json(self.plan_c_path,self.plan_c)
+
+    def _settings_view(self,settings=None):
+        value=copy.deepcopy(self.task_settings if settings is None else settings)
+        value['plan_c']=copy.deepcopy(self.plan_c)
+        return value
 
     @staticmethod
     def _vision_mode(value):
-        if value not in ('d405','d435'):
-            raise ValueError('视觉模式须为 D405 或 D435 Plan B')
+        if value not in ('d405','d435','fixed'):
+            raise ValueError('抓取模式须为 D405、D435 Plan B 或 Plan C 固定点')
         return value
 
 
@@ -74,7 +112,7 @@ class BatteryTask:
         if state is None:
             return {'status':'idle','available':True,'command_epoch':epoch,
                     'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[],
-                    'settings':copy.deepcopy(self.task_settings)}
+                    'settings':self._settings_view()}
         return {'status':state['status'],'available':state['status']!='running'
                     and not state['recovery_required'],
                 'command_epoch':epoch,'run_id':state['run_id'],
@@ -82,7 +120,7 @@ class BatteryTask:
                 'recovery_required':state['recovery_required'],
                 'phase':state['store'].state.get('battery_flow',{}).get('phase','starting'),
                 'mission_stage':state['store'].state.get('mission',{}).get('stage','IDLE'),
-                'settings':copy.deepcopy(state['store'].state.get('battery_task_settings',{})),
+                'settings':self._settings_view(state['store'].state.get('battery_task_settings',{})),
                 'logs':self._logs(state['store'])}
 
     def snapshot(self, client):
@@ -181,7 +219,7 @@ class BatteryTask:
             if action=='start':
                 required={'action','request_id','expected_epoch','environment_clear'}
                 settings={'lift_target_rad','observer_z_mm'}
-                optional=settings|{'vision_mode'}
+                optional=settings|{'vision_mode','plan_c_lift_target_rad'}
                 if (not required<=set(data) or not set(data)<=required|optional
                         or (bool(set(data)&settings) and not settings<=set(data))
                         or type(data['expected_epoch']) is not int
@@ -193,7 +231,28 @@ class BatteryTask:
                     values['vision_mode']=self._vision_mode(data['vision_mode'])
                 else:
                     values.setdefault('vision_mode','d405')
+                if 'plan_c_lift_target_rad' in data:
+                    self.plan_c.update(self._lift_settings(data['plan_c_lift_target_rad']))
+                    self._save_plan_c()
+                if values['vision_mode']=='fixed':
+                    values['plan_c']=copy.deepcopy(self.plan_c)
+                if (values['vision_mode']=='fixed'
+                        and any(self.plan_c.get(key) is None
+                                for key in ('pregrasp_joints_rad','grasp_joints_rad'))):
+                    raise ValueError('Plan C 请先记录预夹取点和夹取点')
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
+            elif action=='record_plan_c':
+                if set(data)!={'action','request_id','point','lift_target_rad'} or data['point'] not in ('pregrasp','grasp'):
+                    raise ValueError('record_plan_c requires pregrasp/grasp and lift_target_rad')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能记录点位')
+                arm=self.controller.snapshot().get('arms',{}).get('right',{})
+                if arm.get('fresh') is not True:
+                    raise ValueError('记录 Plan C 点位需要新鲜右臂反馈')
+                self.plan_c.update(self._lift_settings(data['lift_target_rad']))
+                self.plan_c[data['point']+'_joints_rad']=self._plan_c_joints(arm.get('joints'))
+                self._save_plan_c()
+                result=self._view(client)
             elif action=='cancel':
                 if set(data)!= {'action','request_id'}:
                     raise ValueError('cancel accepts request_id only')
@@ -224,7 +283,8 @@ class BatteryTask:
         try:
             if self.depth_control is not None:
                 cameras=self.depth_control.snapshot()['cameras']
-                required_cameras=('d435',) if settings.get('vision_mode')=='d435' else ('d435','d405')
+                mode=settings.get('vision_mode')
+                required_cameras=() if mode=='fixed' else ('d435',) if mode=='d435' else ('d435','d405')
                 depth_previous={camera:cameras[camera]['requested'] for camera in required_cameras}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             if store is None:store=RunStore.create(self.root)
