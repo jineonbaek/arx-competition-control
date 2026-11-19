@@ -97,6 +97,74 @@ class CoarseStepTests(unittest.TestCase):
         np.testing.assert_allclose(self.step.lift.target,[5.0])
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm','trajectory'])
 
+    def test_equal_acceptance_does_not_allow_stable_overshoot(self):
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=6.1
+        for t in (10.1,10.2,10.31):
+            self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'lifting')
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+
+    def test_equal_acceptance_keeps_full_settle_window(self):
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=6.
+        for t in (10.1,10.16,10.22):
+            self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'lifting')
+        self.assertEqual([c[0] for c in self.adapter.calls],['lift'])
+        self.feedback(10.31)
+        self.assertEqual(self.step.poll()['status'],'stopping_lift')
+
+    def test_equal_acceptance_allows_settled_feedback_within_lower_tolerance(self):
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=5.99
+        for t in (10.1,10.2,10.31):
+            self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'stopping_lift')
+
+    def test_fractional_target_does_not_stop_at_rounded_height(self):
+        self.step=self.make(target=6.6,acceptance=6.6)
+        self.step.start();self.height=6.
+        for t in (10.1,10.2,10.31):
+            self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'lifting')
+        self.assertEqual(self.adapter.calls,[('lift',(6.6,))])
+
+    def test_repeated_body_sample_cannot_settle_lift_as_arm_stamps_advance(self):
+        self.lift_policy['max_age_s']=self.arm_policy['max_age_s']=.3
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=6.;self.feedback(10.29)
+        for side in ('left','right'):self.c.arms[side]['received']=10.02
+        self.assertEqual(self.step.poll()['status'],'lifting')
+        self.now=10.30
+        for side in ('left','right'):self.c.arms[side]['received']=10.28
+        self.assertEqual(self.step.poll()['status'],'lifting')
+        self.assertEqual(self.adapter.calls,[('lift',(6.,))])
+
+    def test_exact_height_is_rechecked_after_stop_before_gripper_opens(self):
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=6.
+        for t in (10.1,10.2,10.31):self.feedback(t);result=self.step.poll()
+        self.assertEqual(result['status'],'stopping_lift')
+        self.height=6.1;self.feedback(10.32)
+        result=self.step.poll()
+        self.assertTrue(result['stop_required'])
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+
+    def test_gripper_submission_rechecks_exact_height_atomically(self):
+        self.step=self.make(target=6.,acceptance=6.)
+        self.step.start();self.height=6.
+        for t in (10.1,10.2,10.31):self.feedback(t);self.step.poll()
+        original=self.c.submit
+        def changed(data,*args,**kwargs):
+            if data['type']=='gripper':
+                self.height=6.1;self.feedback(self.now+.001)
+            return original(data,*args,**kwargs)
+        self.c.submit=changed;self.feedback(10.32)
+        result=self.step.poll()
+        self.assertTrue(result['stop_required'])
+        self.assertFalse(any(c[0]=='trajectory' for c in self.adapter.calls))
+
     def test_prestarted_lift_keeps_the_original_feedback_check_without_resubmitting(self):
         self.token.prestarted_lift_target=6.
         self.assertEqual(self.step.start()['status'],'lifting')

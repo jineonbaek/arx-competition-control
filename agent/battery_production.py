@@ -95,8 +95,10 @@ def workflow_factory(policy_path,*,console_url,gripper_limits):
         settings=store.state.get('battery_task_settings',{})
         if settings:
             run_policy['coarse']['fixed_lift_target_rad']=settings['lift_target_rad']
-            run_policy['coarse']['lift_acceptance_rad']=settings['lift_acceptance_rad']
             run_policy['coarse']['observer_search']['start_z_mm']=settings['observer_z_mm']
+        # Web height selection is an endpoint, including legacy saved settings.
+        # Lower one-sided acceptance remains available to standalone coarse callers.
+        run_policy['coarse']['lift_acceptance_rad']=run_policy['coarse']['fixed_lift_target_rad']
         policies={'coarse':dict(run_policy['coarse'],timing_limits=run_policy['timing_limits']),
                   'pick':run_policy['pick']}
         reviewer=lambda operation,plan:review_plan(
@@ -108,6 +110,6 @@ def workflow_factory(policy_path,*,console_url,gripper_limits):
             review_plan=reviewer,timeout_s=run_policy['timeout_s'],
             clearance_mm=run_policy['clearance_mm'])
     factory.task_settings={'lift_target_rad':policy['coarse']['fixed_lift_target_rad'],
-        'lift_acceptance_rad':policy['coarse']['lift_acceptance_rad'],
+        'lift_acceptance_rad':policy['coarse']['fixed_lift_target_rad'],
         'observer_z_mm':policy['coarse']['observer_search']['start_z_mm']}
     return factory

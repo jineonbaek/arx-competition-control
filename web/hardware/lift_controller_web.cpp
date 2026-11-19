@@ -3,6 +3,7 @@
 //
 
 #include <rclcpp/rclcpp.hpp>
+#include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <arx_lift_src/lift_head_control_loop.h>
 #include <arm_control/msg/pos_cmd.hpp>
@@ -48,6 +49,14 @@ int main(int argc, char **argv) {
   int robot_type = node->declare_parameter("robot_type", 0);
   const double fixed_body_height =
       node->declare_parameter("fixed_body_height", 0.0);
+  rcl_interfaces::msg::ParameterDescriptor ramp_descriptor;
+  ramp_descriptor.description = "Lift target-reference ramp in SDK rad/s; homing stays at 0.5";
+  ramp_descriptor.read_only = true;
+  const double lift_target_ramp_rad_s = node->declare_parameter(
+      "lift_target_ramp_rad_s", WEB_LIFT_DEFAULT_RAMP_RAD_S, ramp_descriptor);
+  if (!valid_lift_ramp_speed(lift_target_ramp_rad_s)) {
+    throw std::invalid_argument("Lift target ramp must be finite and within (0, 1.0] SDK rad/s");
+  }
   if (!valid_lift_target(fixed_body_height) || fixed_body_height != 0.0 || robot_type != 0) {
     throw std::invalid_argument("Height target must be finite and within 0..18 SDK radians");
   }
@@ -67,8 +76,9 @@ int main(int argc, char **argv) {
       return result;
     });
   control_loop = std::make_shared<WebLiftControl>("can5", static_cast<LiftHeadControlLoop::RobotType>(robot_type));
-  apply_slow_lift_config(control_loop->config_);
-  RCLCPP_INFO(node->get_logger(), "LOW SPEED: target ramp 0.5rad/s; homing 0.5rad/s; target %.4frad", fixed_body_height);
+  apply_slow_lift_config(control_loop->config_, lift_target_ramp_rad_s);
+  RCLCPP_INFO(node->get_logger(), "Lift target ramp %.3frad/s; homing 0.5rad/s; target %.4frad",
+              lift_target_ramp_rad_s, fixed_body_height);
   int running_state = 2;
   double lift_height = 0;
   auto pub = node->create_publisher<arm_control::msg::PosCmd>("/body_information", 1);

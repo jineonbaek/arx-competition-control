@@ -106,7 +106,7 @@ class BatteryTaskTests(unittest.TestCase):
             'expected_epoch':0,'environment_clear':True,
             'lift_target_rad':6.6,'observer_z_mm':735.5})
         settings=self.created[0][0].state['battery_task_settings']
-        self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.,
+        self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.6,
                                    'observer_z_mm':735.5})
         self.assertEqual(result['settings'],settings)
         self.gate.set();self.wait('needs_attention')

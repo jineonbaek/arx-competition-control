@@ -1,10 +1,20 @@
 #pragma once
 #include <cmath>
+#include <stdexcept>
 constexpr double WEB_MAX_LINEAR = 0.80;
 constexpr double WEB_MAX_YAW = 0.40;
 constexpr double WEB_CHASSIS_TIMEOUT = 0.25;
-template<class Config> inline void apply_slow_lift_config(Config& c) {
-  c.lift_max_vel = 0.5 / 400.0;
+constexpr double WEB_LIFT_DEFAULT_RAMP_RAD_S = 0.5;
+constexpr double WEB_LIFT_MAX_RAMP_RAD_S = 1.0;
+inline bool valid_lift_ramp_speed(double rate) {
+  return std::isfinite(rate) && rate > 0.0 && rate <= WEB_LIFT_MAX_RAMP_RAD_S;
+}
+template<class Config> inline void apply_slow_lift_config(
+    Config& c, double rate = WEB_LIFT_DEFAULT_RAMP_RAD_S) {
+  if (!valid_lift_ramp_speed(rate))
+    throw std::invalid_argument("Lift target ramp must be finite and within (0, 1.0] SDK rad/s");
+  // Vendor lift_max_vel is the reference increment for each 400 Hz loop tick.
+  c.lift_max_vel = rate / 400.0;
   c.lift_calibrate_vel = 0.5;
 }
 inline bool valid_lift_target(double x) {

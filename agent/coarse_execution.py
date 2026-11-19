@@ -20,7 +20,8 @@ class CoarseAlignmentStep:
         self.initial={s:np.asarray(initial_joints[s],float).copy() for s in ('left','right')}
         self.initial_lift=float(initial_lift_rad);self.target=float(lift_target_rad)
         self.acceptance=self.target if lift_acceptance_rad is None else float(lift_acceptance_rad)
-        self.has_acceptance=lift_acceptance_rad is not None
+        # Equal target/acceptance means precise arrival, not an unbounded minimum.
+        self.has_acceptance=lift_acceptance_rad is not None and self.acceptance<self.target
         self.fixed_tolerance=float(fixed_joint_tolerance_rad);self.skew=float(max_pair_skew_s)
         if (not np.isfinite([self.initial_lift,self.target,self.acceptance,self.fixed_tolerance,self.skew]).all()
                 or not 0<=self.initial_lift<=18 or not 0<=self.target<=18
@@ -108,6 +109,9 @@ class CoarseAlignmentStep:
         if (any(v.shape!=(6,) or not np.isfinite(v).all() for v in q)
                 or not np.isfinite(height) or not 0<=height<=18):
             raise ValueError('Invalid joint or lift feedback')
+        if (not self.has_acceptance and self.stage in ('stopping_lift','opening_gripper')
+                and abs(height-self.target)>self.lift.tolerance[0]):
+            raise ValueError('Lift moved outside target tolerance before observer handoff')
         caps=snapshot.get('capabilities',{})
         if commands:
             for capability in ('lift','left:arm.joints','right:arm.joints'):
@@ -116,7 +120,8 @@ class CoarseAlignmentStep:
         check=self.lift_preflight if lifting else self.arm_preflight
         if commands and check(snapshot,now) is not True:raise ValueError('Scene or path preflight failed')
         self.last_now=now;self.last_stamps=stamps.copy()
-        return q[1],height,float(stamps.min())
+        # Arm updates cannot turn one cached body packet into multiple lift samples.
+        return q[1],height,float(stamps[2])
 
     def _guard(self, snapshot, now):
         self._check(snapshot,now,lifting=self.stage in ('prepared','lifting','stopping_lift'),
@@ -187,7 +192,6 @@ class CoarseAlignmentStep:
                     opened=self.opening.update([-arm['gripper']],arm['received'],now)
                     if opened['stop_required']:return self._abort(opened['status'])
                     if not opened['arrived']:return self._receipt()
-                    self.stage='observing_motion'
                     def observer_start(snapshot, time):
                         self._check(snapshot,time,lifting=False,commands=False)
                         if self.arm_preflight(snapshot,time) is not True:
@@ -201,13 +205,14 @@ class CoarseAlignmentStep:
                         trajectory={k:self.plan[k] for k in ('interpolation','time_from_start_s','joint_waypoints_rad')}
                         self.controller.start_trajectory('right',trajectory,self.token,
                             preflight=observer_start,require_lift_settle=False)
+                        self.stage='observing_motion'
                 elif self.stage=='observing_motion':
                     r=self.controller.poll_trajectory(self.token,preflight=self._guard)
                     if r['status']=='reference_complete':
                         self.arm=ArrivalMonitor(self.endpoint,started_at=now,**self.arm_policy)
                         self.stage='settling_observer'
                 elif self.stage=='settling_observer':
-                    r=self.arm.update(q,stamp,now)
+                    r=self.arm.update(q,float(snapshot['arms']['right']['received']),now)
                     if r['stop_required']:return self._abort(r['status'])
                     if r['arrived']:self.stage='ready_to_observe'
                 elif np.any(np.abs(q-self.endpoint)>self.arm.tolerance):

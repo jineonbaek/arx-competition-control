@@ -58,7 +58,7 @@ class BatteryTask:
                 or type(observer_z) not in (int,float) or not math.isfinite(observer_z)
                 or not 0<=observer_z<=1500):
             raise ValueError('升降目标须为 1–18 rad，预观察 Z 须为 0–1500 mm')
-        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target)),
+        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(target),
                 'observer_z_mm':float(observer_z)}
 
     def _view(self, client):
