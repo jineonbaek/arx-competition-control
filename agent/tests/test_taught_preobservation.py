@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 from agent.taught_placement import (
     load_preobservation_waypoint,
     load_taught_route,
+    validate_preobservation_waypoint,
     validate_preobservation_pose,
 )
 
@@ -85,6 +86,18 @@ class TaughtPreobservationTests(unittest.TestCase):
         narrow = self.limits.copy(); narrow[0] = [6., 10.]
         with self.assertRaisesRegex(ValueError, "joint limits"):
             validate_preobservation_pose(self.tool, self.joints, narrow, self.route)
+
+    def test_waypoint_fk_must_match_recorded_wrist_before_motion(self):
+        wrist = np.eye(4); wrist[:3, 3] = [.61, -.21, .53]
+        waypoint = dict(joints_rad=self.joints.tolist(),
+                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.])
+        checked = validate_preobservation_waypoint(
+            waypoint, wrist, wrist, self.joints, self.limits, self.route)
+        self.assertEqual(checked["tcp_z_m"], .53)
+        stale = dict(waypoint, wrist_base_mm_deg=[611., -210., 530., 0., 0., 0.])
+        with self.assertRaisesRegex(ValueError, "recorded wrist"):
+            validate_preobservation_waypoint(
+                stale, wrist, wrist, self.joints, self.limits, self.route)
 
 
 if __name__ == "__main__":

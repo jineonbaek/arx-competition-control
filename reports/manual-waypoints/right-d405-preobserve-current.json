@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "arm": "right",
+  "joints_rad": [
+    0.6579331530357505,
+    0.7165881463096048,
+    0.44163671008053046,
+    0.27495143622907425,
+    0.6579331530357504,
+    -1.5707963267948963
+  ],
+  "wrist_base_mm_deg": [
+    293.5414127632717,
+    -163.5802081262769,
+    498.48794002671457,
+    -90.0,
+    0.0,
+    0.0
+  ],
+  "lift_rad": 0.13332557678222656,
+  "gripper_command_target": 0,
+  "captured_at": 1795099025.5643346,
+  "source": "offline_ik_at_stationary_low_lift_from_first_success_position_no_motion",
+  "source_waypoint": "reports/manual-waypoints/right-return-20261119-154755.json",
+  "source_feedback": {
+    "right_joints_rad": [
+      1.510833740234375,
+      0.2672233581542969,
+      0.9214544296264648,
+      -1.3731212615966797,
+      1.5951404571533203,
+      -0.50640869140625
+    ],
+    "sample_times": [1795099024.9598033, 1795099025.5643346],
+    "max_joint_delta_deg": 0.0,
+    "lift_delta_rad": 0.0,
+    "motion_reserved": false,
+    "competition_reserved": false,
+    "chassis_active": false
+  },
+  "tool_base_matrix": [
+    [1.0, 0.0, 0.0, 0.44168345321239383],
+    [0.0, 1.0, 0.0, -0.16472277411812616],
+    [0.0, 0.0, 1.0, 0.4983067579125179],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "offline_checks": {
+    "tool_axis_error_deg": 0.0000008537736463,
+    "path_from_stationary_feedback_clear": true,
+    "path_lower_clearance_mm": 132.1,
+    "path_samples": 190
+  },
+  "source_hashes": {
+    "config/right-grip-tcp.json": "0c6dcdb08f51b671343a19ecf5e5c62c973b021ef7769385765dfe5b8b9689b6",
+    "web/config/control.json": "0f6e1c8d03177cd88d5628fa0a31ca93e9a10b09264e522aa66835bb8dcdd7ce"
+  }
+}

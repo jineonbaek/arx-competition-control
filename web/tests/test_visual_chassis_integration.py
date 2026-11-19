@@ -24,10 +24,15 @@ class VisualChassisIntegrationTests(unittest.TestCase):
         self.assertIn("auto_d405_horizontal_trim", text)
         self.assertNotIn("d435_reference_align", text)
         self.assertLess(text.index("load_locked_handoff"), text.index("d405_preobservation"))
+        self.assertLess(text.index("validate_preobservation_waypoint"), text.index("self._timed('d405_preobservation'"))
         self.assertLess(text.index("d405_preobservation"), text.index("auto_d405_horizontal_trim"))
         self.assertLess(text.index("auto_d405_horizontal_trim"), text.index("full_insert"))
         self.assertIn("np.array([1.,0.,0.])", text)
         self.assertIn("fixed_z=True", text)
+        trim = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "auto_d405_horizontal_trim")
+        trim_text = ast.get_source_segment(source, trim)
+        self.assertIn("execute_d405_lateral_path(path", trim_text)
+        self.assertNotIn("self.arm_to(", trim_text)
         self.assertIn("dict(op='auto_insert_160',visual_chassis_handoff='locked_admitted')", source)
 
     def test_page_records_reference_and_displays_side_by_side_comparison(self):

@@ -50,10 +50,25 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
     if len(rows)<8:raise ValueError('D405 visible rim side edges insufficient')
     rows=np.asarray(rows,int)
 
-    black=(hsv[:,:,2]<100).astype(np.uint8);n,labels,stats,centers=cv2.connectedComponentsWithStats(black,8)
-    candidates=[i for i in range(1,n) if stats[i,4]>.02*H*W]
+    rim_pixels=np.vstack((rows[:,[0,1]],rows[:,[0,2]]))
+    rim_depth=xyz[rim_pixels[:,0],rim_pixels[:,1],2]
+    rim_depth=rim_depth[np.isfinite(rim_depth)&(rim_depth>.06)&(rim_depth<1.5)]
+    if len(rim_depth)<8:raise ValueError('D405 rim edge depth insufficient')
+    rim_depth=float(np.median(rim_depth));opening_width=float(np.median(rows[:,2]-rows[:,1]))
+    # The cabinet-facing battery edge must lie on the rim's foreground depth
+    # layer and have a battery-like projected width.  A dark cabinet cavity or
+    # rear wall is not evidence of the held battery.
+    valid_depth=np.isfinite(xyz[:,:,2])&(xyz[:,:,2]>.06)&(xyz[:,:,2]<1.5)&(np.abs(xyz[:,:,2]-rim_depth)<=.12)
+    black=((hsv[:,:,2]<100)&valid_depth).astype(np.uint8);n,labels,stats,centers=cv2.connectedComponentsWithStats(black,8)
+    candidates=[i for i in range(1,n) if (stats[i,4]>.02*H*W
+        and .25*opening_width<=stats[i,2]<=.90*opening_width
+        and stats[i,3]>=.15*h and y+.45*h<=stats[i,1]<=y+1.35*h)]
     if not candidates:raise ValueError('D405 battery front edge unavailable')
-    idx=min(candidates,key=lambda i:np.linalg.norm((centers[i]-[W/2,H*.45])/[W,H]));body=labels==idx
+    expected=np.array([(rows[:,1:3].mean()),y+.85*h])
+    idx=min(candidates,key=lambda i:np.linalg.norm((centers[i]-expected)/[opening_width,h]));body=labels==idx
+    body_depth=xyz[:,:,2][body]
+    if np.quantile(body_depth,.9)-np.quantile(body_depth,.1)>.04:
+        raise ValueError('D405 battery front depth layer inconsistent')
     region=np.zeros((H,W),bool);region[max(0,y+int(.25*h)):min(H,y+int(1.5*h)),max(0,x-int(.4*w)):min(W,x+int(1.4*w))]=True
     ys,xs=np.nonzero(body&region)
     if not len(ys):raise ValueError('D405 battery front edge unavailable')
@@ -64,7 +79,7 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
             run=max(runs,key=len);edge_pixels.extend((yy,int(xx)) for xx in run)
     if len(edge_pixels)<40:raise ValueError('D405 battery front edge insufficient')
 
-    rim_pixels=np.vstack((rows[:,[0,1]],rows[:,[0,2]]));edge_pixels=np.asarray(edge_pixels,int)
+    edge_pixels=np.asarray(edge_pixels,int)
     def projected(pixels,label):
         points=xyz[pixels[:,0],pixels[:,1]]
         valid=np.isfinite(points).all(axis=1)&(points[:,2]>.06)&(points[:,2]<1.5)

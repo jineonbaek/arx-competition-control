@@ -111,6 +111,20 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "depth"):
             self.estimate(invalid)
 
+    def test_dark_cavity_is_not_selected_as_the_battery_front(self):
+        value = frame()
+        value["rgb"][28:68, 38:123] = 0
+        value["xyz"][28:68, 38:123, 2] = .9
+        result = self.estimate(value)
+        self.assertAlmostEqual(result["battery_front_axis_m"], .040, places=6)
+        no_battery = frame()
+        battery = np.all(no_battery["rgb"] < 20, axis=2)
+        no_battery["rgb"][battery] = 255
+        no_battery["rgb"][28:68, 38:123] = 0
+        no_battery["xyz"][28:68, 38:123, 2] = .9
+        with self.assertRaisesRegex(ValueError, "battery front edge"):
+            self.estimate(no_battery)
+
     def test_existing_vertical_alignment_contract_remains_available(self):
         self.assertTrue(callable(estimate_vertical_alignment))
         bad = copy.deepcopy(frame())

@@ -18,7 +18,7 @@ from agent.shallow_aperture import evaluate_shallow_fit,aperture_relevant
 from agent.storage import atomic_json
 from docking_motion import DockingMotion
 from agent.taught_placement import (PhaseTimeline,load_preobservation_waypoint,load_taught_route,
-    outer_alignment_error,reverse_reached_route,validate_preobservation_pose)
+    outer_alignment_error,reverse_reached_route,validate_preobservation_pose,validate_preobservation_waypoint)
 from agent.d405_aperture_alignment import estimate_horizontal_alignment,estimate_vertical_alignment
 from agent.visual_chassis_correction import load_chassis_policy,load_locked_handoff
 from d405_alignment_overlay import write_horizontal_overlay
@@ -596,13 +596,36 @@ class FastVisualLevel:
             target=d405_horizontal_correction_target(current,measurement,limit_mm=self.route.d405_step_limit_mm)
             path=continuous_correction(plan_correction,model,q,self.height,tcp,target,
                 self.ctrl.config['arms']['right']['joint_limits_deg'],timing_limits=self.limits)
-            self.arm_to(np.asarray(path['joint_waypoints_rad'][-1],float),tolerance_deg=.5)
+            self.execute_d405_lateral_path(path,model,tcp,preobservation)
             end_q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float)
             endpoint=model.wrist_transform(end_q,self.height)@tcp
             endpoint_check=validate_lateral_endpoint(preobservation,endpoint,end_q,self.route)
             total+=step;after_image_time=float(measurement['image_time'])
             self.save(d405_cumulative_correction_mm=total,d405_endpoint=endpoint_check)
         raise AssertionError('Unreachable D405 correction state')
+
+    def execute_d405_lateral_path(self,path,model,tcp,preobservation):
+        points=np.asarray(path.get('joint_waypoints_rad'),float)
+        times=np.asarray(path.get('timing',{}).get('time_from_start_s'),float)
+        q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float)
+        if (points.ndim!=2 or points.shape[1:]!=(6,) or len(points)<2 or times.shape!=(len(points),)
+                or not np.isfinite(np.r_[points.ravel(),times]).all() or times[0]!=0.
+                or np.any(np.diff(times)<=0) or np.max(np.abs(points[0]-q))>np.radians(.25)):
+            raise ValueError('Invalid D405 lateral path')
+        checks=[]
+        for point in points:
+            tool=model.wrist_transform(point,self.height)@tcp
+            checks.append(validate_lateral_endpoint(preobservation,tool,point,self.route))
+        for a,b in zip(points,points[1:]):
+            if not model.check(a,b,self.height)['clear']:
+                raise ValueError('D405 lateral path approaches central column')
+        driver=self.ctrl.adapter.trajectory_status('right')
+        self.motion.arm(split_plan(points.tolist(),times.tolist()),lambda:self.guard(),
+            expected_start=dict(joints=q.tolist(),height=self.height),
+            expected_driver=dict(driver_instance=self.driver,command_epoch=driver['command_epoch']))
+        require_joint_arrival(self.ctrl.snapshot()['arms']['right']['joints'],points[-1],.5)
+        self.reached_route.extend(points[1:].tolist())
+        self.save(d405_planned_endpoint=checks[-1],d405_planned_duration_s=float(times[-1]))
 
     def auto_d405_trim(self,model,tcp,window,table,nominal_z):
         total=0.;measurement=None;aligned=False
@@ -719,9 +742,14 @@ class FastVisualLevel:
         preobservation=load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint,self.height)
         contact=np.asarray(self.contact,float);self.attachment=np.eye(4);self.attachment[:3,:3]=OBJECT_TO_TOOL
         self.attachment[:3,3]=-(OBJECT_TO_TOOL@contact)/1000.
-        self._timed('d405_preobservation',lambda:self.arm_to(np.asarray(preobservation['joints_rad'],float)))
+        target_q=np.asarray(preobservation['joints_rad'],float)
+        planned_wrist=model.wrist_transform(target_q,self.height);planned_tool=planned_wrist@tcp
+        planned_lock=validate_preobservation_waypoint(preobservation,planned_wrist,planned_tool,target_q,limits,self.route)
+        self.save(planned_preobservation_lock=planned_lock)
+        self._timed('d405_preobservation',lambda:self.arm_to(target_q))
         q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float);T=model.wrist_transform(q,self.height)@tcp
-        self.preobservation_lock=validate_preobservation_pose(T,q,limits,self.route)
+        self.preobservation_lock=validate_preobservation_waypoint(preobservation,
+            model.wrist_transform(q,self.height),T,q,limits,self.route)
         self.save(preobservation_lock=self.preobservation_lock)
         self._timed('d405_horizontal_trim',lambda:self.auto_d405_horizontal_trim(model,tcp,T),
             planned_duration_s=self.route.d405_capture_timeout_s*self.route.d405_attempts)

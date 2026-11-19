@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import json, math, time
 from pathlib import Path
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,25 @@ def validate_preobservation_pose(tool,joints,joint_limits_deg,route):
         z_tolerance_mm=float(route.preobservation_z_tolerance_mm),
         rotation_tolerance_deg=float(route.preobservation_rotation_tolerance_deg),
         j6_error_deg=j6_error,j5_margin_deg=j5_margin,elbow_margin_deg=elbow_margin)
+
+
+def validate_preobservation_waypoint(waypoint,planned_wrist,planned_tool,joints,joint_limits_deg,route):
+    """Bind a recorded waypoint to FK and validate it before dispatch."""
+    wrist=np.asarray(planned_wrist,float);record=np.asarray(waypoint.get('wrist_base_mm_deg'),float)
+    if (wrist.shape!=(4,4) or record.shape!=(6,) or not np.isfinite(np.r_[wrist.ravel(),record]).all()
+            or not np.allclose(wrist[3],[0,0,0,1])):
+        raise ValueError('Invalid recorded wrist pose')
+    expected=np.eye(4);expected[:3,3]=record[:3]/1000.
+    expected[:3,:3]=Rotation.from_euler('xyz',record[3:],degrees=True).as_matrix()
+    position_error=float(np.linalg.norm(wrist[:3,3]-expected[:3,3])*1000.)
+    relative=expected[:3,:3].T@wrist[:3,:3]
+    rotation_error=float(Rotation.from_matrix(relative).magnitude()*180./np.pi)
+    if position_error>route.preobservation_z_tolerance_mm or rotation_error>route.preobservation_rotation_tolerance_deg:
+        raise ValueError('Pre-observation recorded wrist does not match FK')
+    result=validate_preobservation_pose(planned_tool,joints,joint_limits_deg,route)
+    result.update(recorded_wrist_position_error_mm=position_error,
+        recorded_wrist_rotation_error_deg=rotation_error)
+    return result
 
 
 def reverse_reached_route(records):

@@ -54,8 +54,9 @@ class D405HorizontalPureTests(unittest.TestCase):
 class FakeModel:
     def __init__(self, state): self.state = state
     def wrist_transform(self, q, height):
-        tool = np.eye(4); tool[1, 3] = float(q[0]); tool[2, 3] = .53
+        tool = np.eye(4); tool[0, 3] = float(q[1]); tool[1, 3] = float(q[0]); tool[2, 3] = .53
         return tool
+    def check(self, a, b, height): return {"clear": True}
 
 
 class FakeController:
@@ -74,6 +75,9 @@ class D405HorizontalFlowTests(unittest.TestCase):
         level.tcp = np.eye(4); level.state = {}; level.run = Path(tempfile.mkdtemp())
         level.save = lambda **kw: level.state.update(kw)
         level.arm_to = lambda target, **kw: setattr(level.ctrl, "q", np.asarray(target, float))
+        def execute(path, model, tcp, preobservation):
+            level.ctrl.q = np.asarray(path["joint_waypoints_rad"][-1], float)
+        level.execute_d405_lateral_path = execute
         return level
 
     def test_fresh_reobservation_converges_and_records_each_step(self):
@@ -94,7 +98,8 @@ class D405HorizontalFlowTests(unittest.TestCase):
             return next(measurements)
         def planner(_planner, model, q, height, tcp, target, limits, **kw):
             end = q.copy(); end[0] = target[1, 3]
-            return {"joint_waypoints_rad": [q.tolist(), end.tolist()]}
+            return {"joint_waypoints_rad": [q.tolist(), end.tolist()],
+                    "timing":{"time_from_start_s":[0., 1.]}}
         start = level.ctrl.models["right"].wrist_transform(level.ctrl.q, level.height)
         with patch("fast_visual_level.estimate_horizontal_alignment", side_effect=estimator), \
              patch("fast_visual_level.continuous_correction", side_effect=planner), \
@@ -131,6 +136,22 @@ class D405HorizontalFlowTests(unittest.TestCase):
         self.assertTrue(result["degraded"])
         self.assertIn("cumulative", result["reason"])
         self.assertAlmostEqual(level.ctrl.q[0], 0.)
+
+    def test_planned_path_is_prevalidated_before_any_dispatch(self):
+        level = self.make_level(); dispatched = []
+        level.motion = types.SimpleNamespace(arm=lambda *args, **kwargs: dispatched.append(args))
+        level.ctrl.adapter = types.SimpleNamespace(trajectory_status=lambda side: {
+            "driver_instance":"driver", "command_epoch":1})
+        level.driver = "driver"; level.guard = lambda: True; level.reached_route = []
+        start = level.ctrl.models["right"].wrist_transform(level.ctrl.q, level.height)
+        points = [level.ctrl.q.copy(), level.ctrl.q.copy(), level.ctrl.q.copy()]
+        points[1][1] = .001
+        path = {"joint_waypoints_rad":[p.tolist() for p in points],
+                "timing":{"time_from_start_s":[0., .5, 1.]}}
+        with self.assertRaisesRegex(ValueError, "lateral endpoint"):
+            FastVisualLevel.execute_d405_lateral_path(
+                level, path, level.ctrl.models["right"], np.eye(4), start)
+        self.assertEqual(dispatched, [])
 
 
 if __name__ == "__main__": unittest.main()
