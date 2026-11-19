@@ -27,7 +27,7 @@ policy accepts 2.65 for a target of 3.0. That can stop an automatic lift early.
   feedback after stop. Recheck the exact endpoint during gripper opening and
   its submission guard, through the observer handoff. Later observer movement
   retains the existing drift contract.
-- Provide a startup-only ROS parameter, `lift_target_ramp_rad_s`, default 0.5,
+- Provide a startup-only ROS parameter, `lift_target_ramp_rad_s`, default 1.0,
   bounded to `(0, 1.0] SDK rad/s`. The vendor field is an increment per 400 Hz
   tick, so divide the requested rate by 400. Homing remains 0.5 rad/s.
 - Reject invalid rates before SDK construction and reject changes while running.
@@ -60,7 +60,7 @@ Build only into a separate build directory; do not install or run the driver as
 an offline test. There is no cloud deployment for this physical controller.
 After an agreed safe handoff at a supported low position, an operator can select
 a reviewed rate with `--ros-args -p lift_target_ramp_rad_s:=<rate>`; omission keeps
-0.5. Restarting the body driver re-homes and also affects the shared chassis.
+1.0. Explicit 0.5 retains the original rate. Restarting the body driver re-homes and also affects the shared chassis.
 Never start a second CAN5 controller or restart a loaded/raised platform.
 
 Before tuning or enabling higher speed, collect a bounded low-position up/down
@@ -88,3 +88,7 @@ near 0.25 SDK rad without changing the controller. Results and the prepared,
 offline-only bounded correction helper are documented in
 [low-position baseline and next trial](lift-low-baseline-20261119.md). Compensation
 has not been enabled in the running service.
+
+The operator subsequently prioritized speed and deferred the compensation trial.
+The default was raised from 0.5 to 1.0; the prepared deployment is native-driver
+only. See [speed-first handoff and activation](../web/lift-speed-activation.md).

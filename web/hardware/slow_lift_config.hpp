@@ -4,7 +4,7 @@
 constexpr double WEB_MAX_LINEAR = 0.80;
 constexpr double WEB_MAX_YAW = 0.40;
 constexpr double WEB_CHASSIS_TIMEOUT = 0.25;
-constexpr double WEB_LIFT_DEFAULT_RAMP_RAD_S = 0.5;
+constexpr double WEB_LIFT_DEFAULT_RAMP_RAD_S = 1.0;
 constexpr double WEB_LIFT_MAX_RAMP_RAD_S = 1.0;
 inline bool valid_lift_ramp_speed(double rate) {
   return std::isfinite(rate) && rate > 0.0 && rate <= WEB_LIFT_MAX_RAMP_RAD_S;

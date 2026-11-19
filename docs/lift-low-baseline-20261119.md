@@ -56,7 +56,11 @@ wait, and request the existing lift-stop service through the webpage on faults.
 There is no database, API or dependency change. Importing/testing the helper is
 inert and requires no robot, SDK, ROS node or cloud service.
 
-## Next supervised trial — not yet authorized or executed
+## Deferred supervised correction trial
+
+The operator prioritized speed before accuracy. This correction trial is
+deferred and has not been authorized or executed. Do not run it as part of
+the native speed activation.
 
 Proposed desired feedback heights: **0.45 → 0.95 → 0.45 SDK rad**. Keep the
 existing speed and gains. Permit SDK references only within **0.15–1.25 rad**,
@@ -78,8 +82,8 @@ again before issuing any command. No increase to speed is part of this trial.
 
 54 focused software tests pass, including the ten new helper regressions and
 the previous 44. Review found and tests reproduced two settling-boundary issues;
-both were fixed before any compensation trial. The complete Agent/web suite has 743 passes and the same 25 unchanged-base
-failures, with no new failed test names.
+both were fixed before any compensation trial. The latest complete suite result
+will be recorded in the validation log before the source commit.
 
 Physical compensated accuracy, holding after restoring nominal reference,
 manual/automatic runtime integration, and increased speed remain unproven.
