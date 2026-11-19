@@ -35,11 +35,22 @@ class AutoInsert160Tests(unittest.TestCase):
 
     def test_taught_route_is_160_mm_and_points_to_fixed_entry(self):
         route = json.loads((ROOT / "config" / "taught-placement.json").read_text())
+        self.assertEqual(route["version"], 2)
         self.assertEqual(route["full_depth_mm"], 160.0)
         self.assertEqual(
             route["fixed_entry_waypoint"],
             "reports/manual-waypoints/right-return-20261119-154755.json",
         )
+        self.assertEqual(
+            route["d405_preobservation_waypoint"],
+            "reports/manual-waypoints/right-d405-preobserve-current.json",
+        )
+        self.assertEqual(route["d405_target_offset_mm"], 42.4)
+        self.assertEqual(route["d405_convergence_mm"], 0.75)
+        self.assertEqual(route["d405_step_limit_mm"], 3.0)
+        self.assertEqual(route["d405_total_limit_mm"], 15.0)
+        self.assertEqual(route["d405_attempts"], 4)
+        self.assertEqual(route["d405_capture_timeout_s"], 8.0)
 
 
 if __name__ == "__main__":

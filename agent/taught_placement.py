@@ -12,12 +12,23 @@ class TaughtRoute:
     lift_tolerance_rad:float
     full_depth_mm:float
     fixed_entry_waypoint:str
+    d405_preobservation_waypoint:str
     navigation_handoff:str
     visual_chassis_policy:str
     visual_chassis_handoff:str
     d405_step_limit_mm:float
     d405_total_limit_mm:float
     d405_attempts:int
+    d405_target_offset_mm:float
+    d405_convergence_mm:float
+    d405_capture_timeout_s:float
+    preobservation_axis_tolerance_deg:float
+    preobservation_z_tolerance_mm:float
+    preobservation_rotation_tolerance_deg:float
+    preobservation_j6_target_deg:float
+    preobservation_j6_tolerance_deg:float
+    preobservation_j5_margin_deg:float
+    preobservation_elbow_margin_deg:float
     learned_vertical_bias_mm:float
     outside_retreat_mm:float
     observation_joints_deg:tuple
@@ -25,23 +36,82 @@ class TaughtRoute:
 
 def load_taught_route(path):
     d=json.loads(Path(path).read_text())
-    values=[d[k] for k in ('version','lift_target_rad','lift_tolerance_rad','full_depth_mm','d405_step_limit_mm','d405_total_limit_mm','d405_attempts','learned_vertical_bias_mm','outside_retreat_mm')]
+    numeric=('version','lift_target_rad','lift_tolerance_rad','full_depth_mm','d405_step_limit_mm','d405_total_limit_mm',
+        'd405_attempts','d405_target_offset_mm','d405_convergence_mm','d405_capture_timeout_s',
+        'preobservation_axis_tolerance_deg','preobservation_z_tolerance_mm','preobservation_rotation_tolerance_deg',
+        'preobservation_j6_target_deg','preobservation_j6_tolerance_deg','preobservation_j5_margin_deg',
+        'preobservation_elbow_margin_deg','learned_vertical_bias_mm','outside_retreat_mm')
+    try:values=[d[k] for k in numeric]
+    except KeyError as error:raise ValueError('Invalid taught placement route') from error
     fixed=d.get('fixed_entry_waypoint')
+    preobserve=d.get('d405_preobservation_waypoint')
     handoff=d.get('navigation_handoff')
     chassis_policy=d.get('visual_chassis_policy')
     chassis_handoff=d.get('visual_chassis_handoff')
     q=np.asarray(d['observation_joints_deg'],float)
-    if (d['version']!=1 or q.shape!=(6,) or not np.isfinite(np.r_[values,q]).all()
+    if (d['version']!=2 or q.shape!=(6,) or not np.isfinite(np.r_[values,q]).all()
             or not 2.5<=d['lift_target_rad']<=3.5 or not .1<=d['lift_tolerance_rad']<=.5
             or not 100<=d['full_depth_mm']<=180 or not isinstance(fixed,str) or not fixed.startswith('reports/manual-waypoints/') or '..' in fixed
+            or not isinstance(preobserve,str) or not preobserve.startswith('reports/manual-waypoints/') or '..' in preobserve
             or handoff!='visual_chassis_locked_admitted'
             or chassis_policy!='config/visual-chassis-placement.json'
             or chassis_handoff!='reports/visual-chassis-active/handoff.json'
-            or not 0<d['d405_step_limit_mm']<=5
-            or not d['d405_step_limit_mm']<=d['d405_total_limit_mm']<=15
-            or not 1<=d['d405_attempts']<=6):
+            or d['d405_step_limit_mm']!=3. or d['d405_total_limit_mm']!=15. or d['d405_attempts']!=4
+            or d['d405_target_offset_mm']!=42.4 or d['d405_convergence_mm']!=.75 or d['d405_capture_timeout_s']!=8.
+            or not 0<d['preobservation_axis_tolerance_deg']<=.2
+            or not 0<d['preobservation_z_tolerance_mm']<=.5
+            or not 0<d['preobservation_rotation_tolerance_deg']<=.2
+            or d['preobservation_j6_target_deg']!=-90. or not 0<d['preobservation_j6_tolerance_deg']<=3.
+            or d['preobservation_j5_margin_deg']<5. or d['preobservation_elbow_margin_deg']<10.):
         raise ValueError('Invalid taught placement route')
-    return TaughtRoute(*(d[k] for k in ('version','lift_target_rad','lift_tolerance_rad','full_depth_mm','fixed_entry_waypoint','navigation_handoff','visual_chassis_policy','visual_chassis_handoff','d405_step_limit_mm','d405_total_limit_mm','d405_attempts','learned_vertical_bias_mm','outside_retreat_mm')),tuple(q.tolist()))
+    fields=tuple(TaughtRoute.__dataclass_fields__)
+    return TaughtRoute(**{name:(tuple(q.tolist()) if name=='observation_joints_deg' else d[name]) for name in fields})
+
+
+def load_preobservation_waypoint(path,current_lift):
+    try:data=json.loads(Path(path).read_text())
+    except (OSError,ValueError) as error:raise ValueError('Invalid D405 pre-observation waypoint') from error
+    q=np.asarray(data.get('joints_rad'),float);w=np.asarray(data.get('wrist_base_mm_deg'),float)
+    try:values=np.r_[q,w,float(data.get('lift_rad')),float(current_lift),float(data.get('captured_at'))]
+    except (TypeError,ValueError) as error:raise ValueError('Invalid D405 pre-observation waypoint') from error
+    if (data.get('version')!=1 or data.get('arm')!='right' or q.shape!=(6,) or w.shape!=(6,)
+            or not np.isfinite(values).all() or data.get('gripper_command_target')!=0
+            or abs(float(data['lift_rad'])-float(current_lift))>.10
+            or not isinstance(data.get('source'),str) or not data['source']):
+        raise ValueError('Invalid D405 pre-observation waypoint')
+    return data
+
+
+def validate_preobservation_pose(tool,joints,joint_limits_deg,route):
+    """Validate and return the FK-derived lock reference for D405 corrections."""
+    T=np.asarray(tool,float);q=np.asarray(joints,float);limits=np.asarray(joint_limits_deg,float)
+    if (T.shape!=(4,4) or q.shape!=(6,) or limits.shape!=(6,2)
+            or not np.isfinite(np.r_[T.ravel(),q,limits.ravel()]).all()
+            or not np.allclose(T[3],[0,0,0,1])
+            or not np.allclose(T[:3,:3].T@T[:3,:3],np.eye(3),atol=1e-6)
+            or np.linalg.det(T[:3,:3])<.999999):
+        raise ValueError('Invalid pre-observation pose')
+    degrees=np.degrees(q)
+    if np.any(degrees<limits[:,0]) or np.any(degrees>limits[:,1]):
+        raise ValueError('Pre-observation joint limits exceeded')
+    axis=T[:3,0]/np.linalg.norm(T[:3,0])
+    axis_error=float(np.degrees(np.arccos(np.clip(axis@[1.,0.,0.],-1.,1.))))
+    if axis_error>route.preobservation_axis_tolerance_deg:
+        raise ValueError('Pre-observation insertion axis is not base +X')
+    j6_error=abs(float(degrees[5]-route.preobservation_j6_target_deg))
+    if j6_error>route.preobservation_j6_tolerance_deg:
+        raise ValueError('Pre-observation J6 branch unavailable')
+    j5_margin=float(min(degrees[4]-limits[4,0],limits[4,1]-degrees[4]))
+    if j5_margin<route.preobservation_j5_margin_deg:
+        raise ValueError('Pre-observation J5 software-limit margin insufficient')
+    elbow_margin=float(min(abs(degrees[2]),abs(180.-abs(degrees[2]))))
+    if elbow_margin<route.preobservation_elbow_margin_deg:
+        raise ValueError('Pre-observation elbow margin insufficient')
+    return dict(insertion_axis_base=axis.tolist(),tcp_z_m=float(T[2,3]),
+        rotation_base_from_tool=T[:3,:3].tolist(),axis_error_deg=axis_error,
+        z_tolerance_mm=float(route.preobservation_z_tolerance_mm),
+        rotation_tolerance_deg=float(route.preobservation_rotation_tolerance_deg),
+        j6_error_deg=j6_error,j5_margin_deg=j5_margin,elbow_margin_deg=elbow_margin)
 
 
 def reverse_reached_route(records):
