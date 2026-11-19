@@ -82,3 +82,9 @@ A later read-only sample found target 15.09 and stable feedback around 15.1726
 SDK rad, following existing webpage commands. No diagnostic movement was sent.
 This is further software-feedback evidence of endpoint error, not a measured
 physical-height calibration.
+
+The subsequently approved low-position physical test reproduced up/down errors
+near 0.25 SDK rad without changing the controller. Results and the prepared,
+offline-only bounded correction helper are documented in
+[low-position baseline and next trial](lift-low-baseline-20261119.md). Compensation
+has not been enabled in the running service.

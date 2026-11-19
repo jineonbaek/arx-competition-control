@@ -62,3 +62,17 @@ Measure stopping and holding through the existing controller under the actual
 load, in a bounded movement approved by an onsite observer. The position P gain,
 gravity feedforward, torque limit and default reference rate remain unchanged;
 no reduction in physical endpoint error or faster motion is claimed.
+
+
+## Supervised baseline and prepared endpoint helper
+
+The later approved physical-controller baseline is recorded separately in
+[lift-low-baseline-20261119.md](lift-low-baseline-20261119.md). That trial used
+the existing web controller and did not change gain, speed or driver ownership.
+It completed its command cycle but failed measured endpoint accuracy.
+
+The new pure endpoint helper is not connected to hardware. Its ten tests and
+the previous 44 focused regressions pass: 54 total. The final complete suite
+has 743 passes and the same 25 baseline failures (no new failed test names).
+Fresh review reproduced a short stable-window bug and mean-only arrival bug;
+both have regression tests and were fixed before any compensation trial.
