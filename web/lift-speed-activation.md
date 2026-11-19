@@ -16,7 +16,7 @@ The read-only startup parameter is still `lift_target_ramp_rad_s`; explicit
 Only the native body executable is to be activated. No Python/web precision
 logic, calibration, database, UI or gripper service is changed.
 
-## Prepared deployment and rollback
+## Deployment and rollback
 
 Build from the independent candidate worktree and preserve the current active
 executable by hash. Its expected original SHA-256 is
@@ -49,9 +49,40 @@ and existing 0.5 startup only after the same physical handoff checks.
 
 The default-rate test first failed at 0.5 and then passed at the new 1.0
 default. Native driver rebuild and five pure C++ checks pass. Explicit 0.5
-rollback, unchanged homing, invalid rates and existing limits are covered. No higher-speed movement or restart
-has yet been performed. Activation and measured speed results will be recorded
-after onsite handoff and the authorized trial.
+rollback, unchanged homing, invalid rates and existing limits are covered. The operator approved lowering with the old service, then explicitly confirmed
+the mechanical bottom, stable support and a clear workspace. The driver was
+switched and a low-position 0 → 2 → 0 trial completed.
+
+### Activated result
+
+- Source for the native executable: 5d0485033a53ad570ae46aa2b2d7172bdddd8463.
+- New binary SHA-256:
+  ce6963476659a072bc5e44e893745667c3886b3d97f23b039dac9554fc05613a.
+- Old PID 5922 exited; replacement PID 1312881 is the single body owner.
+- Startup parameter read-back: robot_type=0, fixed_body_height=0.0,
+  lift_target_ramp_rad_s=1.0. Homing remains 0.5 by the unchanged setting.
+- New calibration and low holding feedback verified against real motor frames;
+  both arm-driver processes remained alive with their original identities.
+- SDK references 0 → 2 → 0 completed without motor fault indications.
+  The 10–90% measured-motion averages were about 0.863 rad/s upward and
+  0.907 rad/s downward; sampled peak motor speed was about 1.659 rad/s.
+  These are SDK feedback units, not calibrated millimetres per second.
+- The final reference is 0.0. Measured endpoint offset remains; accuracy work is
+  deliberately deferred. This test verifies speed operation over a short stroke,
+  not full-range, loaded or absolute-position performance.
+
+Before the shared-body handoff, existing navigation output identities were
+stopped through the web interface and navigation action cancellation was
+requested. No saved route definitions were deleted. Navigation was not
+automatically resumed; start a new navigation task when appropriate.
+
+The original executable is preserved as previous-lift_controller_web under
+web/hardware/runtime/lift-speed-releases/ce6963476659/. The original executable
+argument path now points to the versioned release, so the existing one-click
+launcher still identifies and restarts exactly one body owner at the new default.
+The private manifest records hashes, process identity, onsite confirmation and
+read-back checks. Raw trial samples remain in the ignored candidate folder
+.superpowers/lift-accuracy-speed/speed-1.0-trial-20261119/.
 
 Runtime binaries, backups and recordings stay outside Git; restore them from
 the selected source using the existing ROS 2 Jazzy/SDK build instructions.

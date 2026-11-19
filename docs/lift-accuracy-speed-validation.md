@@ -76,3 +76,19 @@ the previous 44 focused regressions pass: 54 total. The final complete suite
 has 743 passes and the same 25 baseline failures (no new failed test names).
 Fresh review reproduced a short stable-window bug and mean-only arrival bug;
 both have regression tests and were fixed before any compensation trial.
+
+
+## Native speed-first activation
+
+After the operator deferred accuracy work, the default reference rate was raised
+to 1.0 SDK rad/s. Five pure C++ checks passed and the native body driver rebuilt.
+The old-rate default test first failed and passed after the change; explicit
+0.5 rollback and unchanged homing remain tested.
+
+The operator authorized descent to 0 with the original driver, then confirmed
+physical bottom/support and a clear workspace. The replacement parameter read
+back 1.0, calibration and single ownership were verified, and a 0→2→0 low-position
+speed trial completed with no motor fault indication. Mean measured motion speed
+over 10–90% travel was about 0.863 up / 0.907 down SDK rad/s. Precision compensation
+remains deferred and inactive. See the complete activation record in
+[web/lift-speed-activation.md](../web/lift-speed-activation.md).

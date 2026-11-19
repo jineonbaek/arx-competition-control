@@ -34,8 +34,9 @@ policy accepts 2.65 for a target of 3.0. That can stop an automatic lift early.
   Keep motor mode, position gain, gravity compensation, torque limit, chassis
   channels, CAN ownership, stop service and calibration behavior unchanged.
 
-The 1.0 ceiling is a candidate software bound, not a verified physical speed or
-mechanical safety rating. Changing the reference rate does not correct steady
+The 1.0 ceiling is a software reference-rate bound, not a mechanical safety
+rating or calibrated physical speed. It has now been activated and exercised
+over a short low-position stroke; see the speed-first activation record. Changing the reference rate does not correct steady
 position error. Strict arrival may now expose that error as a stall instead of
 allowing the grasp to continue at the wrong height.
 
@@ -90,5 +91,5 @@ offline-only bounded correction helper are documented in
 has not been enabled in the running service.
 
 The operator subsequently prioritized speed and deferred the compensation trial.
-The default was raised from 0.5 to 1.0; the prepared deployment is native-driver
-only. See [speed-first handoff and activation](../web/lift-speed-activation.md).
+The default was raised from 0.5 to 1.0; the native driver alone is now deployed
+and the 0→2→0 low-position speed trial completed. See [speed-first handoff and activation](../web/lift-speed-activation.md).
