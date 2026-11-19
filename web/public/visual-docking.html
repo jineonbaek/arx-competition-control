@@ -1,8 +1,11 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>视觉入仓实机流程</title><link rel="stylesheet" href="visual-docking.css">
-<main><h1>电池完整自动放置</h1><p>平台保持约 3 rad，复用首次成功示教路线；D435 红框定位仓口，D405 电池轮廓在入口处上下微调，完整放入后自动松爪并返回。</p>
-<div class="flow">红框定位 → 示教路线接近 → D405 上下微调 → 完整放入 → 自动松爪 → 原路返回</div>
+<main><h1>电池自动入仓</h1><p>雷达到位后仅由 D435 修正底盘；底盘锁定并通过最终视觉放行后，机械臂执行固定关节位、连续推入 160 mm、松爪并返回。</p>
+<div class="flow"><b class="magenta">洋红</b> 电池 CAD 棱线　<b class="red">红色</b> 仓口边框　<b class="yellow">黄色箭头</b> 电池朝向　<b class="cyan">青色箭头</b> 仓口朝向</div>
 <div class="actions"><select id="model"><option value="demo">当前演示仓</option><option value="competition">比赛上排中间仓</option></select><button id="start">完整放置并自动返回</button><button id="cancel">停止本次流程</button></div>
 <h2 id="phase">正在连接</h2><p id="reason"></p><p id="metrics"></p>
-<div class="cameras"><figure><img id="d435"><figcaption>D435 · 红框与插入轴</figcaption></figure><figure><img id="d405"><figcaption>D405 · 电池轮廓与上下误差</figcaption></figure><figure><img id="astra"><figcaption>Astra · 环境</figcaption></figure></div>
-<p>当前采用仓库最新自动运动限速，固定动作使用连续轨迹；任意时刻均可停止本次流程。</p></main><script src="visual-docking.js"></script></html>
+<table><thead><tr><th>步骤</th><th>计划耗时</th><th>实际耗时</th><th>累计耗时</th><th>结果</th></tr></thead><tbody id="timings"><tr><td colspan="5">等待任务</td></tr></tbody></table>
+<p id="vision-status">正在读取 D435 配对帧</p><div class="cameras depth-pair"><figure><img id="d435"><figcaption>D435 · 实时叠加结果</figcaption></figure><figure><img id="d435-depth"><figcaption>D435 · 同帧深度（暖色近、冷色远、黑色无效）</figcaption></figure></div>
+<section class="reference-panel"><h2>位姿与画面对比</h2><button id="record-reference">记录当前位置和画面</button><span id="reference-status">尚未读取参考</span><p id="comparison-residual">偏差：—</p>
+<div class="cameras"><figure><img id="reference-d435"><figcaption>参考 · D435</figcaption></figure><figure><img id="current-d435"><figcaption>当前 · D435</figcaption></figure></div></section>
+<p>流程不会停在中间：普通异常降级继续；无法安全入仓时记录原因并结束，不执行盲目推入。</p></main><script src="visual-docking.js"></script></html>

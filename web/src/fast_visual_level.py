@@ -1,5 +1,5 @@
 """One fixed entry/height/visual-level task on the EXISTING motor controllers."""
-import json,time,threading,uuid,subprocess,urllib.request,http.cookiejar
+import copy,json,time,threading,uuid,subprocess,urllib.request,http.cookiejar,sys
 from pathlib import Path
 import numpy as np,cv2
 from scipy.spatial.transform import Rotation
@@ -17,15 +17,49 @@ from agent.docking_fit import evaluate_fit
 from agent.shallow_aperture import evaluate_shallow_fit,aperture_relevant
 from agent.storage import atomic_json
 from docking_motion import DockingMotion
-from agent.taught_placement import PhaseTimeline,load_taught_route,reverse_reached_route
+from agent.taught_placement import PhaseTimeline,load_taught_route,outer_alignment_error,reverse_reached_route
 from agent.d405_aperture_alignment import estimate_vertical_alignment
+from agent.visual_chassis_correction import load_chassis_policy,load_locked_handoff
 
 ROOT=Path(__file__).resolve().parents[2]
-WORK=Path('/home/arx/arx-place-hold-20261116')
+WORK=ROOT
+
+def d435_estimator_command():
+    return [sys.executable,str(ROOT/'scripts/estimate-held-d435.py')]
+
+def split_plan(points,times):
+    parts=[];begin=0
+    while begin<len(points)-1:
+        end=begin+1
+        if times[end]-times[begin]>45:raise ValueError('Trajectory interval exceeds 45 seconds')
+        while end+1<len(points) and times[end+1]-times[begin]<=45:end+=1
+        parts.append(dict(interpolation='segment_quintic_scalar',
+            joint_waypoints_rad=copy.deepcopy(points[begin:end+1]),
+            time_from_start_s=[float(t-times[begin]) for t in times[begin:end+1]]))
+        begin=end
+    return parts
 
 def camera_ready(meta,now):
     stamp=meta.get('captured_at')
     return meta.get('state')=='online' and isinstance(stamp,(int,float)) and 0<=now-stamp<1.
+
+def load_fixed_entry(path,current_lift):
+    try:data=json.loads(Path(path).read_text())
+    except (OSError,ValueError) as error:raise ValueError('Invalid fixed entry waypoint') from error
+    q=np.asarray(data.get('joints_rad'),float);w=np.asarray(data.get('wrist_base_mm_deg'),float)
+    lift=data.get('lift_rad');grip=data.get('gripper_command_target')
+    if (data.get('arm')!='right' or q.shape!=(6,) or w.shape!=(6,)
+            or not np.isfinite(np.r_[q,w,lift,current_lift]).all() or grip!=0
+            or abs(float(lift)-float(current_lift))>.10):
+        raise ValueError('Invalid fixed entry waypoint')
+    return data
+
+def required_cameras(mode):
+    if mode=='auto_insert_160':return ()
+    return ('d435',) if mode=='d435_only' else ('d435','d405')
+
+def requires_three_rad(mode,height):
+    return mode not in ('d435_only','auto_insert_160') and not prepared_height(height)
 
 class ContinuousMonitor:
     def __init__(self,sample):
@@ -140,6 +174,23 @@ def no_retreat_target(start,target,outward):
     if outward_delta>0:result[:3,3]-=outward_delta*normal
     return result
 
+def d435_incremental_target(T,error,window,*,max_step_mm=10.,standoff_range_mm=(55.,65.)):
+    result=np.array(T,dtype=float,copy=True);residual=np.asarray(error.get('residual_uv_mm'),float)
+    standoff=float(error.get('leading_standoff_mm',float('nan')));limits=np.asarray(standoff_range_mm,float)
+    left=np.asarray(window.get('left_axis_base'),float);up=np.asarray(window.get('up_axis_base'),float);out=np.asarray(window.get('outward_normal_base'),float)
+    values=np.r_[result.ravel(),residual,standoff,limits,left,up,out,max_step_mm]
+    if (result.shape!=(4,4) or residual.shape!=(2,) or limits.shape!=(2,) or left.shape!=(3,) or up.shape!=(3,) or out.shape!=(3,)
+            or not np.isfinite(values).all() or not 0<max_step_mm<=10. or not 0<=limits[0]<limits[1]
+            or min(np.linalg.norm(left),np.linalg.norm(up),np.linalg.norm(out))<.9):
+        raise ValueError('Invalid D435 incremental correction')
+    left/=np.linalg.norm(left);up/=np.linalg.norm(up);out/=np.linalg.norm(out)
+    depth=limits[0]-standoff if standoff<limits[0] else limits[1]-standoff if standoff>limits[1] else 0.
+    delta=residual[0]*left+residual[1]*up+depth*out
+    length=float(np.linalg.norm(delta))
+    if length>max_step_mm:delta*=max_step_mm/length
+    result[:3,3]+=delta/1000.
+    return result
+
 def preflight_outside(observe,sweep,guard,save,*,clock=time.time,attempts=3):
     """Retry changing/stale observations before dispatch, never a collision rejection."""
     last_error=None
@@ -220,17 +271,17 @@ class FastVisualLevel:
             self.cancel.set()
             if self.motion:self.motion.hold()
             return self.snapshot()
-        if data not in (dict(op='start'),dict(op='place'),dict(op='place_raised'),dict(op='place_rotate_no_table'),dict(op='place_no_table'),dict(op='place_recover_no_table'),dict(op='place_up_no_table'),dict(op='auto_full')):raise ValueError('Only fixed task operations accepted')
+        if data not in (dict(op='start'),dict(op='place'),dict(op='place_raised'),dict(op='place_rotate_no_table'),dict(op='place_no_table'),dict(op='place_recover_no_table'),dict(op='place_up_no_table'),dict(op='auto_full'),dict(op='auto_insert_160',visual_chassis_handoff='locked_admitted'),dict(op='d435_only')):raise ValueError('Only fixed task operations accepted')
         with self.lock:
             if self.thread and self.thread.is_alive():raise ValueError('Leveling already active')
             s=self.ctrl.snapshot()
             if s['motion_reserved'] or s['competition_reserved'] or s['chassis_active']:raise ValueError('Other control active')
-            prefix='automatic-placement-' if data['op']=='auto_full' else 'fast-level-'
+            prefix='automatic-placement-' if data['op'] in ('auto_full','auto_insert_160') else 'fast-level-'
             self.cancel=threading.Event();self.run=WORK/'reports'/(prefix+time.strftime('%Y%m%d-%H%M%S'));self.run.mkdir()
-            self.mode=data['op'];self.auto_full=data['op']=='auto_full'
-            self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.small_up_before_place=data['op']=='place_up_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full');self.outside_margin_mm=.1 if self.small_up_before_place else .5;self.inserting=False
+            self.mode=data['op'];self.auto_full=data['op']=='auto_full';self.auto_insert_160=data['op']=='auto_insert_160';self.d435_only=data['op']=='d435_only';self.navigation_handoff=data.get('visual_chassis_handoff')
+            self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full','auto_insert_160');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.small_up_before_place=data['op']=='place_up_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full','auto_insert_160','d435_only');self.outside_margin_mm=.1 if self.small_up_before_place else .5;self.inserting=False
             self.save(table_checked=not self.skip_table)
-            self.save(status='running',phase='entry',reason='',released=False,insertion=False,mode=self.mode)
+            self.save(status='running',phase='entry',reason='',released=False,insertion=False,mode=self.mode,navigation_handoff=self.navigation_handoff)
             self.thread=threading.Thread(target=self._run,daemon=True);self.thread.start()
             return self.snapshot()
     def guard(self,s=None,now=None):
@@ -242,13 +293,15 @@ class FastVisualLevel:
         if not driver or driver['driver_instance']!=self.driver or not driver['ready'] or not driver['enabled']:raise ValueError('Arm driver changed')
         if self.initializing:
             require_stationary_pose(s,self.initial_q,self.height,driver['command_epoch'],self.initial_epoch)
-        if not getattr(self,'released',False) and abs(s['arms']['right']['gripper']-self.raw)>.1:raise ValueError('Gripper feedback changed')
+        if (not self.auto_insert_160 and not getattr(self,'released',False)
+                and abs(s['arms']['right']['gripper']-self.raw)>.1):
+            raise ValueError('Gripper feedback changed')
         if self.motion.active!='lift' and abs(s['body']['height']-self.height)>.05:raise ValueError('Unexpected lift change')
-        for camera in ('d435','d405'):
+        for camera in required_cameras(self.mode):
             m=json.loads((ROOT/'web/public/camera-live'/(camera+'.json')).read_text())
             if self.initializing and camera=='d435':continue
             if not camera_ready(m,time.time()):raise ValueError(camera+' camera stale')
-        if not getattr(self,'locked_inside',False) and not getattr(self,'released',False):
+        if not self.d435_only and not self.auto_insert_160 and not getattr(self,'locked_inside',False) and not getattr(self,'released',False):
             self.monitor.check();self.read_grip(s)
             with self.grip_lock:evidence=self.grip_evidence
             if not self.initializing:require_grip(evidence)
@@ -321,6 +374,7 @@ class FastVisualLevel:
         return guarded_read(lambda:json.load(opener.open(request,timeout=25)),self.guard,timeout_s=27.)
     def ensure_model(self):
         run=WORK/'reports/d435-visual-level-active';owner=run/'model-owner.json'
+        run.mkdir(parents=True,exist_ok=True)
         try:
             info=json.loads(owner.read_text());args=(Path('/proc')/str(info['pid'])/'cmdline').read_bytes().decode().split('\0')
             if 'agent.perception_worker' in args and str(run/'perception') in args:return
@@ -343,7 +397,7 @@ class FastVisualLevel:
         if hasattr(self,'attachment'):
             expected=self.ctrl.models['right'].wrist_transform(capture_q,capture_h)@self.tcp@self.attachment
             atomic_json(WORK/'reports/d435-visual-level-active/pose-seed.json',dict(frame_id=captured['id'],base_from_object=expected.tolist()))
-        command=[str(ROOT/'.venv/bin/python'),str(WORK/'scripts/estimate-held-d435.py')]
+        command=d435_estimator_command()
         child=subprocess.Popen(command,cwd=ROOT,stdout=open(self.run/'vision.log','ab'),stderr=subprocess.STDOUT)
         deadline=time.monotonic()+25
         while child.poll() is None:
@@ -367,20 +421,6 @@ class FastVisualLevel:
         self.save(visual_frame_id=observation['id'],pose_age_s=time.time()-observation['image_time'],vision_method='D435 FoundationPose battery CAD',capture_motion_bound_mm=motion_bound)
         return observation
     def cabinet(self):
-        if self.auto_full:
-            reference=json.loads((ROOT/'config/taught-cabinet-reference.json').read_text())
-            meta=json.loads((ROOT/'web/public/camera-overlay/d435.json').read_text())
-            stamp=float(meta.get('captured_at',float('nan')));bbox=np.asarray(meta.get('rim',{}).get('bbox',[]),float)
-            if (bbox.shape!=(4,) or not np.isfinite(np.r_[stamp,bbox]).all() or not 0<=time.time()-stamp<1.
-                    or np.any(bbox[2:]<=0)):
-                raise ValueError('Fresh red-rim overlay unavailable for the taught cabinet reference')
-            window=dict(reference['window']);window.update(image_time=stamp,snapshot_id='overlay-'+str(meta.get('sequence')),
-                reference_source=reference['source'],reference_validation='fresh_overlay_bbox')
-            table=dict(status='inferred',front_normal_base=[1.,0.,0.],front_offset_m=self.front_x,
-                top_m=0.,bottom_m=-1.,source='skip_table')
-            self.save(cabinet_frame_id=window['snapshot_id'],cabinet_size_mm=window['measured_size_mm'],
-                cabinet_reference_source=reference['source'],overlay_bbox_px=bbox.tolist())
-            return window,table
         def observe():
             captured=self.capture()
             with np.load(ROOT/'web/hardware/runtime/grasp-head/frame.npz',allow_pickle=False) as f:frame={k:f[k] for k in f.files}
@@ -390,8 +430,7 @@ class FastVisualLevel:
             self.save(cabinet_frame_id=captured['id'],cabinet_size_mm=window['measured_size_mm'])
             return window,table
         return retry_cabinet_observation(observe)
-    def cabinet_path(self,path,tcp,window,table,*,inside=False,sample_bound_mm=1.):
-        from visual_docking_live import split_plan
+    def cabinet_path(self,path,tcp,window,table,*,inside=False,sample_bound_mm=1.,locked_scene=False):
         from held_insertion_sweep import _insert_sweep
         s=self.ctrl.snapshot();points=np.array(path['joint_waypoints_rad']);q=np.array(s['arms']['right']['joints'])
         nominal_end=points[-1].copy()
@@ -426,8 +465,11 @@ class FastVisualLevel:
             else:raise ValueError('Fresh marker variation exceeds authorized 5mm trial tolerance')
             self.save(scene_delta_mm=drift,nominal_aperture_slack_mm=nominal_slack,supervised_marker_tolerance_mm=allowance,
                 scene_validation='attended_5mm_trial_on_locked_depth_plane')
+        elif locked_scene:
+            fresh,fresh_table=window,table
         else:
             fresh,fresh_table,proof=preflight_outside(self.cabinet,sweep,self.guard,self.save)
+        if locked_scene:proof=sweep(fresh,fresh_table)
         self.scene=(fresh,fresh_table,tcp);self.geometry_tick=0.
         if inside:
             self.window=fresh;self.insertion_tcp=tcp;self.fixed_z=float((self.ctrl.models['right'].wrist_transform(q,self.height)@tcp)[2,3]);self.inserting=True
@@ -471,45 +513,72 @@ class FastVisualLevel:
         return folder,frame
 
     def auto_d405_trim(self,model,tcp,window,table,nominal_z):
-        total=0.;measurement=None
+        total=0.;measurement=None;aligned=False
         for attempt in range(1,self.route.d405_attempts+1):
             try:
                 _,frame=self.capture_pair();measurement=estimate_vertical_alignment(frame,max_step_mm=min(3.,self.route.d405_step_limit_mm))
             except ValueError as error:
                 self.save(d405_attempt=attempt,d405_reason=str(error));continue
             step=float(measurement['step_mm'])
-            if abs(step)<.75:break
+            if abs(step)<.75:aligned=True;break
             if abs(total+step)>self.route.d405_total_limit_mm:raise ValueError('D405 cumulative vertical correction exceeds taught bound')
             s=self.ctrl.snapshot();q=np.array(s['arms']['right']['joints']);T=model.wrist_transform(q,self.height)@tcp
             target=d405_correction_target(T,measurement,limit_mm=self.route.d405_step_limit_mm)
             path=continuous_correction(plan_correction,model,q,self.height,tcp,target,self.ctrl.config['arms']['right']['joint_limits_deg'],timing_limits=self.limits)
-            self.cabinet_path(path,tcp,window,table,sample_bound_mm=.1);total+=step
+            self.cabinet_path(path,tcp,window,table,sample_bound_mm=.1,locked_scene=True);total+=step
         if measurement is None:
-            # The successful taught run established this bounded fallback when
-            # the close D405 view was occluded. It is a route prior, not a stale image.
-            step=self.route.learned_vertical_bias_mm
-            s=self.ctrl.snapshot();q=np.array(s['arms']['right']['joints']);T=model.wrist_transform(q,self.height)@tcp;target=T.copy();target[2,3]+=step/1000.
-            path=continuous_correction(plan_correction,model,q,self.height,tcp,target,self.ctrl.config['arms']['right']['joint_limits_deg'],timing_limits=self.limits)
-            self.cabinet_path(path,tcp,window,table,sample_bound_mm=.1);total=step
-            self.save(d405_fallback='first_success_vertical_bias')
+            raise ValueError('D405 vertical evidence unavailable; clamp retained')
+        if not aligned:raise ValueError('D405 vertical alignment did not converge; clamp retained')
         self.save(vertical_correction_mm=total,d405_measurement=measurement)
         return total
 
-    def execute_locked_axis(self,model,tcp,axis,distance_mm):
-        from visual_docking_live import split_plan
+    def execute_locked_axis(self,model,tcp,axis,distance_mm,*,fixed_z=True):
         s=self.ctrl.snapshot();q=np.array(s['arms']['right']['joints']);T=model.wrist_transform(q,self.height)@tcp
         end=T[:3,3]*1000+np.asarray(axis,float)*float(distance_mm)
-        timing=self.limits|dict(tcp_speed_mm_s=8.,tcp_acceleration_mm_s2=4.)
+        timing=(dict(self.limits) if self.auto_insert_160 else
+                self.limits|dict(tcp_speed_mm_s=8.,tcp_acceleration_mm_s2=4.))
         path=plan_insert(model,q,self.height,T[:3,3]*1000,end,T[:3,:3],tcp,self.ctrl.config['arms']['right']['joint_limits_deg'],
-            timing_limits=timing,fixed_z_axis=axis,max_step_mm=2.)
+            timing_limits=timing,fixed_z_axis=axis if fixed_z else None,max_step_mm=2.)
         points=np.asarray(path['joint_waypoints_rad']);
         for a,b in zip(points,points[1:]):
             if not model.check(a,b,self.height)['clear']:raise ValueError('Full insertion arm/base path rejected')
+        self.timeline.plan(float(path['timing']['time_from_start_s'][-1]))
         self.full_inserting=True;self.locked_inside=True;self.fixed_z=float(T[2,3]);d=self.ctrl.adapter.trajectory_status('right')
         self.motion.arm(split_plan(points.tolist(),path['timing']['time_from_start_s']),lambda:self.guard(),
             expected_start=dict(joints=q.tolist(),height=self.height),expected_driver=dict(driver_instance=self.driver,command_epoch=d['command_epoch']))
         require_joint_arrival(self.ctrl.snapshot()['arms']['right']['joints'],points[-1],2.)
         self.reached_route.extend(points[1:].tolist());self.save(depth_mm=float(distance_mm),planned_duration_s=path['timing']['time_from_start_s'][-1])
+
+    def d435_outer_align(self,model,limits):
+        def observe(label):
+            self.pose();window,table=self.cabinet();q=np.array(self.ctrl.snapshot()['arms']['right']['joints'])
+            tcp=effective_tcp(self.tcp,self.attachment,self.contact);T=model.wrist_transform(q,self.height)@tcp
+            fit=evaluate_shallow_fit(T,window,self.slot,self.battery,self.contact)
+            error=outer_alignment_error(fit,window,self.slot,standoff_range_mm=(55.,65.))
+            self.save(d435_stage=label,d435_outer_error=error,aperture_fit=fit)
+            return window,table,tcp,T,error
+        window,table,tcp,T,error=self._timed('d435_initial_localize',lambda:observe('initial'),planned_duration_s=55.)
+        attempt=0
+        while not error['converged']:
+            attempt+=1
+            def move():
+                nonlocal window,table,tcp,T
+                q=np.array(self.ctrl.snapshot()['arms']['right']['joints'])
+                target=d435_incremental_target(T,error,window)
+                path=continuous_correction(plan_correction,model,q,self.height,tcp,target,limits,timing_limits=self.limits)
+                self.timeline.plan(float(path['timing']['time_from_start_s'][-1]));self.cabinet_path(path,tcp,window,table)
+            self._timed('d435_outer_move_%d'%attempt,move)
+            window,table,tcp,T,error=self._timed('d435_outer_verify_%d'%attempt,lambda:observe('verify_%d'%attempt),planned_duration_s=55.)
+        def preposition():
+            nonlocal T
+            q=np.array(self.ctrl.snapshot()['arms']['right']['joints'])
+            p=horizontal_plan(window,self.slot,self.battery,tip_point_object_mm=self.contact,preclearance_mm=60.,max_insertion_depth_mm=5.)
+            target=np.eye(4);target[:3,:3]=p['R_base_from_tool'];target[:3,3]=np.asarray(p['tcp_pre_base_mm'])/1000.
+            path=continuous_correction(plan_correction,model,q,self.height,tcp,target,limits,timing_limits=self.limits)
+            self.timeline.plan(float(path['timing']['time_from_start_s'][-1]));self.cabinet_path(path,tcp,window,table)
+            T=target
+        self._timed('d435_preposition',preposition)
+        return window,table,tcp,T[2,3]
 
     def release_and_return(self):
         target=float(self.ctrl.config['arms']['right']['gripper_open_raw'])
@@ -527,32 +596,58 @@ class FastVisualLevel:
         points=np.asarray(reverse_reached_route(self.reached_route),float);self.returning=True;self.full_inserting=False;self.inserting=False
         receipt=TimedJointPath(points,self.ctrl.models['right'].reach+np.linalg.norm(self.tcp[:3,3]),
             tcp_position=lambda a:(self.ctrl.models['right'].wrist_transform(a,self.height)@self.tcp)[:3,3],**self.limits).receipt()
-        from visual_docking_live import split_plan
+        self.timeline.plan(float(receipt['time_from_start_s'][-1])+6.)
         d=self.ctrl.adapter.trajectory_status('right');q=self.ctrl.snapshot()['arms']['right']['joints']
         self.motion.arm(split_plan(points.tolist(),receipt['time_from_start_s']),lambda:self.guard(),
             expected_start=dict(joints=q,height=self.height),expected_driver=dict(driver_instance=self.driver,command_epoch=d['command_epoch']))
         require_joint_arrival(self.ctrl.snapshot()['arms']['right']['joints'],self.initial_q,2.)
+
+    def close_auto_gripper(self):
+        target=float(self.ctrl.config['arms']['right']['gripper_closed_raw'])
+        reply=self.ctrl.submit(dict(type='gripper',arm='right',position=target),self.token,
+            preflight=lambda s,n:self.ctrl.motion_valid(self.token) and s['arms']['right']['fresh'])
+        if reply.get('ok') is not True:raise ValueError('Gripper close command rejected')
+        deadline=time.monotonic()+3.
+        while time.monotonic()<deadline:
+            s=self.ctrl.snapshot()
+            if s['arms']['right']['fresh'] and s['arms']['right']['gripper']>-1.5:break
+            time.sleep(.05)
+        else:raise ValueError('Gripper close feedback not reached')
+        self.raw=float(s['arms']['right']['gripper']);self.save(clamped=True,clamp_gripper=self.raw)
+
+    def auto_insert_160_place(self):
+        self.battery=json.loads((ROOT/'config/battery-envelope.json').read_text())
+        self.slot=opening(json.loads((ROOT/'config/cabinet-profiles.json').read_text()),'demo')
+        model=self.ctrl.models['right'];limits=self.ctrl.config['arms']['right']['joint_limits_deg']
+        tcp=self.tcp
+        policy=load_chassis_policy(ROOT/self.route.visual_chassis_policy)
+        self.chassis_handoff=load_locked_handoff(ROOT/self.route.visual_chassis_handoff,
+            now=time.time(),max_age_s=policy['handoff_max_age_s'])
+        self.save(chassis_handoff=self.chassis_handoff,entry_source='visual_chassis+fixed_arm')
+        entry=load_fixed_entry(ROOT/self.route.fixed_entry_waypoint,self.height)
+        contact=np.asarray(self.contact,float);self.attachment=np.eye(4);self.attachment[:3,:3]=OBJECT_TO_TOOL
+        self.attachment[:3,3]=-(OBJECT_TO_TOOL@contact)/1000.
+        self._timed('fixed_entry',lambda:self.arm_to(np.asarray(entry['joints_rad'],float)))
+        q=np.asarray(self.ctrl.snapshot()['arms']['right']['joints'],float);T=model.wrist_transform(q,self.height)@tcp
+        axis=T[:3,0];axis/=np.linalg.norm(axis)
+        self._timed('full_insert',lambda:self.execute_locked_axis(model,tcp,axis,160.0,fixed_z=False))
+        self._timed('release_and_return',self.release_and_return)
+        self.timeline.complete();self.save(status='complete',phase='complete',reason='160mm automatic placement completed and returned',insertion=True,depth_mm=160.,**self.timeline.snapshot())
+        atomic_json(self.run/'timeline.json',self.timeline.snapshot());atomic_json(self.run/'executed-route.json',dict(joint_waypoints_rad=self.reached_route))
 
     def auto_full_place(self):
         self.route=load_taught_route(ROOT/'config/taught-placement.json');self.timeline=PhaseTimeline();self.reached_route=[self.initial_q.tolist()]
         self.battery=json.loads((ROOT/'config/battery-envelope.json').read_text())
         self.slot=opening(json.loads((ROOT/'config/cabinet-profiles.json').read_text()),'demo')
         model=self.ctrl.models['right'];limits=self.ctrl.config['arms']['right']['joint_limits_deg']
-        self._timed('taught_observation',lambda:self.arm_to(np.radians(self.route.observation_joints_deg)))
-        def coarse():
-            window,table=self.cabinet();q=np.array(self.ctrl.snapshot()['arms']['right']['joints']);tcp=effective_tcp(self.tcp,self.attachment,self.contact)
-            p=horizontal_plan(window,self.slot,self.battery,tip_point_object_mm=self.contact,preclearance_mm=60.,max_insertion_depth_mm=5.)
-            target=np.eye(4);target[:3,:3]=p['R_base_from_tool'];target[:3,3]=np.asarray(p['tcp_pre_base_mm'])/1000.
-            path=continuous_correction(plan_correction,model,q,self.height,tcp,target,limits,timing_limits=self.limits)
-            self.cabinet_path(path,tcp,window,table);return window,table,tcp,target[2,3]
-        window,table,tcp,nominal_z=self._timed('taught_approach',coarse)
-        self._timed('d405_vertical_trim',lambda:self.auto_d405_trim(model,tcp,window,table,nominal_z))
+        window,table,tcp,nominal_z=self.d435_outer_align(model,limits)
+        self._timed('d405_vertical_trim',lambda:self.auto_d405_trim(model,tcp,window,table,nominal_z),planned_duration_s=47.*self.route.d405_attempts)
         def mouth():
-            fresh,table2=self.cabinet();q=np.array(self.ctrl.snapshot()['arms']['right']['joints']);T=model.wrist_transform(q,self.height)@tcp
+            fresh,table2=window,table;q=np.array(self.ctrl.snapshot()['arms']['right']['joints']);T=model.wrist_transform(q,self.height)@tcp
             p=horizontal_plan(fresh,self.slot,self.battery,tip_point_object_mm=self.contact,preclearance_mm=5.,max_insertion_depth_mm=15.)
             target=np.eye(4);target[:3,:3]=p['R_base_from_tool'];target[:3,3]=np.asarray(p['tcp_pre_base_mm'])/1000.;target[2,3]+=(T[2,3]-nominal_z)
             path=continuous_correction(plan_correction,model,q,self.height,tcp,target,limits,timing_limits=self.limits)
-            self.cabinet_path(path,tcp,fresh,table2,sample_bound_mm=.1);return np.asarray(p['insertion_axis_base'],float)
+            self.timeline.plan(float(path['timing']['time_from_start_s'][-1]));self.cabinet_path(path,tcp,fresh,table2,sample_bound_mm=.1,locked_scene=True);return np.asarray(p['insertion_axis_base'],float)
         axis=self._timed('engage',mouth)
         self._timed('full_insert',lambda:self.execute_locked_axis(model,tcp,axis,self.route.full_depth_mm))
         self._timed('release_and_return',self.release_and_return)
@@ -645,7 +740,8 @@ class FastVisualLevel:
     def _run(self):
         maintenance=None;error=None;moving=False;previous_depth=None;monitor=None
         try:
-            s=self.ctrl.snapshot();self.token=self.ctrl.reserve_motion(s['command_epoch']);maintenance=self.ctrl.reserve_chassis_maintenance()
+            s=self.ctrl.snapshot();self.token=self.ctrl.reserve_motion(s['command_epoch'])
+            maintenance=None if self.auto_insert_160 else self.ctrl.reserve_chassis_maintenance()
             self.driver=self.ctrl.adapter.trajectory_status('right')['driver_instance'];self.raw=s['arms']['right']['gripper'];self.height=s['body']['height']
             self.left_q=np.array(s['arms']['left']['joints']);self.scene=None;self.geometry_tick=0.
             self.bias=np.zeros(6)
@@ -653,18 +749,20 @@ class FastVisualLevel:
             self.motion=DockingMotion(self.ctrl,self.token,guard=self.guard,timeout_s=180.,lift_tolerance_rad=.35,require_lift_settle=False)
             self.body_fixed={k:s['body'][k] for k in ('waist','head_yaw','head_pitch')}
             self.grip=GripTracker();self.grip_stamp=-1.;self.grip_evidence=None;self.initializing=True
-            self.grip_lock=threading.RLock();self.monitor=monitor=ContinuousMonitor(self.read_grip)
+            self.grip_lock=threading.RLock()
+            if not self.d435_only and not self.auto_insert_160:self.monitor=monitor=ContinuousMonitor(self.read_grip)
             self.initial_q=np.array(s['arms']['right']['joints']);self.initial_epoch=self.ctrl.adapter.trajectory_status('right')['command_epoch']
             previous_depth=self.depth.enabled('d435');self.depth.request(dict(camera='d435',enabled=True))
-            deadline=time.monotonic()+8.;ready=False
+            deadline=time.monotonic()+(2. if self.auto_insert_160 else 8.);ready=False
             while time.monotonic()<deadline:
                 self.guard()
                 camera=json.loads((ROOT/'web/public/camera-live/d435.json').read_text())
-                ready=(self.grip_evidence and self.grip_evidence.get('stable') and camera_ready(camera,time.time())
-                       and self.depth.snapshot()['cameras']['d435']['active'])
+                held_ready=self.d435_only or self.auto_insert_160 or (self.grip_evidence and self.grip_evidence.get('stable'))
+                ready=(held_ready and camera_ready(camera,time.time()) and self.depth.snapshot()['cameras']['d435']['active'])
                 if ready:break
                 time.sleep(.05)
-            if not ready:raise ValueError('Depth/held-object startup readiness deadline')
+            self.d435_available=bool(ready)
+            if not ready and not self.auto_insert_160:raise ValueError('Depth/held-object startup readiness deadline')
             self.initializing=False;self.guard()
             config=json.loads((ROOT/'config/battery-execution.json').read_text());self.limits=motion_limits(config,self.ctrl.config)
             self.tcp=np.array(json.loads((ROOT/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
@@ -672,19 +770,24 @@ class FastVisualLevel:
             self.contact=np.array(json.loads((ROOT/'web/public/cad/battery-grip.json').read_text())['points_object_mm']['tip'])
             import hashlib
             self.mesh_sha=hashlib.sha256((ROOT/'web/cad/gripper-v2/battery-print.stl').read_bytes()).hexdigest()
+            if self.auto_insert_160:
+                self.route=load_taught_route(ROOT/'config/taught-placement.json');self.timeline=PhaseTimeline();self.reached_route=[self.initial_q.tolist()]
+                self._timed('clamp',self.close_auto_gripper)
             self.save(limits=self.limits,initial_gripper=self.raw)
-            self.ensure_model()
-            self.pose()
-            self.front_x=table_front_x(self.pose_frame)
-            self.save(table_front_x_m=self.front_x)
+            if not self.auto_insert_160:
+                self.ensure_model()
+                self.pose()
+                self.front_x=table_front_x(self.pose_frame)
+                self.save(table_front_x_m=self.front_x)
             if self.prepared_only:
-                down=self.attachment[:3,1]
-                observed=(self.ctrl.models['right'].wrist_transform(self.initial_q,self.height)@self.tcp)[:3,:3]@down
-                if not prepared_height(self.height) or observed@np.array([0.,0.,-1.])<np.cos(np.radians(20.)):
-                    raise ValueError('Prepared placement requires observed near-horizontal battery and approximate 3rad height')
+                if not self.auto_insert_160:
+                    down=self.attachment[:3,1]
+                    observed=(self.ctrl.models['right'].wrist_transform(self.initial_q,self.height)@self.tcp)[:3,:3]@down
+                    if not prepared_height(self.height) or observed@np.array([0.,0.,-1.])<np.cos(np.radians(20.)):
+                        raise ValueError('Prepared placement requires observed near-horizontal battery and approximate 3rad height')
             else:
                 moving=True;self.arm_to(np.radians(entry_joints_deg()))
-                if not prepared_height(self.height):
+                if requires_three_rad(self.mode,self.height):
                     self.save(phase='lift',reason='Fixed lift target 3rad')
                     q=self.ctrl.snapshot()['arms']['right']['joints']
                     for h in np.linspace(self.height,3.,12):
@@ -692,9 +795,18 @@ class FastVisualLevel:
                     d=self.ctrl.adapter.trajectory_status('right')
                     self.motion.lift(3.,lambda:self.guard(),expected_start=dict(joints=q,height=self.height),
                         expected_driver=dict(driver_instance=self.driver,command_epoch=d['command_epoch']))
-            self.height=self.ctrl.snapshot()['body']['height'];self.save(phase='observe',height_rad=self.height)
+            self.height=self.ctrl.snapshot()['body']['height'];self.save(phase='observe',height_rad=self.height,
+                lift_policy='locked_current_height' if self.d435_only else 'three_rad_if_required')
+            if self.d435_only:
+                moving=True;self.timeline=PhaseTimeline();self.reached_route=[self.initial_q.tolist()]
+                self.battery=json.loads((ROOT/'config/battery-envelope.json').read_text())
+                self.slot=opening(json.loads((ROOT/'config/cabinet-profiles.json').read_text()),'demo')
+                self.d435_outer_align(self.ctrl.models['right'],self.ctrl.config['arms']['right']['joint_limits_deg'])
+                self.timeline.complete();self.save(status='complete_hold_outside',phase='hold',reason='D435 outside preposition complete; clamp retained',released=False,insertion=False,**self.timeline.snapshot())
+                atomic_json(self.run/'timeline.json',self.timeline.snapshot());return
             if self.prepared_only:
                 moving=True
+                if self.auto_insert_160:self.auto_insert_160_place();return
                 if self.auto_full:self.auto_full_place();return
                 if self.raise_before_place:self.raise_for_place()
                 if self.rotate_before_place:self.rotate_for_place()
@@ -716,13 +828,15 @@ class FastVisualLevel:
         except Exception as e:
             error=str(e)
             if self.motion:self.motion.hold()
-            self.save(status='held' if moving else 'blocked',phase='hold',reason=error)
+            if getattr(self,'auto_insert_160',False):
+                self.save(status='complete_degraded',phase='complete',reason=error,insertion_skipped=True,next_phase='complete')
+            else:self.save(status='held' if moving else 'blocked',phase='hold',reason=error)
         finally:
             if monitor is not None:monitor.close()
             if previous_depth is not None:
                 try:self.depth.request(dict(camera='d435',enabled=previous_depth))
                 except Exception:pass
-            if error is None:
+            if error is None or getattr(self,'auto_insert_160',False):
                 if maintenance is not None:self.ctrl.release_chassis_maintenance(maintenance)
                 if self.token is not None:self.ctrl.release_motion(self.token)
             else:self.save(control_retained=self.token is not None)

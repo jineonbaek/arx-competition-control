@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """LAN web control server: static UI + JSON commands + server-sent feedback."""
 import argparse
+import base64
 import http.cookies
 import json
 import mimetypes
@@ -35,6 +36,8 @@ from cabinet_rehearsal import CabinetRehearsal
 from cabinet_execution import CabinetExecutionTask
 from visual_docking_live import LiveDockTask
 from fast_visual_level import FastVisualLevel
+from d435_live_overlay import LiveOverlay
+from placement_reference import PlacementReferenceController
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from competition_modules import GraspModule, CarryReceiptModule, PlacementModule, QwenRecovery
@@ -50,10 +53,11 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     limits=controller.config['arms']['right']['gripper_limits_raw']
     factory=workflow_factory(policy_path,console_url=f'http://127.0.0.1:{port}',
                              gripper_limits=limits)
-    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
+    return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control,
+                       plan_c_path=WEB_ROOT.parent/'config/battery-plan-c.local.json')
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None, d435_overlay=None, placement_reference=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
@@ -64,9 +68,39 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
+    d435_overlay=d435_overlay or LiveOverlay(head_scene)
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
     tcp_calibration = TcpCalibration(controller)
+    reference_root=WEB_ROOT/'hardware/runtime/placement-references'
+    def capture_reference(include_artifacts):
+        state=controller.snapshot();artifacts={};capture={
+            'navigation_pose':None,'chassis_pose':None,'chassis_velocity':None,
+            'lift_rad':state.get('body',{}).get('height'),
+            'body_configuration':{k:state.get('body',{}).get(k) for k in ('height','waist','head_yaw','head_pitch')},
+            'left_joints_rad':state.get('arms',{}).get('left',{}).get('joints'),
+            'right_joints_rad':state.get('arms',{}).get('right',{}).get('joints'),
+            'right_wrist_base_mm_deg':state.get('arms',{}).get('right',{}).get('base_wrist'),
+            'command_epoch':state.get('command_epoch')}
+        try:
+            nav=read_snapshot();capture['navigation_pose']=nav
+            if isinstance(nav,dict):
+                capture['chassis_pose']=nav.get('pose') or nav.get('robot_pose')
+                capture['chassis_velocity']=nav.get('velocity') or nav.get('twist')
+        except Exception as error:capture['navigation_error']=str(error)
+        try:
+            result=cabinet_preview.action({'camera':'d435','model':'demo'},include_arm_preview=False)
+            window=result.get('window') or {};image=result.get('image','')
+            capture['d435']={'valid':result.get('status')=='localized','captured_at':result.get('image_time'),
+                'center_base_m':window.get('center_base_m'),'inside_axis_base':window.get('inside_axis_base'),
+                'measured_size_mm':window.get('measured_size_mm'),'rim_plane_p90_mm':window.get('rim_plane_p90_mm'),
+                'detected_quad_px':result.get('detected_quad_px'),'image_file':'d435.jpg','image_url':image,
+                'status':result.get('status'),'reason':result.get('reason','')}
+            if include_artifacts and isinstance(image,str) and image.startswith('data:image/jpeg;base64,'):
+                artifacts['d435.jpg']=base64.b64decode(image.split(',',1)[1],validate=True)
+        except Exception as error:capture['d435']={'valid':False,'reason':str(error)}
+        return capture,artifacts
+    placement_reference=placement_reference or PlacementReferenceController(reference_root,capture_reference)
     def competition_view(view):
         if t2_preview is not None:
             view['t2_preview']={'mode':'recorded_preview','preview_only':True,
@@ -107,6 +141,16 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/placement-reference':
+                if not self.client():return self.json(403,{'message':'请先打开视觉放置页面'})
+                try:return self.json(200,placement_reference.snapshot())
+                except ValueError as error:return self.json(404,{'message':str(error)})
+            if path.startswith('/placement-reference/records/'):
+                relative=unquote(path.removeprefix('/placement-reference/'))
+                target=(reference_root/relative).resolve()
+                if not target.is_relative_to(reference_root.resolve()) or not target.is_file():return self.json(404,{'message':'参考画面不存在'})
+                body=target.read_bytes();kind=mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
+                self.response_headers(200,kind,len(body));self.end_headers();self.wfile.write(body);return
             if path == '/api/t2-preview':
                 if not self.client():return self.json(403,{'message':'请先打开地图与任务页面'})
                 return self.json(200,t2_preview.snapshot() if t2_preview else
@@ -114,6 +158,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             if path == '/api/fast-level':
                 if not self.client():return self.json(403,{'message':'请先打开控制页面'})
                 return self.json(200,fast_level.snapshot())
+            if path == '/api/d435-overlay':
+                if not self.client():return self.json(403,{'message':'请先打开视觉放置页面'})
+                return self.json(200,d435_overlay.snapshot())
             if path == '/api/visual-docking':
                 if not self.client():return self.json(403,{'message':'请先打开控制页面'})
                 return self.json(200,visual_docking.snapshot())
@@ -262,7 +309,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/placement-reference','/api/d435-overlay','/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -275,6 +322,12 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/placement-reference':
+                    return self.json(200,placement_reference.action(strict_json(raw)))
+                if path == '/api/d435-overlay':
+                    data=strict_json(raw)
+                    if data not in ({},{'op':'refresh'}):raise ValueError('仅支持刷新 D435 叠加画面')
+                    return self.json(202,d435_overlay.refresh())
                 if path == '/api/fast-level':
                     return self.json(200,fast_level.action(strict_json(raw)))
                 if path == '/api/visual-docking':
