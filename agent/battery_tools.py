@@ -47,6 +47,7 @@ class BatteryExecutionTools(WorkflowTools):
                               allowed_tools=EXECUTION_TOOLS if allowed_tools is None else allowed_tools)
         self.pick_setup=copy.deepcopy(pick_setup)
         self.refinement_policy=copy.deepcopy(refinement_policy)
+        self.vision_mode=store.state.get('battery_task_settings',{}).get('vision_mode','d405')
         self.progress=lambda stage:None
 
     def _wrist_stage(self):
@@ -90,13 +91,15 @@ class BatteryExecutionTools(WorkflowTools):
                 if plan['pick_setup_sha256']!=setup_digest:raise ValueError('TCP changed')
             except (OSError,ValueError,KeyError,TypeError) as error:
                 raise AgentError('plan_changed','计划或 TCP 已变化，必须重新观察和规划') from error
-            if plan.get('observation_id')!=self._localized('d405'):
-                raise AgentError('stale_observation','计划不再对应最新 D405 观察')
-            self._post_stage_observation(plan['observation_id'],self._wrist_stage(),'d405')
+            camera='d435' if plan.get('vision_mode')=='d435' else 'd405'
+            if plan.get('observation_id')!=self._localized(camera):
+                raise AgentError('stale_observation','计划不再对应最新 '+camera.upper()+' 观察')
+            if camera=='d405':self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
             if (plan.get('arm')!='right' or any(plan.get(k) is not True for k in
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
-            if name=='execute_pick' and plan.get('refinement',{}).get('status')!='aligned':
+            if (name=='execute_pick' and camera=='d405'
+                    and plan.get('refinement',{}).get('status')!='aligned'):
                 raise AgentError('reobservation_required','必须先到预抓位，再用新画面确认对位')
         elif name=='execute_coarse_alignment':
             mission.require(('COARSE_PLANNED',))
@@ -117,7 +120,8 @@ class BatteryExecutionTools(WorkflowTools):
     def _perception(self,name,a,call_id):
         if name not in ('observe_battery','preview_battery_grasp'):
             return super()._dispatch(name,a,call_id)
-        camera=a['camera'] if name=='observe_battery' else 'd405'
+        camera=(a['camera'] if name=='observe_battery' else
+                self.store.observation(a['observation_id']).get('camera_id','d405'))
         attempts=[]
         retryable={'target_not_found','recognition_rejected','depth_rejected',
                    'pose_rejected','handoff_rejected'}
@@ -150,7 +154,7 @@ class BatteryExecutionTools(WorkflowTools):
             self.progress('reobserve_'+camera)
             # External call IDs cannot contain '/', so retries cannot overwrite their artifacts.
             attempt_id=call_id+'/retry_'+str(len(attempts))
-            if name=='preview_battery_grasp':
+            if name=='preview_battery_grasp' and camera=='d405':
                 observed=self._dispatch('observe_battery',{'camera':'d405'},attempt_id)
                 if observed.get('status')!='localized':
                     attempts.extend(observed['recovery']['attempts'])
@@ -164,9 +168,15 @@ class BatteryExecutionTools(WorkflowTools):
 
     def _dispatch(self,name,a,call_id):
         state=self.store.state;mission=Mission(state['mission'])
+        plan_b=self.vision_mode=='d435'
         head=name=='observe_battery' and a['camera']=='d435'
         wrist=name=='observe_battery' and a['camera']=='d405'
-        if wrist or name in ('preview_battery_grasp','plan_battery_pick'):
+        if plan_b and name=='preview_battery_grasp':
+            mission.require(('HEAD_LOCALIZED',))
+            if a['observation_id']!=self._localized('d435'):
+                raise AgentError('stale_observation','必须使用本轮最新 D435 定位')
+            return self._perception(name,a,call_id)
+        if wrist or (not plan_b and name in ('preview_battery_grasp','plan_battery_pick')):
             mission.require(('COARSE_ALIGNED','PICK_AT_PREGRASP','PICK_APPROACH_PLANNED',
                              'PICK_CORRECTION_PLANNED','PICK_PLANNED'))
             coarse=mission.data.get('plan') or {}
@@ -179,17 +189,25 @@ class BatteryExecutionTools(WorkflowTools):
             self.store.save()
             if name!='observe_battery':
                 self._post_stage_observation(a['observation_id'],self._wrist_stage(),'d405')
+        elif plan_b and name=='plan_battery_pick':
+            mission.require(('COARSE_ALIGNED',))
+            mission.data.update(stage='COARSE_ALIGNED',plan=None)
+            state.pop('battery_pick_plan_sha256',None)
+            self.store.save()
         if name=='plan_battery_pick':
             state.pop('battery_pick_plan',None)
             self.store.save()
-            if a['observation_id']!=self._localized('d405'):
-                raise AgentError('stale_observation','必须使用本轮最新 D405 定位')
+            camera='d435' if plan_b else 'd405'
+            if a['observation_id']!=self._localized(camera):
+                raise AgentError('stale_observation','必须使用本轮最新 '+camera.upper()+' 定位')
             try:
                 result=plan_battery_pick(self,a['observation_id'],call_id,self.pick_setup)
                 result['plan_id']='pick_'+hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
                 if result['status']!='tcp_pending':
                     previous=mission.data.get('approach_plan')
-                    if previous:
+                    if plan_b:
+                        next_stage='PICK_PLANNED'
+                    elif previous:
                         result['refinement']=(assess(result,previous,self.refinement_policy,
                             corrections=mission.data.get('pick_corrections',0),
                             total_mm=mission.data.get('pick_correction_mm',0)) if self.refinement_policy is not None

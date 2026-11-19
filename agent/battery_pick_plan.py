@@ -4,7 +4,7 @@ import json
 import numpy as np
 from web.src.handeye_column import ColumnModel, PACKAGE
 from .grasp_geometry import ROOT, PROFILE, rigid, validate_frame
-from .grasp_scene import frame_path, CALIBRATION
+from .grasp_scene import frame_path, CALIBRATION, D435_CALIBRATION
 from .grasp_path import plan_insert
 from .storage import atomic_json
 
@@ -20,15 +20,18 @@ def plan(registry,observation_id,call_id,setup=None):
     blob=path.read_bytes();digest=hashlib.sha256(blob).hexdigest()
     if digest!=store.state.get('grasp_preview_sha256'):raise ValueError('预览证据已变化，请重新计算')
     evidence=json.loads(blob)
+    observation=store.observation(observation_id)
+    camera=observation.get('camera_id','d405')
     if (evidence.get('observation_id')!=observation_id or evidence.get('status')!='preview_complete'
             or evidence.get('quality',{}).get('version')!=1
             or evidence.get('quality',{}).get('status')!='consistent'):
-        raise ValueError('需要当前 D405 已通过位姿与点云复核的证据')
+        raise ValueError('需要当前 RGB-D 观察已通过位姿与点云复核的证据')
     handoff=evidence.get('camera_handoff') or {}
-    if (handoff.get('head_observation_id')!=registry._localized('d435')
+    if camera=='d405' and (handoff.get('head_observation_id')!=registry._localized('d435')
             or handoff.get('wrist_observation_id')!=observation_id
             or handoff.get('quality',{}).get('version')!=1):
         raise ValueError('缺少本轮 D435 与 D405 同目标交接证据')
+    if camera=='d435':handoff={'head_observation_id':observation_id}
     geometry=evidence['geometry'];line=geometry['path']
     profile_digest=hashlib.sha256(PROFILE.read_bytes()).hexdigest()
     direction=np.asarray(line.get('direction_base'),float)
@@ -37,15 +40,19 @@ def plan(registry,observation_id,call_id,setup=None):
             or line.get('kind')!='battery_approach_axis' or direction.shape!=(3,)
             or not np.isfinite(direction).all() or not np.isclose(np.linalg.norm(direction),1)):
         raise ValueError('坐标、夹指参考模型或插入方向不匹配')
-    observation=store.observation(observation_id)
-    calibration_digest=hashlib.sha256(CALIBRATION.read_bytes()).hexdigest()
+    calibration=CALIBRATION if camera=='d405' else D435_CALIBRATION
+    calibration_digest=hashlib.sha256(calibration.read_bytes()).hexdigest()
     if observation.get('calibration_sha256')!=calibration_digest:
-        raise ValueError('D405 手眼外参已变化或未绑定，请重新观察')
+        raise ValueError(camera.upper()+' 外参已变化或未绑定，请重新观察')
     with np.load(frame_path(store,observation_id),allow_pickle=False) as frame:
         validate_frame(frame)
-        if str(frame.get('camera_id','d405'))!='d405' or geometry['snapshot_id']!=str(frame['id']):
-            raise ValueError('预览与冻结 D405 快照不一致')
+        if str(frame.get('camera_id','d405'))!=camera or geometry['snapshot_id']!=str(frame['id']):
+            raise ValueError('预览与冻结 '+camera.upper()+' 快照不一致')
         q=np.asarray(frame['joints'],float);lift=float(frame['lift_rad'])
+    if camera=='d435':
+        snapshot=registry.backends.controller.snapshot()
+        q=np.asarray(snapshot['arms']['right']['joints'],float)
+        lift=float(snapshot['body']['height'])
     if q.shape!=(6,) or not np.isfinite(q).all() or not 0<=lift<=18:
         raise ValueError('冻结快照缺少有效六轴和升降反馈')
     config_blob=(ROOT/'web/config/control.json').read_bytes()
@@ -55,7 +62,7 @@ def plan(registry,observation_id,call_id,setup=None):
         preview_sha256=digest,profile_sha256=profile_digest,handeye_sha256=calibration_digest,
         urdf_sha256=hashlib.sha256((PACKAGE/'urdf/lift2_with_sensors.urdf').read_bytes()).hexdigest(),
         control_config_sha256=hashlib.sha256(config_blob).hexdigest(),
-        arm='right',frame='base_link',unit='mm',contact_path=line,
+        arm='right',frame='base_link',unit='mm',vision_mode=camera,contact_path=line,
         start_joints_rad=q.tolist(),lift_rad=lift,calibration_id=None)
     if setup is None:
         result=plan_insert(None,None,None,None,None,None,None,None)
@@ -88,7 +95,7 @@ def plan(registry,observation_id,call_id,setup=None):
             T_wrist_from_tool=tcp.tolist(),R_base_from_tool=tool_rotation.tolist(),
             actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
-    if handoff.get('quality',{}).get('status')!='consistent':
+    if camera=='d405' and handoff.get('quality',{}).get('status')!='consistent':
         result['handoff_advisory']='D435/D405 跨相机质量仅为警告；执行仍依赖 D405 位姿和路径检查'
     output=store.path/'pick-plans'/call_id/'result.json'
     output.parent.mkdir(parents=True,exist_ok=True)

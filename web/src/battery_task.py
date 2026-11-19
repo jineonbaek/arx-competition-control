@@ -61,6 +61,13 @@ class BatteryTask:
         return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target)),
                 'observer_z_mm':float(observer_z)}
 
+    @staticmethod
+    def _vision_mode(value):
+        if value not in ('d405','d435'):
+            raise ValueError('视觉模式须为 D405 或 D435 Plan B')
+        return value
+
+
     def _view(self, client):
         state=self.active
         epoch=self.controller.snapshot()['command_epoch']
@@ -174,13 +181,18 @@ class BatteryTask:
             if action=='start':
                 required={'action','request_id','expected_epoch','environment_clear'}
                 settings={'lift_target_rad','observer_z_mm'}
-                if (not required<=set(data) or not set(data)<=required|settings
+                optional=settings|{'vision_mode'}
+                if (not required<=set(data) or not set(data)<=required|optional
                         or (bool(set(data)&settings) and not settings<=set(data))
                         or type(data['expected_epoch']) is not int
                         or data['environment_clear'] is not True):
                     raise ValueError('start requires expected_epoch, confirmed environment_clear and both fixed-point values')
-                values=(self._task_settings(data) if settings<=set(data)
-                        else copy.deepcopy(self.task_settings))
+                values=copy.deepcopy(self.task_settings)
+                if settings<=set(data):values.update(self._task_settings(data))
+                if 'vision_mode' in data:
+                    values['vision_mode']=self._vision_mode(data['vision_mode'])
+                else:
+                    values.setdefault('vision_mode','d405')
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
             elif action=='cancel':
                 if set(data)!= {'action','request_id'}:
@@ -212,7 +224,8 @@ class BatteryTask:
         try:
             if self.depth_control is not None:
                 cameras=self.depth_control.snapshot()['cameras']
-                depth_previous={camera:cameras[camera]['requested'] for camera in ('d435','d405')}
+                required_cameras=('d435',) if settings.get('vision_mode')=='d435' else ('d435','d405')
+                depth_previous={camera:cameras[camera]['requested'] for camera in required_cameras}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             if store is None:store=RunStore.create(self.root)
             if settings:
