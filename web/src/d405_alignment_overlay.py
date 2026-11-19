@@ -1,0 +1,83 @@
+"""Publish the latest D405 alignment evidence for the placement page."""
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import uuid
+
+import cv2
+import numpy as np
+
+
+def _atomic_bytes(path, payload):
+    temporary = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex}")
+    temporary.write_bytes(payload)
+    os.replace(temporary, path)
+
+
+def _point_pairs(measurement):
+    rows = measurement.get("rim_rows_px", [])
+    inner = measurement.get("rim_inner_px", [])
+    left = [[float(x[0]), float(y)] for y, x in zip(rows, inner)]
+    right = [[float(x[1]), float(y)] for y, x in zip(rows, inner)]
+    battery = [[float(x), float(y)] for y, x in measurement.get("battery_front_px", [])]
+    return left + right, battery
+
+
+def write_horizontal_overlay(frame, measurement, output_dir):
+    """Atomically replace the image and matching evidence metadata."""
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    rgb = np.asarray(frame["rgb"])
+    if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
+        raise ValueError("Invalid D405 RGB image")
+    image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    ready = measurement.get("status") == "visual_guidance_only"
+    rim_points, battery_points = _point_pairs(measurement) if ready else ([], [])
+
+    if ready:
+        rows = measurement["rim_rows_px"]
+        inner = measurement["rim_inner_px"]
+        for y, pair in zip(rows, inner):
+            for x in pair:
+                cv2.circle(image, (round(x), round(y)), 3, (0, 0, 255), -1, cv2.LINE_8)
+        battery = np.asarray(measurement["battery_front_px"], dtype=float)
+        stride = max(1, len(battery) // 80)
+        for y, x in battery[::stride]:
+            cv2.circle(image, (round(x), round(y)), 2, (255, 0, 255), -1, cv2.LINE_8)
+        centre = np.median(battery, axis=0)
+        direction = 1 if float(measurement["step_mm"]) >= 0 else -1
+        start = (round(centre[1]), round(centre[0] - 12))
+        end = (start[0] + direction * 32, start[1])
+        cv2.arrowedLine(image, start, end, (0, 255, 255), 4, cv2.LINE_8, tipLength=.3)
+        label = f"Y {measurement['raw_error_mm']:+.1f} mm / step {measurement['step_mm']:+.1f}"
+        cv2.putText(image, label, (8, image.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX,
+                    .42, (0, 255, 255), 1, cv2.LINE_AA)
+
+    ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 100])
+    if not ok:
+        raise RuntimeError("D405 overlay JPEG encoding failed")
+    image_path = output / "d405-horizontal.jpg"
+    metadata_path = output / "d405-horizontal.json"
+    _atomic_bytes(image_path, encoded.tobytes())
+
+    metadata = {
+        "status": "ready" if ready else "unavailable",
+        "reason": measurement.get("reason"),
+        "frame_id": measurement.get("frame_id"),
+        "image_time": measurement.get("image_time"),
+        "calibration_sha256": measurement.get("calibration_sha256"),
+        "image_file": "/camera-overlay/d405-horizontal.jpg",
+        "rim": {"status": "visible", "points": rim_points} if ready else {"status": "unavailable"},
+        "battery_front": {"status": "visible", "points": battery_points} if ready else {"status": "unavailable"},
+        "target_offset_mm": measurement.get("target_offset_mm"),
+        "raw_error_mm": measurement.get("raw_error_mm"),
+        "step_mm": measurement.get("step_mm"),
+        "attempt": measurement.get("attempt"),
+        "cumulative_correction_mm": measurement.get("cumulative_correction_mm"),
+        "converged": measurement.get("converged"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    payload = json.dumps(metadata, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+    _atomic_bytes(metadata_path, payload)
+    return metadata
