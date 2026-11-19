@@ -82,8 +82,8 @@ def estimate_horizontal_alignment(frame,*,target_offset_mm,correction_axis_base=
         span=float(np.quantile(along,.95)-np.quantile(along,.05))
         center_error=float(np.linalg.norm(center-expected_center))
         perpendicular_p90=float(np.quantile(np.linalg.norm(perpendicular,axis=1),.9))
-        if (center_error<=.025 and .30*expected_length<=span<=1.30*expected_length
-                and perpendicular_p90<=.020):
+        if (center_error<=.015 and .65*expected_length<=span<=1.15*expected_length
+                and perpendicular_p90<=.012):
             bound.append(candidate);binding[candidate]=(center_error,span,perpendicular_p90)
     candidates=bound
     if not candidates:raise ValueError('D405 battery front edge unavailable')

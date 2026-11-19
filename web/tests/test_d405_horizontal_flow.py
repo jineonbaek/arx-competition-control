@@ -14,6 +14,7 @@ from agent.taught_placement import load_taught_route
 from fast_visual_level import (
     FastVisualLevel,
     d405_horizontal_correction_target,
+    require_loaded_gripper,
     require_gripper_retained,
     validate_lateral_endpoint,
 )
@@ -56,6 +57,9 @@ class D405HorizontalPureTests(unittest.TestCase):
                                       y_bounds_mm=(0., 3.))
 
     def test_gripper_feedback_is_locked_until_explicit_release(self):
+        self.assertTrue(require_loaded_gripper(-1.30))
+        with self.assertRaisesRegex(ValueError, "Loaded battery clamp"):
+            require_loaded_gripper(0.)
         self.assertTrue(require_gripper_retained(-1.12, -1.30, tolerance=.25))
         with self.assertRaisesRegex(ValueError, "Gripper feedback changed"):
             require_gripper_retained(-.9, -1.30, tolerance=.25)

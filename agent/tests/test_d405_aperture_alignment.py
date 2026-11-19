@@ -83,7 +83,8 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
 
     def test_horizontal_alignment_clamps_step_to_three_mm(self):
         value = frame()
-        value["xyz"][np.all(value["rgb"] < 20, axis=2), 1] = .020
+        red = (value["rgb"][:, :, 0] > 200) & (value["rgb"][:, :, 1] < 40)
+        value["xyz"][red, 1] = .020
         result = self.estimate(value)
         self.assertAlmostEqual(result["raw_error_mm"], 22.4, places=6)
         self.assertEqual(result["step_mm"], 3.)
@@ -139,6 +140,18 @@ class D405HorizontalAlignmentTests(unittest.TestCase):
         value["xyz"][52:70, 60:101, 0] = (width - 20.) / 1000.
         value["xyz"][52:70, 60:101, 1] = .040
         value["xyz"][52:70, 60:101, 2] = .53
+        with self.assertRaisesRegex(ValueError, "battery front edge"):
+            self.estimate(value)
+
+    def test_near_tool_gripper_sized_dark_edge_is_not_a_battery_front(self):
+        value = frame()
+        battery = np.all(value["rgb"] < 20, axis=2)
+        value["rgb"][battery] = 255
+        value["rgb"][56:74, 65:96] = 0
+        width = np.arange(31)[None, :]
+        value["xyz"][56:74, 65:96, 0] = (width - 15.) / 1000.
+        value["xyz"][56:74, 65:96, 1] = .040
+        value["xyz"][56:74, 65:96, 2] = .51
         with self.assertRaisesRegex(ValueError, "battery front edge"):
             self.estimate(value)
 

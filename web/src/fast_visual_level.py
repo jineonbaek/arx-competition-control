@@ -111,6 +111,11 @@ def require_gripper_retained(feedback,baseline,*,tolerance=.25):
         raise ValueError('Gripper feedback changed while battery must remain held')
     return True
 
+def require_loaded_gripper(feedback):
+    if not np.isfinite(feedback) or not -1.5<float(feedback)<-.25:
+        raise ValueError('Loaded battery clamp feedback unavailable')
+    return True
+
 def d405_correction_target(tool,measurement,*,limit_mm=5.):
     T=np.asarray(tool,float);step=float(measurement.get('step_mm',float('nan')))
     if (T.shape!=(4,4) or not np.isfinite(T).all() or measurement.get('status')!='visual_guidance_only'
@@ -767,12 +772,20 @@ class FastVisualLevel:
         reply=self.ctrl.submit(dict(type='gripper',arm='right',position=target),self.token,
             preflight=lambda s,n:self.ctrl.motion_valid(self.token) and s['arms']['right']['fresh'])
         if reply.get('ok') is not True:raise ValueError('Gripper close command rejected')
-        deadline=time.monotonic()+3.
+        deadline=time.monotonic()+3.;stable_since=None;previous=None
         while time.monotonic()<deadline:
             s=self.ctrl.snapshot()
-            if s['arms']['right']['fresh'] and s['arms']['right']['gripper']>-1.5:break
+            value=float(s['arms']['right']['gripper']);now=time.monotonic()
+            try:loaded=s['arms']['right']['fresh'] and require_loaded_gripper(value)
+            except ValueError:loaded=False
+            if loaded:
+                if previous is None or abs(value-previous)>.03:stable_since=now
+                elif stable_since is not None and now-stable_since>=.35:break
+            else:stable_since=None
+            previous=value
             time.sleep(.05)
-        else:raise ValueError('Gripper close feedback not reached')
+        else:raise ValueError('Loaded battery clamp feedback not reached')
+        require_loaded_gripper(value)
         self.raw=float(s['arms']['right']['gripper']);self.save(clamped=True,clamp_gripper=self.raw)
 
     def auto_insert_160_place(self):
