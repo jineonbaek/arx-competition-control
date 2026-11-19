@@ -6,12 +6,13 @@ import json
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
 from agent.config import Config
 from agent.storage import RunStore, atomic_json
 from agent.battery_tools import BatteryExecutionTools
-from agent.grasp_scene import save_frame, CALIBRATION
+from agent.grasp_scene import save_frame, CALIBRATION, D435_CALIBRATION
 from agent.grasp_geometry import PROFILE, preview_geometry
 from agent.tests.test_grasp_integration import frame
 from web.src.handeye_column import ColumnModel
@@ -124,6 +125,37 @@ class BatteryPickPlanTests(unittest.TestCase):
             self.preview(report,call='preview_'+key)
             self.assertFalse(self.plan(call='plan_'+key)['ok'])
             self.assertNotIn('battery_pick_plan',self.store.state)
+
+    def test_d435_plan_b_reuses_frozen_geometry_with_latest_joint_feedback(self):
+        f=copy.deepcopy(self.frame);f['camera_id']=np.array('d435');f['id']=np.array('b'*32)
+        blob=io.BytesIO();np.savez(blob,**f)
+        obs=save_frame(self.store,blob.getvalue(),source='synthetic-d435',camera='d435',
+            calibration_sha256=hashlib.sha256(D435_CALIBRATION.read_bytes()).hexdigest())
+        self.ident=obs['observation_id']
+        receipt=self.store.path/'d435.json'
+        atomic_json(receipt,dict(observation_id=self.ident,camera='d435',status='localized'))
+        self.store.state.update(battery_task_settings={'vision_mode':'d435'},
+            latest_battery_observations={'d435':self.ident},
+            battery_observations={self.ident:receipt.name})
+        self.store.state['mission'].update(stage='HEAD_LOCALIZED',plan=None,approach_plan=None)
+        pose=copy.deepcopy(self.pose);pose['id']='b'*32
+        self.report=dict(observation_id=self.ident,status='preview_complete',message='fixture',
+            quality=dict(version=1,status='consistent'),pose=pose,
+            geometry=preview_geometry(f,np.ones((20,30),bool),pose,10))
+        latest=self.q.copy();latest[0]+=.001
+        controller=SimpleNamespace(snapshot=lambda:dict(
+            arms={'right':{'joints':latest.tolist()}},body={'height':self.lift}))
+        backend=SimpleNamespace(controller=controller)
+        self.tools=BatteryExecutionTools(Config(),self.store,observations=object(),
+            backends=backend,pick_setup=self.setup)
+        self.preview(call='d435_preview')
+        self.store.state['mission']['stage']='COARSE_ALIGNED'
+        result=self.plan('d435_plan')
+        self.assertTrue(result['ok'],result)
+        data=result['data']
+        self.assertEqual(data['vision_mode'],'d435')
+        self.assertEqual(self.store.state['mission']['stage'],'PICK_PLANNED')
+        np.testing.assert_allclose(data['start_joints_rad'],latest)
 
     def test_changed_archive_calibration_and_missing_feedback_cannot_plan(self):
         self.preview()

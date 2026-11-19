@@ -12,6 +12,7 @@ from .grasp_geometry import validate_frame
 
 ROOT=Path(__file__).resolve().parents[1]
 CALIBRATION=ROOT/"vision/handeye/results/d405-right-cc200-ee0ff2fa49e9e56285d271d6.json"
+D435_CALIBRATION=ROOT/"vision/handeye/results/d435-cad-349622074226.json"
 
 def save_frame(store,blob,*,source,expected_id=None,calibration_sha256=None,camera="d405"):
     if camera not in ("d435","d405"):raise ValueError("Unsupported camera")

@@ -97,17 +97,18 @@ class BatteryTaskTests(unittest.TestCase):
         invalid=[{'lift_target_rad':6.6},
                  {'lift_target_rad':0.9,'observer_z_mm':700.5},
                  {'lift_target_rad':6.6,'observer_z_mm':1500.1},
-                 {'lift_target_rad':True,'observer_z_mm':700.5}]
+                 {'lift_target_rad':True,'observer_z_mm':700.5},
+                 {'vision_mode':'automatic'}]
         for index,values in enumerate(invalid):
             with self.subTest(values=values),self.assertRaises(ValueError):
                 self.task.action('owner',{'action':'start','request_id':'bad-'+str(index),
                     'expected_epoch':0,'environment_clear':True,**values})
         result=self.task.action('owner',{'action':'start','request_id':'fixed-points',
             'expected_epoch':0,'environment_clear':True,
-            'lift_target_rad':6.6,'observer_z_mm':735.5})
+            'lift_target_rad':6.6,'observer_z_mm':735.5,'vision_mode':'d435'})
         settings=self.created[0][0].state['battery_task_settings']
         self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.,
-                                   'observer_z_mm':735.5})
+                                   'observer_z_mm':735.5,'vision_mode':'d435'})
         self.assertEqual(result['settings'],settings)
         self.gate.set();self.wait('needs_attention')
 
@@ -251,6 +252,20 @@ class BatteryTaskTests(unittest.TestCase):
         self.assertEqual(depth.requested,{'d435':False,'d405':True})
         self.assertEqual(depth.calls,[{'camera':'d435','enabled':True},{'camera':'d405','enabled':True},
                                       {'camera':'d435','enabled':False},{'camera':'d405','enabled':True}])
+
+    def test_d435_plan_b_does_not_require_d405_depth(self):
+        depth=_Depth()
+        task=BatteryTask(Path(self.temp.name)/'d435-depth',self.controller,
+            lambda store,controller,token,environment_clear:_Flow(store,self.gate),depth_control=depth)
+        self.addCleanup(task.close)
+        task.action('owner',{'action':'start','request_id':'d435-depth','expected_epoch':0,
+            'environment_clear':True,'lift_target_rad':5.52,'observer_z_mm':700.5,
+            'vision_mode':'d435'})
+        self.assertEqual(depth.calls,[{'camera':'d435','enabled':True}])
+        self.gate.set()
+        end=time.monotonic()+2
+        while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
+        self.assertEqual(depth.requested,{'d435':False,'d405':True})
 
 
 if __name__=='__main__':unittest.main()

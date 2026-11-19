@@ -81,6 +81,11 @@ class CoarseTests(unittest.TestCase):
             self.assertAlmostEqual(result['observer']['target_wrist_base_mm'][2],735.5,places=3)
             self.assertEqual(len(result['observer']['joints_rad']),6)
             self.assertTrue((store.path/result['result_file']).is_file())
+            tools.vision_mode='d435'
+            plan_b=plan(tools,ident,'plan-b')
+            self.assertEqual(plan_b['x_y_alignment'],'d435_frozen')
+            np.testing.assert_allclose(plan_b['observer']['joints_rad'],
+                                       plan_b['initial_joints_rad']['right'])
             evidence['camera']='d405';atomic_json(path,evidence)
             with self.assertRaisesRegex(ValueError,'D435'):plan(tools,ident,'wrong')
 

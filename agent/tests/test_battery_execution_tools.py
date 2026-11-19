@@ -149,6 +149,29 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.assertEqual(moves,[('search',0,10.0)])
         self.assertEqual(r['data']['status'],'localized')
 
+    def test_d435_plan_b_previews_before_lift_and_plans_direct_pick(self):
+        self.store.state['battery_task_settings']={'vision_mode':'d435'}
+        self.store.state['mission'].update(stage='HEAD_LOCALIZED',plan=None)
+        tools=BatteryExecutionTools(Config(motion_enabled=True),self.store,
+            observations=object(),backends=self.backend,allowed_tools=EXECUTION_TOOLS,
+            pick_setup={'fixture':True})
+        preview={'status':'preview_complete','observation_id':self.head['observation_id']}
+        with patch.object(tools,'_perception',return_value=preview):
+            result=tools.execute('preview_battery_grasp',
+                {'observation_id':self.head['observation_id'],'clearance_mm':50},'preview')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(self.store.state['mission']['stage'],'HEAD_LOCALIZED')
+        self.store.state['mission']['stage']='COARSE_ALIGNED'
+        planned=self.store.path/'pick.json';planned.write_text('{}')
+        proposal={'status':'kinematic_preview','result_file':planned.name,
+            'observation_id':self.head['observation_id'],'vision_mode':'d435'}
+        with patch('agent.battery_tools.plan_battery_pick',return_value=proposal):
+            result=tools.execute('plan_battery_pick',
+                {'observation_id':self.head['observation_id']},'pick')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(self.store.state['mission']['stage'],'PICK_PLANNED')
+        self.assertNotIn('d405',self.store.state['latest_battery_observations'])
+
     def test_bad_completion_does_not_advance_mission(self):
         from agent.mission import Mission
         from agent.contracts import AgentError

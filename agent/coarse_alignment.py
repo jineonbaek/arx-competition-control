@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import numpy as np
 from web.src.handeye_column import ColumnModel, NOMINAL_RAD_PER_M, PACKAGE
-from .grasp_scene import frame_path, CALIBRATION
+from .grasp_scene import frame_path, CALIBRATION, D435_CALIBRATION
 from .observer_pose import assess_observer
 from .storage import atomic_json
 from .lift_sweep import assess_lift
@@ -110,16 +110,28 @@ def plan(registry,observation_id,call_id):
         coarse_policy=load(ROOT/'config/battery-execution.json',
             gripper_limits=config['arms']['right']['gripper_limits_raw'])['coarse']
     observer_search=coarse_policy['observer_search']
-    calibration_blob=CALIBRATION.read_bytes()
-    observer=assess_observer(feedback,location,coarse_policy['fixed_lift_target_rad'],
-        json.loads(calibration_blob),config['arms']['right']['joint_limits_deg'],
-        observer=observer_search)
-    result=coarse_geometry(location['surface_base_mm'],height,ColumnModel(),limits,
+    plan_b=getattr(registry,'vision_mode','d405')=='d435'
+    calibration_blob=(D435_CALIBRATION if plan_b else CALIBRATION).read_bytes()
+    model=ColumnModel()
+    if plan_b:
+        target_lift=coarse_policy['fixed_lift_target_rad']
+        wrist=model.wrist_transform(feedback['joints'],target_lift)
+        observer=dict(status='observer_candidate',joints_rad=feedback['joints'].tolist(),
+            wrist_base_mm=(wrist[:3,3]*1000).tolist(),
+            column_path=model.check(feedback['joints'],feedback['joints'],target_lift))
+    else:
+        observer=assess_observer(feedback,location,coarse_policy['fixed_lift_target_rad'],
+            json.loads(calibration_blob),config['arms']['right']['joint_limits_deg'],
+            observer=observer_search)
+    result=coarse_geometry(location['surface_base_mm'],height,model,limits,
         fixed_lift_rad=coarse_policy['fixed_lift_target_rad'],
         observer_start_z_mm=observer_search['start_z_mm'],
         observer_rpy_deg=observer_search['rpy_deg'],
         current_joints=feedback['joints'],observer=observer,
         limits_deg=config['arms']['right']['joint_limits_deg'])
+    if plan_b:
+        result['x_y_alignment']='d435_frozen'
+        result['note']='仅执行既有升降动作；右臂保持当前关节位，后续复用冻结的 D435 位姿规划抓取。'
     sweep=assess_lift(feedback,result['lift']['target_rad'])
     result['lift']['acceptance_rad']=coarse_policy['lift_acceptance_rad']
     result['lift']['column_sweep']=sweep

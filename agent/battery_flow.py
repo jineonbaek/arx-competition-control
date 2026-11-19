@@ -14,17 +14,20 @@ def plan_digest(plan):
     return hashlib.sha256(json.dumps(plan,sort_keys=True,allow_nan=False).encode()).hexdigest()
 
 class BatteryFlow:
-    def __init__(self,tools,*,review_plan,clearance_mm=50.,receipt_timeout_s=240.):
+    def __init__(self,tools,*,review_plan,clearance_mm=50.,receipt_timeout_s=240.,vision_mode='d405'):
         if (not callable(review_plan) or type(clearance_mm) not in (int,float)
                 or not math.isfinite(clearance_mm) or not 1<=clearance_mm<=200
                 or type(receipt_timeout_s) not in (int,float) or not math.isfinite(receipt_timeout_s)
-                or not 0<receipt_timeout_s<=3600):raise ValueError('Local reviewer and bounded flow settings required')
+                or not 0<receipt_timeout_s<=3600 or vision_mode not in ('d405','d435')):
+            raise ValueError('Local reviewer, known vision mode and bounded flow settings required')
         self.tools=tools;self.store=tools.store;self.review_plan=review_plan
         self.receipt_timeout_s=receipt_timeout_s
         if not hasattr(self.store,"battery_flow_lock"):self.store.battery_flow_lock=Lock()
         self.flow=self.store.state.setdefault('battery_flow',dict(status='running',phase='head',
-            index=0,polls=0,clearance_mm=clearance_mm,grasp_confirmed=False))
+            index=0,polls=0,clearance_mm=clearance_mm,vision_mode=vision_mode,grasp_confirmed=False))
         if self.flow['clearance_mm']!=clearance_mm:raise ValueError('Cannot change a persisted flow')
+        if self.flow.get('vision_mode','d405')!=vision_mode:raise ValueError('Cannot change a persisted vision mode')
+        self.vision_mode=vision_mode
         self.store.save()
 
     def _finish(self,status,reason=''):
@@ -101,7 +104,7 @@ class BatteryFlow:
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
                     self.flow['head']=data['observation_id']
                     self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera='d435',observation_id=data['observation_id'])
-                    self._next('coarse_plan')
+                    self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
                 elif phase=='coarse_plan':
                     self._call('plan_coarse_alignment',{'observation_id':self.flow['head']});self._next('coarse_execute')
                 elif phase in ('coarse_execute','approach_execute','insert'):
@@ -110,15 +113,18 @@ class BatteryFlow:
                     if not self.store.state.get('pending') and not self.flow.get('command'):self._review(operation)
                     plan=self.store.state['mission'].get('plan') or {}
                     self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
-                    self._next('verify_hold' if phase=='insert' else 'wrist')
+                    self._next('verify_hold' if phase=='insert' else
+                               'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
                 elif phase=='wrist':
                     data=self._call('observe_battery',{'camera':'d405'})
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','wrist_failed'))
                     self.flow['wrist']=data['observation_id'];self._next('preview')
                 elif phase=='preview':
-                    data=self._call('preview_battery_grasp',dict(observation_id=self.flow['wrist'],clearance_mm=self.flow['clearance_mm']))
+                    observation=self.flow['head'] if self.vision_mode=='d435' else self.flow['wrist']
+                    data=self._call('preview_battery_grasp',dict(observation_id=observation,clearance_mm=self.flow['clearance_mm']))
                     if data.get('status')!='preview_complete':return self._finish('needs_attention',data.get('status','preview_failed'))
-                    self.flow['wrist']=data['observation_id'];self._next('pick_plan')
+                    self.flow['wrist']=data['observation_id']
+                    self._next('coarse_plan' if self.vision_mode=='d435' else 'pick_plan')
                 elif phase=='pick_plan':
                     data=self._call('plan_battery_pick',{'observation_id':self.flow['wrist']})
                     self.flow['plan_id']=data.get('plan_id')

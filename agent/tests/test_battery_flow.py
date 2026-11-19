@@ -9,7 +9,7 @@ from agent.config import Config
 class Tools:
     def __init__(self,store):
         self.store=store;self.config=Config();self.calls=[];self.fail=None;self.corrections=0
-        self.backends=self;self.cancelled_count=0
+        self.backends=self;self.cancelled_count=0;self.vision_mode='d405'
     def cancel_and_wait(self,timeout):self.cancelled_count+=1;return True
     def _save_pick_plan(self,plan):pass
     def available(self,name):return name=='verify_hold'
@@ -22,7 +22,8 @@ class Tools:
         elif name in ('plan_coarse_alignment','plan_battery_pick'):
             data=dict(plan_id='p'+str(len(self.calls)),arm='right',executable=False)
             if name=='plan_battery_pick':
-                m['stage']='PICK_APPROACH_PLANNED' if not m.get('approach_plan') else 'PICK_PLANNED'
+                m['stage']=('PICK_PLANNED' if self.vision_mode=='d435' else
+                            'PICK_APPROACH_PLANNED' if not m.get('approach_plan') else 'PICK_PLANNED')
                 if self.corrections and m.get('approach_plan'):
                     self.corrections-=1;m['stage']='PICK_CORRECTION_PLANNED'
             else:m['stage']='COARSE_PLANNED'
@@ -57,6 +58,17 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(self.store.state['mission']['stage'],'CARRY_READY')
         self.assertNotIn('capture_grasp_scene',names)
         self.assertEqual(names.count('preview_battery_grasp'),3)
+
+    def test_d435_plan_b_uses_one_frame_and_skips_d405_and_visual_refinement(self):
+        self.tools.vision_mode='d435'
+        out=self.flow(vision_mode='d435').run()
+        self.assertEqual(out['status'],'completed')
+        self.assertEqual(self.tools.calls,[
+            'observe_battery','preview_battery_grasp','plan_coarse_alignment',
+            'execute_coarse_alignment','plan_battery_pick','execute_pick',
+            'verify_hold','stow_for_carry','return_to_carry'])
+        self.assertEqual(self.store.state['mission']['target']['camera'],'d435')
+        self.assertNotIn('execute_battery_approach',self.tools.calls)
     def test_missing_verifier_does_not_claim_success(self):
         self.tools.available=lambda name:False
         out=self.flow().run()

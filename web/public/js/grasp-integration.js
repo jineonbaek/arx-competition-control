@@ -60,6 +60,7 @@ function executionButtons(){
  const running=execution?.status==='running';
  el('execute').disabled=running||!execution?.available||!el('environment-clear').checked;
  el('stop-task').disabled=!running;
+ el('vision-mode').disabled=running;
  el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running;
 }
 const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
@@ -76,7 +77,7 @@ el('execute').onclick=async()=>{
  try{
   const lift=el('lift-target-rad'),observer=el('observer-z-mm');
   if(!lift.reportValidity()||!observer.reportValidity())return;
-  execution=await request('/api/battery-task',{action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber});
+  execution=await request('/api/battery-task',{action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:el('vision-mode').value});
   revision='';show({run_id:execution.run_id});
   el('execution-status').textContent='自动任务已启动。';
  }catch(e){el('execution-status').textContent=e.message;}executionButtons();
@@ -89,7 +90,7 @@ async function pollExecution(){
  try{
   execution=await request('/api/battery-task');
   if(!settingsLoaded&&execution.settings?.lift_target_rad!=null&&execution.settings?.observer_z_mm!=null){
-   el('lift-target-rad').value=execution.settings.lift_target_rad;el('observer-z-mm').value=execution.settings.observer_z_mm;settingsLoaded=true;
+   el('lift-target-rad').value=execution.settings.lift_target_rad;el('observer-z-mm').value=execution.settings.observer_z_mm;el('vision-mode').value=execution.settings.vision_mode||'d405';settingsLoaded=true;
   }
   executionButtons();
   const labels={idle:'等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',cancelled:'本轮已停止。'};

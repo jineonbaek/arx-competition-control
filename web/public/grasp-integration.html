@@ -19,8 +19,10 @@
 <div class="task-settings">
 <label>升降目标（rad）<input id="lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>达到向下取整值即成功，例如 6.6 → 6.0</small></label>
 <label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮 D435 引导</small></label>
+<label>视觉链路<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option></select><small>手动选择；不会在任务中自动切换</small></label>
 </div>
 <label><input id="environment-clear" type="checkbox"> 本轮已确认右臂、升降和夹取通道无人且无临时障碍</label>
 <div class="grasp-actions"><button id="execute" class="button primary" disabled>开始实机流程</button><button id="stop-task" class="button danger" disabled>停止自动任务</button><span id="execution-status" role="status">正在读取执行后端…</span></div>
 <h3>实时执行日志</h3><ol id="execution-log" aria-live="polite"><li>等待任务启动。</li></ol></section>
+
 </main></body></html>

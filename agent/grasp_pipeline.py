@@ -89,8 +89,8 @@ def segment(store,ident,output,cancelled):
     return result
 
 def estimate(store,ident,recognition,output,cancelled,head=None):
-    if store.observation(ident).get("camera_id","d405")!="d405":
-        raise ValueError("Fine grasp estimation requires a D405 observation")
+    if store.observation(ident).get("camera_id","d405") not in ("d405","d435"):
+        raise ValueError("Grasp estimation requires a supported RGB-D observation")
     frame=frame_path(store,ident)
     with np.load(frame,allow_pickle=False) as f:source_id=str(f["id"])
     result=output/"pose.json"
@@ -141,6 +141,7 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None,*,head_o
     output.mkdir(parents=True,exist_ok=True)
     cancelled=lambda:store.cancelled
     frame=frame_path(store,ident)
+    camera=store.observation(ident).get('camera_id','d405')
     head=head_evidence(store,head_observation_id,output) if head_observation_id else None
     with gpu_slot():
         progress("recognition")
@@ -149,7 +150,7 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None,*,head_o
             observed=(store.path/relative).resolve()
             if not observed.is_relative_to(store.path.resolve()):raise ValueError("Invalid observation receipt path")
             receipt=json.loads(observed.read_text())
-            if receipt.get('observation_id')!=ident or receipt.get('camera')!='d405':
+            if receipt.get('observation_id')!=ident or receipt.get('camera')!=camera:
                 raise ValueError("Recognition receipt identity mismatch")
             recognition=receipt['recognition']
             if recognition.get('status')=='perception_accepted':
