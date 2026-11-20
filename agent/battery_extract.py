@@ -68,7 +68,7 @@ class CarryReturnStep:
         self.controller=controller;self.token=token
         self.arm_policy=dict(arm_policy)
         self.timing_limits=dict(timing_limits);self.tcp=np.asarray(wrist_from_tool,float).copy()
-        self.carry_joints_deg=[0.,0.,0.,0.,0.,-90.]
+        self.carry_joints_deg=[0.,0.,90.,-70.,0.,-90.]
         self.reference_complete=False;self.return_monitor=None
         self.started=False;self.failure=None;self.failure_detail=None;self.stop_request=None
 

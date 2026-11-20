@@ -45,7 +45,7 @@ class ExtractionTests(unittest.TestCase):
             arm_policy=self.arm_policy,timing_limits=self.timing,wrist_from_tool=self.tcp)
 
     def finish_return(self):
-        self.joints=np.radians([.5,-.5,.2,-.2,.1,-89.])
+        self.joints=np.radians([.5,-.5,90.2,-70.2,.1,-89.])
         for _ in range(5):
             self.now+=.1
             result=self.step.poll()
@@ -66,7 +66,7 @@ class ExtractionTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.extract_step.start()
         self.assertEqual(self.step.start()['status'],'returning')
         self.assertEqual(self.commands[0]['type'],'arm.trajectory')
-        np.testing.assert_allclose(self.commands[0]['joint_waypoints_rad'][-1],np.radians([0.,0.,0.,0.,0.,-90.]))
+        np.testing.assert_allclose(self.commands[0]['joint_waypoints_rad'][-1],np.radians([0.,0.,90.,-70.,0.,-90.]))
         self.assertEqual(self.finish_return()['status'],'carry_ready')
         self.assertEqual(self.step.poll()['status'],'carry_ready')
         self.assertEqual([c['type'] for c in self.commands],['arm.trajectory'])
@@ -117,7 +117,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(self.finish_return()['status'],'carry_ready')
 
     def test_return_already_at_transport_pose_does_not_send_duplicate_trajectory(self):
-        self.joints=np.radians([0.,0.,0.,0.,0.,-90.])
+        self.joints=np.radians([0.,0.,90.,-70.,0.,-90.])
         self.step.start();self.step.poll()
         self.assertEqual(self.commands,[])
         for _ in range(5):
@@ -241,7 +241,7 @@ class ExtractionTests(unittest.TestCase):
                     time.sleep(.01)
                 self.assertEqual(len(self.commands),1)
                 self.assertFalse(backend.entries[carry_request].wait(.03))
-                self.joints=np.radians([.5,-.5,.2,-.2,.1,-89.])
+                self.joints=np.radians([.5,-.5,90.2,-70.2,.1,-89.])
                 for _ in range(5):
                     self.now+=.1;time.sleep(.03)
                 self.assertTrue(backend.entries[carry_request].wait(1.))
@@ -250,7 +250,7 @@ class ExtractionTests(unittest.TestCase):
                 self.assertEqual(store.state['mission']['stage'],'CARRY_READY')
                 tools.execute('return_to_carry',{'plan_id':'held'},'carry')
                 self.assertEqual([c['type'] for c in self.commands],['arm.trajectory'])
-                self.assertEqual(backend.status('return_to_carry',carry_request)['data']['target_transport_joints_deg'],[0.,0.,0.,0.,0.,-90.])
+                self.assertEqual(backend.status('return_to_carry',carry_request)['data']['target_transport_joints_deg'],[0.,0.,90.,-70.,0.,-90.])
             finally:backend.cancel_and_wait(1.);store.close()
 
     def test_tool_does_not_extract_before_hold_confirmation(self):
