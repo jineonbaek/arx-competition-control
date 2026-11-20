@@ -109,5 +109,5 @@ def workflow_factory(policy_path,*,console_url,gripper_limits):
             clearance_mm=run_policy['clearance_mm'],vision_mode=settings.get('vision_mode','d405'))
     factory.task_settings={'lift_target_rad':policy['coarse']['fixed_lift_target_rad'],
         'lift_acceptance_rad':policy['coarse']['lift_acceptance_rad'],
-        'observer_z_mm':policy['coarse']['observer_search']['start_z_mm'],'vision_mode':'d405'}
+        'observer_z_mm':policy['coarse']['observer_search']['start_z_mm'],'vision_mode':'plan_f'}
     return factory
