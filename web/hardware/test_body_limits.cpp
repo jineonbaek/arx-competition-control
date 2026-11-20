@@ -7,13 +7,13 @@ int main() {
                   double lift_kp=2.; double gravity_compensation_torque=-2.; };
   Config config;
   apply_slow_lift_config(config);
-  assert(std::abs(config.lift_max_vel*400.-1.)<1e-12);
+  assert(std::abs(config.lift_max_vel*400.-2.)<1e-12);
   assert(config.lift_calibrate_vel==.5);
   apply_slow_lift_config(config,.5);
   assert(std::abs(config.lift_max_vel*400.-.5)<1e-12);
   assert(config.lift_calibrate_vel==.5);
   assert(config.lift_kp==2. && config.gravity_compensation_torque==-2.);
-  for(double rate : {0.,-.1,1.0001,std::numeric_limits<double>::quiet_NaN(),
+  for(double rate : {0.,-.1,2.0001,std::numeric_limits<double>::quiet_NaN(),
                       std::numeric_limits<double>::infinity()}) {
     Config unchanged;
     bool rejected=false;

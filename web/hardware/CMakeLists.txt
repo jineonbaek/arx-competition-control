@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(arx_web_body)
 set(CMAKE_CXX_STANDARD 17)
+enable_testing()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(arm_control REQUIRED)
@@ -10,12 +11,29 @@ find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 set(CONTROL_ROOT /home/arx/arx-competition-control)
 set(BODY_ROOT ${CONTROL_ROOT}/repos/LIFT/body/ROS2/src/ARX_LIFT_ros2/arx_lift_controller)
+add_library(lift_ruckig STATIC
+  vendor/ruckig/src/ruckig/brake.cpp
+  vendor/ruckig/src/ruckig/position_first_step1.cpp
+  vendor/ruckig/src/ruckig/position_first_step2.cpp
+  vendor/ruckig/src/ruckig/position_second_step1.cpp
+  vendor/ruckig/src/ruckig/position_second_step2.cpp
+  vendor/ruckig/src/ruckig/position_third_step1.cpp
+  vendor/ruckig/src/ruckig/position_third_step2.cpp
+  vendor/ruckig/src/ruckig/velocity_second_step1.cpp
+  vendor/ruckig/src/ruckig/velocity_second_step2.cpp
+  vendor/ruckig/src/ruckig/velocity_third_step1.cpp
+  vendor/ruckig/src/ruckig/velocity_third_step2.cpp)
+target_include_directories(lift_ruckig SYSTEM PUBLIC vendor/ruckig/include)
+target_compile_features(lift_ruckig PUBLIC cxx_std_17)
 add_executable(lift_controller_web lift_controller_web.cpp)
 target_include_directories(lift_controller_web PRIVATE ${BODY_ROOT}/lib/arx_hardware_interface/include ${BODY_ROOT}/lib/arx_lift_src/include)
-target_link_libraries(lift_controller_web ${BODY_ROOT}/lib/arx_lift_src/libarx_lift_src.so)
+target_link_libraries(lift_controller_web ${BODY_ROOT}/lib/arx_lift_src/libarx_lift_src.so lift_ruckig)
 ament_target_dependencies(lift_controller_web rclcpp arm_control sensor_msgs std_msgs std_srvs tf2)
 add_executable(test_body_limits test_body_limits.cpp)
 target_compile_options(test_body_limits PRIVATE -UNDEBUG)
+add_executable(test_lift_motion test_lift_motion.cpp)
+target_link_libraries(test_lift_motion PRIVATE lift_ruckig)
+target_compile_options(test_lift_motion PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 add_executable(test_chassis_motion test_chassis_motion.cpp)
 target_compile_options(test_chassis_motion PRIVATE -UNDEBUG)
 
@@ -33,3 +51,6 @@ target_compile_options(test_arm_trajectory PRIVATE -UNDEBUG)
 
 add_executable(test_chassis_output test_chassis_output.cpp)
 target_compile_options(test_chassis_output PRIVATE -UNDEBUG)
+foreach(check test_body_limits test_lift_motion test_chassis_motion test_chassis_output test_arm_limits test_arm_trajectory)
+  add_test(NAME ${check} COMMAND ${check})
+endforeach()

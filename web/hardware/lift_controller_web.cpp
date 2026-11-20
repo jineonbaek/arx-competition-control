@@ -13,6 +13,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "slow_lift_config.hpp"
+#include "lift_motion.hpp"
 #include "chassis_motion.hpp"
 #include "chassis_output.hpp"
 #include <nlohmann/json.hpp>
@@ -50,16 +51,26 @@ int main(int argc, char **argv) {
   const double fixed_body_height =
       node->declare_parameter("fixed_body_height", 0.0);
   rcl_interfaces::msg::ParameterDescriptor ramp_descriptor;
-  ramp_descriptor.description = "Lift target-reference ramp in SDK rad/s; homing stays at 0.5";
+  ramp_descriptor.description = "Maximum S-curve reference velocity in SDK rad/s; homing stays at 0.5";
   ramp_descriptor.read_only = true;
   const double lift_target_ramp_rad_s = node->declare_parameter(
       "lift_target_ramp_rad_s", WEB_LIFT_DEFAULT_RAMP_RAD_S, ramp_descriptor);
+  auto acceleration_descriptor=ramp_descriptor;
+  acceleration_descriptor.description="Maximum lift reference acceleration in SDK rad/s^2";
+  const double lift_reference_acceleration=node->declare_parameter(
+      "lift_reference_acceleration_rad_s2",WEB_LIFT_MAX_ACCELERATION,acceleration_descriptor);
+  auto jerk_descriptor=ramp_descriptor;
+  jerk_descriptor.description="Maximum lift reference jerk in SDK rad/s^3";
+  const double lift_reference_jerk=node->declare_parameter(
+      "lift_reference_jerk_rad_s3",WEB_LIFT_MAX_JERK,jerk_descriptor);
   if (!valid_lift_ramp_speed(lift_target_ramp_rad_s)) {
-    throw std::invalid_argument("Lift target ramp must be finite and within (0, 1.0] SDK rad/s");
+    throw std::invalid_argument("Lift target ramp must be finite and within (0, 2.0] SDK rad/s");
   }
   if (!valid_lift_target(fixed_body_height) || fixed_body_height != 0.0 || robot_type != 0) {
     throw std::invalid_argument("Height target must be finite and within 0..18 SDK radians");
   }
+  // Pure reference-limit validation must finish before constructing the SDK.
+  LiftMotion lift_motion(lift_target_ramp_rad_s,lift_reference_acceleration,lift_reference_jerk);
   auto target_validation_handle = node->add_on_set_parameters_callback(
     [](const std::vector<rclcpp::Parameter>& parameters) {
       rcl_interfaces::msg::SetParametersResult result;
@@ -75,10 +86,15 @@ int main(int argc, char **argv) {
       }
       return result;
     });
+  auto target_applied_handle=node->add_post_set_parameters_callback(
+      [&lift_motion](const std::vector<rclcpp::Parameter>& parameters){
+        for(const auto& parameter:parameters)
+          if(parameter.get_name()=="fixed_body_height")lift_motion.request(parameter.as_double());
+      });
   control_loop = std::make_shared<WebLiftControl>("can5", static_cast<LiftHeadControlLoop::RobotType>(robot_type));
   apply_slow_lift_config(control_loop->config_, lift_target_ramp_rad_s);
-  RCLCPP_INFO(node->get_logger(), "Lift target ramp %.3frad/s; homing 0.5rad/s; target %.4frad",
-              lift_target_ramp_rad_s, fixed_body_height);
+  RCLCPP_INFO(node->get_logger(), "Lift S-curve V %.3frad/s A %.3frad/s2 J %.3frad/s3; homing 0.5rad/s; target %.4frad",
+              lift_target_ramp_rad_s,lift_reference_acceleration,lift_reference_jerk,fixed_body_height);
   int running_state = 2;
   double lift_height = 0;
   auto pub = node->create_publisher<arm_control::msg::PosCmd>("/body_information", 1);
@@ -91,6 +107,7 @@ int main(int argc, char **argv) {
   ChassisOutputGate output_gate(driver_instance);
   auto output_deadline=std::chrono::steady_clock::time_point{};
   auto output_status=node->create_publisher<std_msgs::msg::String>("/web/chassis/output_status",1);
+  auto lift_status=node->create_publisher<std_msgs::msg::String>("/web/body/lift_motion_status",1);
   // Sole chassis input. Legacy web/nav/gamepad direct channels are intentionally
   // absent: they would bypass Controller validation and maintenance exclusivity.
   auto chassis_sub=node->create_subscription<std_msgs::msg::String>(
@@ -130,14 +147,28 @@ int main(int argc, char **argv) {
           return;
         }
         auto result = node->set_parameter(rclcpp::Parameter("fixed_body_height", reference));
+        if(result.successful)lift_motion.hold(reference);
         response->success = result.successful;
         response->message = "Remaining lift target cancelled; holding current control reference";
       });
   rclcpp::Rate loop_rate(400);
+  auto previous_tick=std::chrono::steady_clock::now();
+  std::string last_lift_fault;
   while (rclcpp::ok()) {
     // Lift target is independent of chassis messages; no head/waist/VR/joy inputs.
-    control_loop->setHeight(node->get_parameter("fixed_body_height").as_double());
     const auto now = std::chrono::steady_clock::now();
+    const double dt=std::chrono::duration<double>(now-previous_tick).count();
+    previous_tick=now;
+    const auto planned=lift_motion.advance(control_loop->reference(),dt,control_loop->calibrated());
+    if(!lift_motion.fault().empty()){
+      if(lift_motion.fault()!=last_lift_fault)
+        RCLCPP_ERROR(node->get_logger(),"Lift motion cancelled; holding reference: %s",lift_motion.fault().c_str());
+      if(control_loop->calibrated() && node->get_parameter("fixed_body_height").as_double()!=lift_motion.target())
+        node->set_parameter(rclcpp::Parameter("fixed_body_height",lift_motion.target()));
+    }
+    last_lift_fault=lift_motion.fault();
+    control_loop->setHeight(planned.position);
+    control_loop->config_.lift_max_vel=lift_motion.sdk_step_limit(dt);
     chassis_motion.step(std::chrono::duration<double>(now.time_since_epoch()).count(),
                         now>=output_deadline ? WEB_CHASSIS_TIMEOUT : std::chrono::duration<double>(now - last_command).count(),
                         control_loop->calibrated());
@@ -154,6 +185,17 @@ int main(int argc, char **argv) {
           {"output_seq",output_gate.sequence()},{"ordered_output",true},
           {"calibrated",control_loop->calibrated()}}.dump();
       output_status->publish(state);
+      std_msgs::msg::String lift_state;
+      lift_state.data=nlohmann::json{{"driver_instance",driver_instance},
+          {"time_s",std::chrono::duration<double>(now.time_since_epoch()).count()},
+          {"requested_target",lift_motion.target()},{"reference",planned.position},
+          {"sdk_reference",control_loop->reference()},{"velocity",planned.velocity},
+          {"acceleration",planned.acceleration},{"jerk",planned.jerk},
+          {"max_velocity_rad_s",lift_target_ramp_rad_s},
+          {"max_acceleration_rad_s2",lift_reference_acceleration},{"max_jerk_rad_s3",lift_reference_jerk},
+          {"active",lift_motion.active()},{"fault",lift_motion.fault()},
+          {"plan_count",lift_motion.plan_count()},{"calibrated",control_loop->calibrated()}}.dump();
+      lift_status->publish(lift_state);
     }
     arm_control::msg::PosCmd msg;
     msg.head_yaw = control_loop->getHeadYaw();
