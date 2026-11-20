@@ -202,6 +202,20 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNotNone(observation)
         self.assertLessEqual(float(np.max(observation['quad'][:, 1])), 66.)
 
+    def test_upper_face_prefers_near_target_over_roi_background(self):
+        rgb = np.zeros((120, 160, 3), np.uint8)
+        _, background = self.depth_plane((74, 0, 160, 66), shape=(120, 160), depth=.60)
+        _, target = self.depth_plane((118, 0, 160, 42), shape=(120, 160), depth=.30)
+        xyz = background.copy(); occupied = target[:, :, 2] > 0; xyz[occupied] = target[occupied]
+        observation = self.upper_face_detector()(rgb, xyz)
+        self.assertIsNotNone(observation)
+        self.assertAlmostEqual(observation['median_depth_m'], .302, delta=.02)
+        self.assertGreaterEqual(float(np.min(observation['quad'][:, 0])), 114.)
+
+    def test_upper_face_rejects_roi_background_without_object_boundaries(self):
+        rgb, xyz = self.depth_plane((74, 0, 160, 66), shape=(120, 160), depth=.60)
+        self.assertIsNone(self.upper_face_detector()(rgb, xyz))
+
     def test_upper_face_rejects_lower_housing_without_top_target(self):
         rgb, xyz = self.depth_plane((10, 70, 160, 120), shape=(120, 160), depth=.32)
         self.assertIsNone(self.upper_face_detector()(rgb, xyz))
@@ -217,6 +231,14 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNone(self.upper_face_detector()(rgb, np.zeros((120, 160, 3), np.float32)))
         self.assertIsNone(self.upper_face_detector()(rgb, np.full((120, 160, 3), np.nan)))
 
+    def test_upper_face_uses_finite_inliers_when_texture_gap_is_nan(self):
+        rgb, xyz = self.depth_plane((92, 0, 160, 62), shape=(120, 160), depth=.30)
+        xyz[24:27, 92:160] = np.nan
+        observation = self.upper_face_detector()(rgb, xyz)
+        self.assertIsNotNone(observation)
+        self.assertTrue(np.isfinite(observation['median_depth_m']))
+        self.assertTrue(np.isfinite(observation['confidence']))
+
     def test_upper_face_evidence_has_no_insertion_axis_or_hidden_clearance(self):
         rgb, xyz = self.depth_plane((92, 0, 160, 62), shape=(120, 160), depth=.30)
         evidence = self.upper_face_evidence()(rgb, xyz)
@@ -229,6 +251,7 @@ class OverlayTests(unittest.TestCase):
         image = np.zeros((100, 140, 3), np.uint8)
         observation = dict(method='upper_front_depth_plane', visible_fraction=.72,
                            boundary_contacts=['top', 'right'], confidence=.88,
+                           median_depth_m=.303, plane_normal=np.asarray([0., .1, .995]),
                            quad=np.asarray([[70,0],[139,0],[139,60],[70,60]],np.float32))
         with tempfile.TemporaryDirectory() as directory:
             overlay = LiveOverlay.__new__(LiveOverlay); overlay.output = Path(directory)
@@ -239,7 +262,19 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(metadata['battery_contour']['method'], 'upper_front_depth_plane')
         self.assertFalse(metadata['battery_contour']['insertion_axis_available'])
         self.assertFalse(metadata['battery_contour']['hidden_space_clearance_proven'])
+        self.assertAlmostEqual(metadata['battery_contour']['median_depth_m'], .303)
+        np.testing.assert_allclose(metadata['battery_contour']['plane_normal'], [0., .1, .995])
         self.assertEqual(metadata['battery_axis']['status'], 'unavailable')
+
+    def test_render_uses_null_measurements_when_upper_face_unavailable(self):
+        image = np.zeros((100, 140, 3), np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = LiveOverlay.__new__(LiveOverlay); overlay.output = Path(directory)
+            overlay.render(image, [], {'status':'not_found'}, None, None, 'upper-missing',
+                           battery_observation={'method':'unavailable'})
+            metadata = json.loads((Path(directory)/'d435.json').read_text())
+        self.assertIsNone(metadata['battery_contour']['median_depth_m'])
+        self.assertIsNone(metadata['battery_contour']['plane_normal'])
 
     def test_observed_top_face_warps_all_twelve_cad_edges(self):
         pixels = [(10, 10), (10, 50), (30, 10), (30, 50), (50, 10), (50, 50), (70, 10), (70, 50)]

@@ -317,7 +317,9 @@ def battery_upper_face(rgb, xyz):
     height, width = rgb.shape[:2]
     depth = xyz[:, :, 2]
     roi = np.zeros((height, width), bool)
-    roi[:max(1, int(round(height*.55))), int(round(width*.46)):] = True
+    roi_bottom = max(1, int(round(height*.55)))
+    roi_left = int(round(width*.46))
+    roi[:roi_bottom, roi_left:] = True
     valid = roi & np.isfinite(xyz).all(axis=2) & (depth >= .15) & (depth <= 1.2)
     ys, xs = np.nonzero(valid)
     minimum = max(300, int(width*height*.003))
@@ -350,6 +352,7 @@ def battery_upper_face(rgb, xyz):
         remaining = remaining[~inliers]
 
     candidates = []
+    minimum_area = max(500, int(width*height*.004))
     close_kernel = np.ones((max(5, int(round(height*.065))),
                             max(3, int(round(width*.014)))), np.uint8)
     for normal, anchor in planes:
@@ -357,29 +360,56 @@ def battery_upper_face(rgb, xyz):
         if facing < .90:
             continue
         inliers = np.abs((points-anchor) @ normal) <= .008
-        mask = np.zeros((height, width), np.uint8)
-        mask[ys[inliers], xs[inliers]] = 1
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
-        count, labels, stats, centers = cv2.connectedComponentsWithStats(mask, 8)
+        raw_mask = np.zeros((height, width), np.uint8)
+        raw_mask[ys[inliers], xs[inliers]] = 1
+        closed_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, close_kernel)
+        count, labels, stats, centers = cv2.connectedComponentsWithStats(closed_mask, 8)
         for index in range(1, count):
             area = int(stats[index, cv2.CC_STAT_AREA])
             left, top, box_width, box_height = map(int, stats[index, :4])
-            if (area < max(500, int(width*height*.004)) or
+            if (area < minimum_area or
                     box_width < max(28, int(width*.10)) or box_height < max(20, int(height*.08))):
                 continue
             right = left + box_width - 1
+            bottom = top + box_height - 1
             aspect = box_width / float(box_height)
             if not .40 <= aspect <= 5.0:
                 continue
             if top > max(2, int(height*.03)) or right < width-2 or centers[index, 0] < width*.60:
                 continue
+            # A background filling the search ROI inherits its artificial left and
+            # bottom borders. The approved battery has measured object boundaries
+            # strictly inside both of those ROI edges.
+            if (left <= roi_left + max(3, int(width*.02)) or
+                    bottom >= roi_bottom-2):
+                continue
             component = labels == index
-            median_depth = float(np.median(depth[component]))
-            score = area*facing/(median_depth+.1)
-            candidates.append((score, area, facing, median_depth, component, normal, anchor))
+            support = component & (raw_mask > 0) & np.isfinite(depth)
+            support_count = int(support.sum())
+            support_ratio = support_count / float(area)
+            if support_count < minimum_area or support_ratio < .20:
+                continue
+            patch_width = max(4, int(round(box_width*.18)))
+            patch_height = max(4, int(round(box_height*.18)))
+            corner_patches = (
+                support[top:top+patch_height, left:left+patch_width],
+                support[top:top+patch_height, right-patch_width+1:right+1],
+                support[bottom-patch_height+1:bottom+1, left:left+patch_width],
+                support[bottom-patch_height+1:bottom+1, right-patch_width+1:right+1],
+            )
+            if any(np.count_nonzero(patch) < max(3, int(patch.size*.02)) for patch in corner_patches):
+                continue
+            measured_depth = depth[support]
+            if not len(measured_depth) or not np.isfinite(measured_depth).all():
+                continue
+            median_depth = float(np.median(measured_depth))
+            area_factor = min(2., support_count/float(minimum_area))
+            score = area_factor*facing*(.5+.5*support_ratio)/(median_depth+.1)
+            candidates.append((score, area, support_count, support_ratio, facing,
+                               median_depth, component, normal, anchor))
     if not candidates:
         return None
-    _, area, facing, median_depth, component, normal, anchor = max(candidates, key=lambda row: row[0])
+    _, area, support_count, support_ratio, facing, median_depth, component, normal, anchor = max(candidates, key=lambda row: row[0])
     contour_set, _ = cv2.findContours(component.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contour_set:
         return None
@@ -395,8 +425,9 @@ def battery_upper_face(rgb, xyz):
     if float(quad[:, 1].min()) <= 2: contacts.append('top')
     if float(quad[:, 0].max()) >= width-2: contacts.append('right')
     rect_area = max(1., float(cv2.contourArea(quad.astype(np.float32))))
-    visible_fraction = float(np.clip(area/rect_area, 0., 1.))
-    confidence = float(np.clip(.45*facing + .35*visible_fraction + .20*min(1., area/(width*height*.05)), 0., 1.))
+    visible_fraction = float(np.clip(support_count/rect_area, 0., 1.))
+    confidence = float(np.clip(.45*facing + .35*visible_fraction +
+                               .20*min(1., support_count/(minimum_area*2.)), 0., 1.))
     return dict(method='upper_front_depth_plane', quad=quad, contour=quad.copy(),
                 median_depth_m=median_depth, plane_normal=np.asarray(normal, float),
                 plane_anchor=np.asarray(anchor, float), boundary_contacts=contacts,
@@ -584,6 +615,11 @@ class LiveOverlay:
         battery_visible = bool(battery_edges) or measured_contour is not None
         battery_status = 'visible' if battery_axis else 'unavailable'; cabinet_status = 'visible' if cabinet_axis else 'unavailable'
         reason = '' if cabinet_status == 'visible' else (cabinet_reason or '仓口进入轴未识别')
+        median_depth = observation.get('median_depth_m')
+        if not isinstance(median_depth, (int, float)) or not np.isfinite(median_depth):
+            median_depth = None
+        plane_normal = np.asarray(observation.get('plane_normal'), float)
+        plane_normal = plane_normal.tolist() if plane_normal.shape == (3,) and np.isfinite(plane_normal).all() else None
         metadata = dict(sequence=str(sequence), updated_at=time.time(), stale=False, error='', status='ready',
                         battery_contour=dict(status='visible' if battery_visible else 'unavailable', color='magenta',
                                              method=observation.get('method', 'current depth-supported visible face only'),
@@ -594,6 +630,8 @@ class LiveOverlay:
                                              model_completion_aligned=bool(depth_aligned),
                                              measured_depth_supported=bool(measured_depth_supported or battery_edges),
                                              insertion_axis_available=bool(observation.get('insertion_axis_available', battery_axis is not None)),
+                                             median_depth_m=median_depth,
+                                             plane_normal=plane_normal,
                                              hidden_space_clearance_proven=False),
                         cabinet_rim=dict(status='visible' if detection.get('status') == 'complete' else detection.get('status', 'unavailable'), color='red'),
                         battery_axis=dict(status=battery_status, color='yellow',
