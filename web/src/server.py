@@ -38,6 +38,7 @@ from visual_docking_live import LiveDockTask
 from fast_visual_level import FastVisualLevel
 from d435_live_overlay import LiveOverlay
 from plan_d_vision import PlanDVision
+from navigation_placement import NavigationPlacement
 from placement_reference import PlacementReferenceController
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
@@ -104,6 +105,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
         return capture,artifacts
     placement_reference=placement_reference or PlacementReferenceController(reference_root,capture_reference)
     def competition_view(view):
+        module=competition_task.modules.get('place') if competition_task is not None else None
+        if isinstance(module,NavigationPlacement):
+            view['placement_backend']='visual_chassis_d405_insert_160'
+            view['placement_readiness']=module.readiness()
         if t2_preview is not None:
             view['t2_preview']={'mode':'recorded_preview','preview_only':True,
                                 'notice':'T2 仅历史数据预览，不执行放置，不发送完成回执'}
@@ -448,8 +453,7 @@ def main():
     placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     navigation=NavigationSession(controller,RouteMailbox(STATE_FILE.parent,read_snapshot))
-    t2_placement=make_t2_placement(cabinet_execution,WEB_ROOT.parent/'config/t2-preview.local.json',
-        WEB_ROOT.parent/'navigation/reports/t2-recorded-preview')
+    t2_placement=NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent)
     modules={'navigate_pick':navigation.stage('point_1'),'navigate_place':navigation.stage('point_2'),
              'place':t2_placement}
     if battery_task:

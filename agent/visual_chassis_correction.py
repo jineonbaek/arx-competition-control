@@ -161,6 +161,10 @@ def load_locked_handoff(path, *, now, max_age_s):
         value = json.loads(Path(path).read_text())
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("Invalid visual chassis handoff") from error
+    return validate_locked_handoff(value, now=now, max_age_s=max_age_s)
+
+
+def validate_locked_handoff(value, *, now, max_age_s):
     stamp = value.get("captured_at") if isinstance(value, dict) else None
     if (
         not _finite(now)
@@ -201,8 +205,9 @@ def run_visual_chassis_workflow(reference, policy, *, observe, command_chassis, 
 
     try:
         for _ in range(policy["max_correction_cycles"]):
+            observation = observe()
             now = float(clock())
-            residual = compare_observations(reference, observe(), policy, now=now)
+            residual = compare_observations(reference, observation, policy, now=now)
             step = plan_chassis_step(
                 residual,
                 policy,

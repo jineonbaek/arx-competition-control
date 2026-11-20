@@ -165,7 +165,8 @@ class NavigationSession:
     def complete_visit(self,context):
         while True:
             self.await_channel(context)
-            if not self.controller.snapshot()['chassis_active']:break
+            robot=self.controller.snapshot()
+            if not robot['chassis_active'] and not robot.get('motion_reserved',False):break
             if context['cancelled'].wait(.1):raise ValueError('整场停止，不自动恢复交接')
         self._event('complete',control_released=True,navigation_ready=True)
 

@@ -20,7 +20,7 @@ from docking_motion import DockingMotion
 from agent.taught_placement import (PhaseTimeline,load_preobservation_waypoint,load_taught_route,
     outer_alignment_error,reverse_reached_route,validate_preobservation_pose,validate_preobservation_waypoint)
 from agent.d405_aperture_alignment import estimate_horizontal_alignment,estimate_vertical_alignment
-from agent.visual_chassis_correction import load_chassis_policy,load_locked_handoff
+from agent.visual_chassis_correction import load_chassis_policy,load_locked_handoff,validate_locked_handoff
 from d405_alignment_overlay import write_horizontal_overlay
 from handeye_validation import CANDIDATE as D405_CALIBRATION
 
@@ -332,6 +332,7 @@ class FastVisualLevel:
         if data not in (dict(op='start'),dict(op='place'),dict(op='place_raised'),dict(op='place_rotate_no_table'),dict(op='place_no_table'),dict(op='place_recover_no_table'),dict(op='place_up_no_table'),dict(op='auto_full'),dict(op='auto_insert_160',visual_chassis_handoff='locked_admitted'),dict(op='d435_only')):raise ValueError('Only fixed task operations accepted')
         with self.lock:
             if self.thread and self.thread.is_alive():raise ValueError('Leveling already active')
+            self.owned_token=None;self.owned_handoff=None
             s=self.ctrl.snapshot()
             if s['motion_reserved'] or s['competition_reserved'] or s['chassis_active']:raise ValueError('Other control active')
             prefix='automatic-placement-' if data['op'] in ('auto_full','auto_insert_160') else 'fast-level-'
@@ -340,6 +341,26 @@ class FastVisualLevel:
             self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full','auto_insert_160');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.small_up_before_place=data['op']=='place_up_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full','auto_insert_160','d435_only');self.outside_margin_mm=.1 if self.small_up_before_place else .5;self.inserting=False
             self.save(table_checked=not self.skip_table)
             self.save(status='running',phase='entry',reason='',released=False,insertion=False,mode=self.mode,navigation_handoff=self.navigation_handoff)
+            self.thread=threading.Thread(target=self._run,daemon=True);self.thread.start()
+            return self.snapshot()
+    def start_owned(self,token,handoff):
+        """Continue the competition's existing ownership after fresh visual admission."""
+        with self.lock:
+            if self.thread and self.thread.is_alive():raise ValueError('Leveling already active')
+            if not self.ctrl.motion_valid(token):raise ValueError('Placement ownership invalid')
+            policy=load_chassis_policy(ROOT/'config/visual-chassis-placement.json')
+            admitted=validate_locked_handoff(handoff,now=time.time(),max_age_s=policy['handoff_max_age_s'])
+            if self.ctrl.snapshot()['chassis_active']:raise ValueError('Chassis still active')
+            self.owned_token=token;self.owned_handoff=copy.deepcopy(admitted)
+            self.motion=None;self.token=None
+            self.cancel=threading.Event();self.mode='auto_insert_160'
+            self.auto_insert_160=True;self.auto_full=False;self.d435_only=False
+            self.prepared_only=True;self.skip_table=True;self.outside_margin_mm=.5
+            self.inserting=False;self.released=False;self.returning=False
+            self.full_inserting=False;self.locked_inside=False
+            self.run=WORK/'reports'/('automatic-placement-'+uuid.uuid4().hex);self.run.mkdir(parents=True)
+            self.state=dict(status='running',phase='entry',released=False,insertion=False,
+                run_id=self.run.name,navigation_handoff='locked_admitted',mode=self.mode)
             self.thread=threading.Thread(target=self._run,daemon=True);self.thread.start()
             return self.snapshot()
     def guard(self,s=None,now=None):
@@ -795,8 +816,9 @@ class FastVisualLevel:
         model=self.ctrl.models['right'];limits=self.ctrl.config['arms']['right']['joint_limits_deg']
         tcp=self.tcp
         policy=load_chassis_policy(ROOT/self.route.visual_chassis_policy)
-        self.chassis_handoff=load_locked_handoff(ROOT/self.route.visual_chassis_handoff,
-            now=time.time(),max_age_s=policy['handoff_max_age_s'])
+        self.chassis_handoff=(copy.deepcopy(self.owned_handoff) if getattr(self,'owned_handoff',None) is not None
+            else load_locked_handoff(ROOT/self.route.visual_chassis_handoff,
+                now=time.time(),max_age_s=policy['handoff_max_age_s']))
         self.save(chassis_handoff=self.chassis_handoff,entry_source='visual_chassis+d405_preobservation')
         preobservation=load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint,self.height)
         contact=np.asarray(self.contact,float);self.attachment=np.eye(4);self.attachment[:3,:3]=OBJECT_TO_TOOL
@@ -923,7 +945,9 @@ class FastVisualLevel:
     def _run(self):
         maintenance=None;error=None;moving=False;previous_depth=None;monitor=None
         try:
-            s=self.ctrl.snapshot();self.token=self.ctrl.reserve_motion(s['command_epoch'])
+            s=self.ctrl.snapshot();owned=getattr(self,'owned_token',None)
+            if owned is not None and not self.ctrl.motion_valid(owned):raise ValueError('Placement ownership invalid')
+            self.token=owned if owned is not None else self.ctrl.reserve_motion(s['command_epoch'])
             maintenance=None if self.auto_insert_160 else self.ctrl.reserve_chassis_maintenance()
             self.driver=self.ctrl.adapter.trajectory_status('right')['driver_instance'];self.raw=s['arms']['right']['gripper'];self.height=s['body']['height']
             self.left_q=np.array(s['arms']['left']['joints']);self.scene=None;self.geometry_tick=0.
@@ -1021,7 +1045,7 @@ class FastVisualLevel:
                 except Exception:pass
             if error is None or getattr(self,'auto_insert_160',False):
                 if maintenance is not None:self.ctrl.release_chassis_maintenance(maintenance)
-                if self.token is not None:self.ctrl.release_motion(self.token)
+                if self.token is not None and getattr(self,'owned_token',None) is None:self.ctrl.release_motion(self.token)
             else:self.save(control_retained=self.token is not None)
     def close(self):
         if self.thread and self.thread.is_alive():self.action(dict(op='cancel'));self.thread.join(3.)
