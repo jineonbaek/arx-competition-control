@@ -97,6 +97,12 @@ class CoarseStepTests(unittest.TestCase):
         np.testing.assert_allclose(self.step.lift.target,[5.0])
         self.assertEqual([c[0] for c in self.adapter.calls],['lift','lift','arm','trajectory'])
 
+    def test_prestarted_lift_keeps_the_original_feedback_check_without_resubmitting(self):
+        self.token.prestarted_lift_target=6.
+        self.assertEqual(self.step.start()['status'],'lifting')
+        self.assertEqual(self.adapter.calls,[])
+        self.assertIsNone(self.token.prestarted_lift_target)
+
     def test_observer_preflight_failure_sends_no_trajectory(self):
         self.step.arm_preflight=lambda *_:False
         self.step.start();self.height=6.

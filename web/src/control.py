@@ -39,7 +39,8 @@ class Rejected(ValueError):
 
 class _MotionToken:
     """Process-local capability; never supplied by a browser or serialized."""
-    pass
+    def __init__(self, prestarted_lift_target=None):
+        self.prestarted_lift_target = prestarted_lift_target
 
 
 class _CompetitionToken:
@@ -48,6 +49,7 @@ class _CompetitionToken:
         self.navigation = False
         self.nav_session = None
         self.nav_client = _NavigationToken()
+        self.prestarted_lift_target = None
 
 
 class _NavigationToken:
@@ -108,6 +110,22 @@ class Controller:
                 raise Rejected('当前作业尚未交还运动占用或已被停止')
             token.navigation = bool(enabled)
 
+    def submit_competition_lift(self, data, token):
+        """Start only the existing body lift while competition navigation owns the chassis."""
+        with self.lock:
+            if token is None or token is not self.competition_owner or token.interrupted:
+                raise Rejected('整场任务控制权已失效')
+            kind = data.get('type') if isinstance(data, dict) else None
+            if kind == 'lift' and set(data) == {'type', 'target'}:
+                result = self.submit(data, token.nav_client)
+                token.prestarted_lift_target = float(data['target'])
+                return result
+            if kind == 'lift.stop' and set(data) == {'type'}:
+                result = self.submit(data, token.nav_client)
+                token.prestarted_lift_target = None
+                return result
+            raise Rejected('比赛预升降仅接受现有升降与停止指令')
+
     def stop_competition_navigation(self, token):
         with self.lock:
             self.set_competition_navigation(token, False)
@@ -154,10 +172,25 @@ class Controller:
                 raise Rejected("控制权申请时指令状态已变化或真实控制未启用")
             if self.motion_owner is not None or self.chassis_owner is not None:
                 raise Rejected("已有任务或底盘运动占用控制权")
-            self.motion_owner = _MotionToken()
+            inherited = competition is not None and competition is self.competition_owner
+            prestarted = competition.prestarted_lift_target if inherited else None
+            self.motion_owner = _MotionToken(prestarted)
+            if inherited:
+                competition.prestarted_lift_target = None
             self.motion_interrupted = False
             self.command_epoch += 1
             return self.motion_owner
+
+    def take_prestarted_lift(self, token, target):
+        """Transfer the already-issued lift target into the original measured check."""
+        with self.lock:
+            if not self.motion_valid(token) or not number(target):
+                return False
+            started = token.prestarted_lift_target
+            if not number(started) or not math.isclose(float(started), float(target), abs_tol=1e-9):
+                return False
+            token.prestarted_lift_target = None
+            return True
 
     def motion_valid(self, token):
         with self.lock:

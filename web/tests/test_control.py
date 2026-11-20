@@ -11,6 +11,7 @@ class FakeAdapter:
     def status(self): return {"connected": True, "error": ""}
     def has_subscriber(self, topic, kind): return True
     def lift_ready(self): return True
+    def chassis_ready(self): return True
     def body_calibrated(self): return True
     def arm_ready(self, side): return True
     def arm_stop_ready(self, side): return True
@@ -129,6 +130,15 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.adapter.calls[-1], ("lift", (18.0,)))
         self.controller.submit({"type": "lift.stop"}, "A")
         self.assertEqual(self.adapter.calls[-1], ("lift", (5.,)))
+
+    def test_competition_lift_target_transfers_to_the_pick_motion_token(self):
+        competition=self.controller.reserve_competition(self.controller.command_epoch)
+        self.controller.set_competition_navigation(competition,True)
+        self.controller.submit_competition_lift({'type':'lift','target':5.52},competition)
+        self.controller.set_competition_navigation(competition,False)
+        motion=self.controller.reserve_motion(self.controller.command_epoch,competition=competition)
+        self.assertTrue(self.controller.take_prestarted_lift(motion,5.52))
+        self.assertFalse(self.controller.take_prestarted_lift(motion,5.52))
 
     def test_requested_chassis_limits_allow_positive_values_and_reject_overflow(self):
         actual = json.loads((Path(__file__).resolve().parents[1] / "config/control.json").read_text())
