@@ -31,6 +31,15 @@ class ProductionTests(unittest.TestCase):
             sampled_orientation_error_deg=.6,timing={'status':'timed_preview'})
         self.assertTrue(review_plan('execute_pick',pick,environment_clear=True)['collision_free'])
 
+    def test_plan_c_taught_joint_path_skips_visual_insert_shape_limits(self):
+        pick=dict(vision_mode='fixed',status='kinematic_preview',
+            joint_waypoints_rad=[[0.]*6,[.1]*6],column_checked=True,
+            interpolation_position_bound_mm=52.2,sampled_orientation_error_deg=2.2,
+            timing={'status':'timed_preview'})
+        self.assertTrue(review_plan('execute_pick',pick,environment_clear=True)['collision_free'])
+        pick['vision_mode']='d405'
+        self.assertFalse(review_plan('execute_pick',pick,environment_clear=True)['collision_free'])
+
     def test_preflight_keeps_fresh_feedback_and_lift_settled_gate(self):
         plan={k:True for k in ('executable','ik_checked','collision_checked','collision_free',
                                'environment_collision_checked')}

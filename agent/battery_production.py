@@ -39,11 +39,12 @@ def review_plan(operation,plan,*,environment_clear):
         ik=(plan.get('status')=='kinematic_preview' and points.ndim==2
             and points.shape[1:]==(6,) and len(points)>=2 and np.isfinite(points).all())
         checked=plan.get('column_checked') is True
-        clear=(checked and type(plan.get('interpolation_position_bound_mm')) in (int,float)
-               and type(plan.get('sampled_orientation_error_deg')) in (int,float)
-               and plan['interpolation_position_bound_mm']<=2.
-               and plan['sampled_orientation_error_deg']<=.7
-               and timing.get('status')=='timed_preview')
+        taught=plan.get('vision_mode')=='fixed'
+        clear=(checked and timing.get('status')=='timed_preview' and (taught or
+               (type(plan.get('interpolation_position_bound_mm')) in (int,float)
+                and type(plan.get('sampled_orientation_error_deg')) in (int,float)
+                and plan['interpolation_position_bound_mm']<=2.
+                and plan['sampled_orientation_error_deg']<=.7)))
         if plan.get('refinement',{}).get('status')=='correction_required':
             correction=plan.get('correction',{})
             points=np.asarray(correction.get('joint_waypoints_rad'),float)
