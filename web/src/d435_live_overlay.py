@@ -309,6 +309,114 @@ def battery_face_evidence(rgb, xyz, expected_px, expected_depth_m, projected_pix
                 model_completion_aligned=bool(aligned), measured_depth_supported=True)
 
 
+def battery_upper_face(rgb, xyz):
+    """Detect the user-approved top/right, camera-facing battery plane without a pose prior."""
+    rgb = np.asarray(rgb, np.uint8); xyz = np.asarray(xyz, float)
+    if rgb.ndim != 3 or rgb.shape[2] != 3 or xyz.shape != (*rgb.shape[:2], 3):
+        return None
+    height, width = rgb.shape[:2]
+    depth = xyz[:, :, 2]
+    roi = np.zeros((height, width), bool)
+    roi[:max(1, int(round(height*.55))), int(round(width*.46)):] = True
+    valid = roi & np.isfinite(xyz).all(axis=2) & (depth >= .15) & (depth <= 1.2)
+    ys, xs = np.nonzero(valid)
+    minimum = max(300, int(width*height*.003))
+    if len(xs) < minimum:
+        return None
+    points = xyz[ys, xs]
+    rng = np.random.default_rng(29)
+    remaining = np.arange(len(points))
+    planes = []
+    for _ in range(8):
+        if len(remaining) < minimum:
+            break
+        active = points[remaining]
+        sample = active if len(active) <= 16000 else active[rng.choice(len(active), 16000, replace=False)]
+        best = None
+        for _ in range(260):
+            a, b, c = sample[rng.choice(len(sample), 3, replace=False)]
+            normal = np.cross(b-a, c-a); length = np.linalg.norm(normal)
+            if length < 1e-8:
+                continue
+            normal /= length
+            inliers = np.abs((active-a) @ normal) <= .005
+            count = int(inliers.sum())
+            if best is None or count > best[0]:
+                best = count, normal, a, inliers
+        if best is None or best[0] < minimum:
+            break
+        _, normal, anchor, inliers = best
+        planes.append((normal, anchor))
+        remaining = remaining[~inliers]
+
+    candidates = []
+    close_kernel = np.ones((max(5, int(round(height*.065))),
+                            max(3, int(round(width*.014)))), np.uint8)
+    for normal, anchor in planes:
+        facing = abs(float(normal[2]))
+        if facing < .90:
+            continue
+        inliers = np.abs((points-anchor) @ normal) <= .008
+        mask = np.zeros((height, width), np.uint8)
+        mask[ys[inliers], xs[inliers]] = 1
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
+        count, labels, stats, centers = cv2.connectedComponentsWithStats(mask, 8)
+        for index in range(1, count):
+            area = int(stats[index, cv2.CC_STAT_AREA])
+            left, top, box_width, box_height = map(int, stats[index, :4])
+            if (area < max(500, int(width*height*.004)) or
+                    box_width < max(28, int(width*.10)) or box_height < max(20, int(height*.08))):
+                continue
+            right = left + box_width - 1
+            aspect = box_width / float(box_height)
+            if not .40 <= aspect <= 5.0:
+                continue
+            if top > max(2, int(height*.03)) or right < width-2 or centers[index, 0] < width*.60:
+                continue
+            component = labels == index
+            median_depth = float(np.median(depth[component]))
+            score = area*facing/(median_depth+.1)
+            candidates.append((score, area, facing, median_depth, component, normal, anchor))
+    if not candidates:
+        return None
+    _, area, facing, median_depth, component, normal, anchor = max(candidates, key=lambda row: row[0])
+    contour_set, _ = cv2.findContours(component.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contour_set:
+        return None
+    contour = max(contour_set, key=cv2.contourArea)
+    hull = cv2.convexHull(contour)
+    quad = cv2.boxPoints(cv2.minAreaRect(hull))
+    quad[:, 0] = np.clip(quad[:, 0], 0, width-1)
+    quad[:, 1] = np.clip(quad[:, 1], 0, height-1)
+    quad = _ordered_quad(quad)
+    if cv2.contourArea(quad.astype(np.float32)) < max(900., width*height*.02):
+        return None
+    contacts = []
+    if float(quad[:, 1].min()) <= 2: contacts.append('top')
+    if float(quad[:, 0].max()) >= width-2: contacts.append('right')
+    rect_area = max(1., float(cv2.contourArea(quad.astype(np.float32))))
+    visible_fraction = float(np.clip(area/rect_area, 0., 1.))
+    confidence = float(np.clip(.45*facing + .35*visible_fraction + .20*min(1., area/(width*height*.05)), 0., 1.))
+    return dict(method='upper_front_depth_plane', quad=quad, contour=quad.copy(),
+                median_depth_m=median_depth, plane_normal=np.asarray(normal, float),
+                plane_anchor=np.asarray(anchor, float), boundary_contacts=contacts,
+                visible_fraction=visible_fraction, confidence=confidence,
+                insertion_axis_available=False, hidden_space_clearance_proven=False)
+
+
+def battery_upper_face_evidence(rgb, xyz):
+    observation = battery_upper_face(rgb, xyz)
+    if observation is None:
+        return dict(method='unavailable', battery_edges=[], battery_axis=None,
+                    measured_contour=None, inferred_edges=[], observation=None,
+                    model_completion_aligned=False, measured_depth_supported=False,
+                    insertion_axis_available=False, hidden_space_clearance_proven=False)
+    return dict(method=observation['method'], battery_edges=[], battery_axis=None,
+                measured_contour=observation['quad'], inferred_edges=[], observation=observation,
+                model_completion_aligned=False, measured_depth_supported=True,
+                insertion_axis_available=False, hidden_space_clearance_proven=False)
+
+
 def write_depth_map(xyz, path, near_m=.3, far_m=1.2):
     depth = np.asarray(xyz, float)[:, :, 2]
     valid = np.isfinite(depth) & (depth >= near_m) & (depth <= far_m)
@@ -418,18 +526,8 @@ class LiveOverlay:
                 frame = {key: source[key].copy() for key in source.files}
             frame['id'] = str(frame['id']); frame['camera_id'] = str(frame['camera_id'])
             frame['calibration_sha256'] = str(frame['calibration_sha256'])
-            reference_object, reference_joints, reference_lift, reference_id = self._reference()
-            object_pose = tracked_object_pose(self.model, self.tcp, frame['joints'], float(frame['lift_rad']),
-                                              reference_object, reference_joints, reference_lift)
             intrinsics = json.loads(str(frame['intrinsics']))
-            center_base, front_base = self._axis_points(object_pose, self.bounds)
-            center_camera = np.linalg.inv(frame['base_from_color']) @ np.r_[center_base, 1.]
-            center_px = project_base(center_base, frame['base_from_color'], intrinsics)
-            front_px = project_base(front_base, frame['base_from_color'], intrinsics)
-            if center_px is None: raise ValueError('电池中心不在当前 D435 画面内')
-            pixels = battery_box_pixels(object_pose, self.bounds, frame['base_from_color'], intrinsics)
-            evidence = battery_face_evidence(frame['rgb'], frame['xyz'], center_px,
-                                             center_camera[2], projected_pixels=pixels)
+            evidence = battery_upper_face_evidence(frame['rgb'], frame['xyz'])
             edges = evidence['battery_edges']; battery_axis = evidence['battery_axis']
             measured_contour = evidence['measured_contour']; inferred_edges = evidence['inferred_edges']
             observation = evidence['observation'] or dict(method=evidence['method'])
@@ -440,7 +538,7 @@ class LiveOverlay:
                 if cabinet_axis is not None:
                     cabinet_reason = ''
             result = self.render(frame['rgb'], edges, detection, battery_axis,
-                                 cabinet_axis, frame['id'], cabinet_reason=cabinet_reason, reference_id=reference_id,
+                                 cabinet_axis, frame['id'], cabinet_reason=cabinet_reason, reference_id='',
                                  depth_aligned=depth_aligned, xyz=frame['xyz'], measured_contour=measured_contour,
                                  inferred_edges=inferred_edges, battery_observation=observation,
                                  measured_depth_supported=evidence['measured_depth_supported'])
@@ -457,11 +555,18 @@ class LiveOverlay:
                measured_depth_supported=False):
         self.output.mkdir(parents=True, exist_ok=True)
         canvas = cv2.cvtColor(np.asarray(rgb, np.uint8), cv2.COLOR_RGB2BGR)
+        observation = battery_observation or {}
         for start, end in battery_edges:
             cv2.line(canvas, start, end, (255, 0, 255), 3, cv2.LINE_AA)
         if measured_contour is not None and len(measured_contour) >= 3:
             cv2.polylines(canvas, [np.rint(measured_contour).astype(np.int32)], True,
                           (255, 0, 255), 4, cv2.LINE_AA)
+            if observation.get('method') == 'upper_front_depth_plane':
+                points = np.asarray(measured_contour, float)
+                label = (max(8, int(points[:, 0].min())-4),
+                         min(canvas.shape[0]-10, int(points[:, 1].max())+24))
+                cv2.putText(canvas, 'BATTERY FACE', label, cv2.FONT_HERSHEY_SIMPLEX,
+                            .58, (255, 0, 255), 2, cv2.LINE_AA)
         for start, end in inferred_edges or []:
             _draw_dashed_line(canvas, start, end, (255, 80, 190), 2)
         if detection.get('outer_contour_px'): cv2.polylines(canvas, [np.asarray(detection['outer_contour_px'], np.int32)], True, (0, 0, 255), 4, cv2.LINE_AA)
@@ -479,7 +584,6 @@ class LiveOverlay:
         battery_visible = bool(battery_edges) or measured_contour is not None
         battery_status = 'visible' if battery_axis else 'unavailable'; cabinet_status = 'visible' if cabinet_axis else 'unavailable'
         reason = '' if cabinet_status == 'visible' else (cabinet_reason or '仓口进入轴未识别')
-        observation = battery_observation or {}
         metadata = dict(sequence=str(sequence), updated_at=time.time(), stale=False, error='', status='ready',
                         battery_contour=dict(status='visible' if battery_visible else 'unavailable', color='magenta',
                                              method=observation.get('method', 'current depth-supported visible face only'),
@@ -489,9 +593,11 @@ class LiveOverlay:
                                              inferred_completion=bool(inferred_edges),
                                              model_completion_aligned=bool(depth_aligned),
                                              measured_depth_supported=bool(measured_depth_supported or battery_edges),
+                                             insertion_axis_available=bool(observation.get('insertion_axis_available', battery_axis is not None)),
                                              hidden_space_clearance_proven=False),
                         cabinet_rim=dict(status='visible' if detection.get('status') == 'complete' else detection.get('status', 'unavailable'), color='red'),
-                        battery_axis=dict(status=battery_status, color='yellow', direction='object -Z / cabinet-facing leading face'),
+                        battery_axis=dict(status=battery_status, color='yellow',
+                                          direction='object -Z / cabinet-facing leading face' if battery_axis else 'unavailable'),
                         cabinet_axis=dict(status=cabinet_status, color='cyan', direction='inside'),
                         reference_pose_id=reference_id, depth_top_face_aligned=bool(depth_aligned), reason=reason)
         _atomic_json(self.output / 'd435.json', metadata)

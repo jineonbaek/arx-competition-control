@@ -225,6 +225,22 @@ class OverlayTests(unittest.TestCase):
         self.assertFalse(evidence['insertion_axis_available'])
         self.assertFalse(evidence['hidden_space_clearance_proven'])
 
+    def test_render_marks_upper_face_without_insertion_axis(self):
+        image = np.zeros((100, 140, 3), np.uint8)
+        observation = dict(method='upper_front_depth_plane', visible_fraction=.72,
+                           boundary_contacts=['top', 'right'], confidence=.88,
+                           quad=np.asarray([[70,0],[139,0],[139,60],[70,60]],np.float32))
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = LiveOverlay.__new__(LiveOverlay); overlay.output = Path(directory)
+            overlay.render(image, [], {'status':'not_found'}, None, None, 'upper-face',
+                           measured_contour=observation['quad'], battery_observation=observation,
+                           measured_depth_supported=True)
+            metadata = json.loads((Path(directory)/'d435.json').read_text())
+        self.assertEqual(metadata['battery_contour']['method'], 'upper_front_depth_plane')
+        self.assertFalse(metadata['battery_contour']['insertion_axis_available'])
+        self.assertFalse(metadata['battery_contour']['hidden_space_clearance_proven'])
+        self.assertEqual(metadata['battery_axis']['status'], 'unavailable')
+
     def test_observed_top_face_warps_all_twelve_cad_edges(self):
         pixels = [(10, 10), (10, 50), (30, 10), (30, 50), (50, 10), (50, 50), (70, 10), (70, 50)]
         edges, axis, aligned = snap_wireframe_to_top_face(pixels, ((40, 30), (40, 50)),
