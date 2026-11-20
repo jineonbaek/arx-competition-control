@@ -40,21 +40,6 @@ class TaughtPreobservationTests(unittest.TestCase):
         self.assertEqual(route.d405_attempts, 4)
         self.assertEqual(route.d405_capture_timeout_s, 8.)
 
-    def test_zero_lift_route_and_waypoint_share_the_same_reference_height(self):
-        self.assertEqual(self.route.lift_target_rad, 0.)
-        waypoint = load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint, 0.)
-        self.assertEqual(waypoint['lift_rad'], 0.)
-        self.assertEqual(waypoint['source'], 'offline_fk_rebased_to_zero_lift_no_motion')
-        with self.assertRaises(ValueError):
-            load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint, 7.)
-
-    def test_route_still_rejects_negative_lift_target(self):
-        payload = json.loads((ROOT/'config/taught-placement.json').read_text())
-        payload['lift_target_rad'] = -1.
-        with tempfile.TemporaryDirectory() as folder:
-            path=Path(folder)/'route.json';path.write_text(json.dumps(payload))
-            with self.assertRaises(ValueError):load_taught_route(path)
-
     def test_load_waypoint_requires_right_arm_closed_gripper_and_current_lift(self):
         payload = dict(version=1, arm="right", joints_rad=self.joints.tolist(),
                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.],

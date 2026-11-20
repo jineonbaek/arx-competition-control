@@ -51,7 +51,7 @@ def load_taught_route(path):
     chassis_handoff=d.get('visual_chassis_handoff')
     q=np.asarray(d['observation_joints_deg'],float)
     if (d['version']!=2 or q.shape!=(6,) or not np.isfinite(np.r_[values,q]).all()
-            or not (d['lift_target_rad']==0. or 2.5<=d['lift_target_rad']<=3.5) or not .1<=d['lift_tolerance_rad']<=.5
+            or not 2.5<=d['lift_target_rad']<=3.5 or not .1<=d['lift_tolerance_rad']<=.5
             or not 100<=d['full_depth_mm']<=180 or not isinstance(fixed,str) or not fixed.startswith('reports/manual-waypoints/') or '..' in fixed
             or not isinstance(preobserve,str) or not preobserve.startswith('reports/manual-waypoints/') or '..' in preobserve
             or handoff!='visual_chassis_locked_admitted'

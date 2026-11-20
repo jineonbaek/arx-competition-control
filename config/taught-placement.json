@@ -1,7 +1,7 @@
 {
   "version": 2,
   "source": "first-success-20261116",
-  "lift_target_rad": 0.0,
+  "lift_target_rad": 3.0,
   "lift_tolerance_rad": 0.35,
   "full_depth_mm": 160.0,
   "fixed_entry_waypoint": "reports/manual-waypoints/right-return-20261119-154755.json",
