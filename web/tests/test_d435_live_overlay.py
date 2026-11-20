@@ -39,6 +39,16 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNotNone(selector, 'battery_face_evidence must be implemented')
         return selector
 
+    def upper_face_detector(self):
+        detector = getattr(overlay_module, 'battery_upper_face', None)
+        self.assertIsNotNone(detector, 'battery_upper_face must be implemented')
+        return detector
+
+    def upper_face_evidence(self):
+        selector = getattr(overlay_module, 'battery_upper_face_evidence', None)
+        self.assertIsNotNone(selector, 'battery_upper_face_evidence must be implemented')
+        return selector
+
     def test_object_pose_tracks_tool_without_rerunning_foundationpose(self):
         model = Model()
         tcp = np.eye(4)
@@ -169,6 +179,51 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNotNone(observation)
         self.assertLess(cv2.contourArea(observation['contour'].astype(np.float32)), 4500.)
         self.assertLess(observation['visible_fraction'], .65)
+
+    def test_user_approved_upper_battery_face_matches_real_frame(self):
+        fixture = Path(__file__).parent / 'fixtures/d435-partial-black-battery-frame.npz'
+        label = json.loads((Path(__file__).parent / 'fixtures/d435-approved-upper-battery-face.json').read_text())
+        with np.load(fixture, allow_pickle=False) as frame:
+            observation = self.upper_face_detector()(frame['rgb'], frame['xyz'])
+        self.assertIsNotNone(observation)
+        quad = np.asarray(observation['quad'], float)
+        approved = np.asarray(label['approved_visible_quad_px'], float)
+        tolerance = float(label['boundary_tolerance_px'])
+        np.testing.assert_allclose(quad.min(0), approved.min(0), atol=tolerance)
+        np.testing.assert_allclose(quad.max(0), approved.max(0), atol=tolerance)
+        self.assertEqual(observation['method'], 'upper_front_depth_plane')
+        self.assertEqual(set(observation['boundary_contacts']), {'top', 'right'})
+
+    def test_upper_face_prefers_top_right_plane_over_larger_lower_housing(self):
+        rgb = np.zeros((120, 160, 3), np.uint8)
+        _, target = self.depth_plane((92, 0, 160, 62), shape=(120, 160), depth=.30)
+        _, lower = self.depth_plane((10, 70, 160, 120), shape=(120, 160), depth=.42)
+        observation = self.upper_face_detector()(rgb, target + lower)
+        self.assertIsNotNone(observation)
+        self.assertLessEqual(float(np.max(observation['quad'][:, 1])), 66.)
+
+    def test_upper_face_rejects_lower_housing_without_top_target(self):
+        rgb, xyz = self.depth_plane((10, 70, 160, 120), shape=(120, 160), depth=.32)
+        self.assertIsNone(self.upper_face_detector()(rgb, xyz))
+
+    def test_upper_face_rejects_tilted_arm_plane(self):
+        rgb, xyz = self.depth_plane((92, 0, 160, 70), shape=(120, 160), depth=.28)
+        yy = np.arange(70, dtype=np.float32)[:, None]
+        xyz[0:70, 92:160, 2] += yy * .004
+        self.assertIsNone(self.upper_face_detector()(rgb, xyz))
+
+    def test_upper_face_rejects_missing_and_nan_depth(self):
+        rgb = np.zeros((120, 160, 3), np.uint8)
+        self.assertIsNone(self.upper_face_detector()(rgb, np.zeros((120, 160, 3), np.float32)))
+        self.assertIsNone(self.upper_face_detector()(rgb, np.full((120, 160, 3), np.nan)))
+
+    def test_upper_face_evidence_has_no_insertion_axis_or_hidden_clearance(self):
+        rgb, xyz = self.depth_plane((92, 0, 160, 62), shape=(120, 160), depth=.30)
+        evidence = self.upper_face_evidence()(rgb, xyz)
+        self.assertEqual(evidence['method'], 'upper_front_depth_plane')
+        self.assertIsNone(evidence['battery_axis'])
+        self.assertFalse(evidence['insertion_axis_available'])
+        self.assertFalse(evidence['hidden_space_clearance_proven'])
 
     def test_observed_top_face_warps_all_twelve_cad_edges(self):
         pixels = [(10, 10), (10, 50), (30, 10), (30, 50), (50, 10), (50, 50), (70, 10), (70, 50)]

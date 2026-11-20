@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "camera": "d435",
+  "frame_fixture": "d435-partial-black-battery-frame.npz",
+  "annotation_file": "e3cdb1c74c1d167fb691ab13be7d3782.jpg",
+  "annotation_sha256": "0b86bc8bae6b1c9b5780a2e6fbce04c89c29f7c0148f62418d652d08ef603425",
+  "approved_by_user": "2026-11-20",
+  "approved_visible_quad_px": [[480, 0], [639, 0], [639, 165], [480, 165]],
+  "boundary_tolerance_px": 12,
+  "rejected_previous_region_px": [520, 155, 639, 225],
+  "description": "Upper-right horizontal textured battery face; top and right edges are clipped by the image."
+}
