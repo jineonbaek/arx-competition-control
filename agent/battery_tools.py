@@ -101,7 +101,9 @@ class BatteryExecutionTools(WorkflowTools):
             camera='d435' if plan.get('vision_mode')=='d435' else 'd405'
             if not fixed and plan.get('observation_id')!=self._localized(camera):
                 raise AgentError('stale_observation','计划不再对应最新 '+camera.upper()+' 观察')
-            if not fixed and camera=='d405':self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
+            if (not fixed and camera=='d405'
+                    and not (self.vision_mode=='plan_f' and self._wrist_stage()=='COARSE_ALIGNED')):
+                self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
             if (plan.get('arm')!='right' or any(plan.get(k) is not True for k in
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
@@ -197,7 +199,8 @@ class BatteryExecutionTools(WorkflowTools):
             mission.data.update(stage=self._wrist_stage(),plan=None)
             state.pop('battery_pick_plan_sha256',None)
             self.store.save()
-            if name!='observe_battery':
+            if (name!='observe_battery'
+                    and not (plan_f and self._wrist_stage()=='COARSE_ALIGNED')):
                 self._post_stage_observation(a['observation_id'],self._wrist_stage(),'d405')
         elif plan_b and name=='plan_battery_pick':
             mission.require(('COARSE_ALIGNED',))
