@@ -19,6 +19,7 @@
 #include <chrono>
 #include <limits>
 #include <thread>
+#include <link.h>
 using Clock=std::chrono::steady_clock;
 constexpr auto ROOT="/home/arx/arx-competition-control";
 class ArmCanFeedback {
@@ -50,6 +51,17 @@ int main(int argc,char** argv) {
   auto node=rclcpp::Node::make_shared("x5_web_controller");
   std::string side=node->declare_parameter("side",std::string(""));
   if(side!="left" && side!="right") throw std::runtime_error("side must be left or right");
+  std::string sdk_path;
+  dl_iterate_phdr([](dl_phdr_info* info,size_t,void* result) {
+    std::string path=info->dlpi_name;
+    if(path.find("/libarx_x5_src.so")!=std::string::npos)*static_cast<std::string*>(result)=path;
+    return 0;
+  },&sdk_path);
+  const bool no_home_sdk=sdk_path==std::string(ROOT)+"/web/hardware/sdk-no-home/libarx_x5_src.so";
+  if(side=="right" && !no_home_sdk) {
+    RCLCPP_ERROR(node->get_logger(),"Right startup refused before CAN/SDK construction: verified no-home SDK required");
+    rclcpp::shutdown();return 2;
+  }
   const std::string can=side=="left"?"can1":"can3";
   std::ifstream file(std::string(ROOT)+"/web/config/control.json");
   auto config=nlohmann::json::parse(file).at("arms").at(side);
@@ -88,6 +100,7 @@ int main(int argc,char** argv) {
   bool joint_active=false;
   int current_mode=2;
   std::vector<double> reference(6,0),goal(6,0);
+  bool reference_from_trajectory=false;
   double gripper_target=std::numeric_limits<double>::quiet_NaN();
   double held_gripper_feedback=gripper_target;
   double held_gripper_target=gripper_target;
@@ -98,10 +111,17 @@ int main(int argc,char** argv) {
   auto trajectory_pub=node->create_publisher<std_msgs::msg::String>("/web/"+side+"/trajectory_status",1);
   auto publish_trajectory=[&](){
     std_msgs::msg::String msg;
-    msg.data=nlohmann::json{{"driver_instance",driver_instance},{"command_epoch",command_epoch},
+    nlohmann::json state{{"driver_instance",driver_instance},{"command_epoch",command_epoch},
       {"enabled",bool(trajectory)},{"request_id",trajectory?trajectory->id():""},
       {"status",trajectory?trajectory->status():"disabled"},{"reason",trajectory?trajectory->reason():""},
-      {"ready",healthy},{"manual_joint_active",joint_active}}.dump();
+      {"ready",healthy},{"manual_joint_active",joint_active}};
+    state["startup_no_home_sdk"]=no_home_sdk;
+    if(initialized && current_mode==5 && std::isfinite(gripper_target)) {
+      state["joint_reference_rad"]=reference;
+      state["gripper_target_raw"]=gripper_target;
+      state["reference_from_trajectory"]=reference_from_trajectory;
+    }
+    msg.data=state.dump();
     trajectory_pub->publish(msg);
   };
   auto hold=[&](){
@@ -110,7 +130,7 @@ int main(int argc,char** argv) {
     held_gripper_feedback=p[6];
     held_gripper_target=gripper_hold_target(limits,p[6],gripper_target);
     gripper_target=held_gripper_target;
-    joint_active=false;reference.assign(p.begin(),p.begin()+6);goal=reference;
+    joint_active=false;reference.assign(p.begin(),p.begin()+6);goal=reference;reference_from_trajectory=false;
     arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;return true;
   };
   auto stop_reference=[&](const std::string& reason){
@@ -144,12 +164,16 @@ int main(int argc,char** argv) {
         } else if(kind=="start") {
           if(request.at("command_epoch")!=command_epoch)throw std::invalid_argument("Stale command epoch");
           if(!healthy||!monitor.fresh()||joint_active)throw std::invalid_argument("Arm not ready or manual motion active");
+          if(current_mode!=5)throw std::invalid_argument("Loaded trajectory requires existing position hold");
           auto actual=arm->getJointPositons();
-          trajectory->start(request,actual,seconds());started=true;
+          // Preserve the already-issued load-supporting reference, including
+          // its servo deflection. Never reset to measured joints at handoff.
+          auto retained=trajectory->start_held(request,actual,reference,seconds());started=true;
           ++command_epoch;
           gripper_target=gripper_hold_target(limits,actual[6],gripper_target);
-          joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
-          arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;
+          joint_active=false;reference=retained;goal=reference;reference_from_trajectory=true;
+          // Already in mode 5: do not reinitialize the SDK position controller.
+          arm->setJointPositions(reference);arm->setCatch(gripper_target);
         } else throw std::invalid_argument("Unsupported trajectory command");
       } catch(const std::exception& error){
         reason=error.what();if(started)stop_reference("dispatch_failed");
@@ -188,11 +212,13 @@ int main(int argc,char** argv) {
           if(current_mode!=5) {joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
           arm->setCatch(msg->gripper);arm->setArmStatus(5);current_mode=5;
         } else if(kind=="arm.joints" || kind=="arm.joints.auto") {
+          reference_from_trajectory=false;
           active_speed=automatic_speed;
           if(kind=="arm.joints")active_speed.fill(speed);
           reference.assign(actual.begin(),actual.begin()+6);goal=target;joint_active=true;last_step=Clock::now();
           arm->setJointPositions(reference);arm->setArmStatus(5);current_mode=5;
         } else {joint_active=false;
+          reference_from_trajectory=false;
           gripper_target=std::numeric_limits<double>::quiet_NaN();
           arm->setArmStatus(msg->mode);current_mode=msg->mode;}
       }

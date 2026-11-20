@@ -1,0 +1,5 @@
+/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Command.idl
+/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/State.idl
+/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Result.idl
+/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Output.idl
+/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:srv/Manage.idl

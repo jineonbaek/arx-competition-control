@@ -1,7 +1,7 @@
 {
   "execution_enabled": true,
   "feedback_timeout_s": 1,
-  "chassis_lease_s": 0.3,
+  "chassis_lease_s": 1.0,
   "arms": {
     "left": {
       "state_topic": "/arm_l_status_full",
@@ -147,10 +147,15 @@
     "lift_stop_verified": true,
     "chassis_verified": true,
     "chassis_stop_verified": true,
-    "max_linear_m_s": 2.0,
-    "max_angular_rad_s": 1.0,
+    "max_linear_m_s": 1.6,
+    "max_angular_rad_s": 1.8,
     "calibrated_topic": "/web/body/calibrated",
     "lift_stop_service": "/web/body/stop_lift",
-    "chassis_input_scale": 1.0
-  }
+    "chassis_input_scale": 1.0,
+    "manual_sdk_axes": {
+      "x": 0.92,
+      "y": 1.6
+    }
+  },
+  "chassis_backend": "ros"
 }

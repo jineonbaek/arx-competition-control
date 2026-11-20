@@ -1,5 +1,9 @@
 """Outcome and speed regulation for bounded MPPI commissioning trials."""
 import math
+if __package__:
+    from .sdk_preview import velocity_scale, YAW_SPEED
+else:
+    from sdk_preview import velocity_scale, YAW_SPEED
 
 class ReadinessHold:
     """Caller must brake during a brief outage; recovery keeps the action alive."""
@@ -28,7 +32,7 @@ def trial_progress(delta, target):
 def speed_factors(measured):
     x,y,w=measured
     if not all(math.isfinite(v) for v in (x,y,w)):raise ValueError('Nonfinite measured velocity')
-    return min(1.,.10/max(math.hypot(x,y),1e-9)),min(1.,.18/max(abs(w),1e-9))
+    return velocity_scale(x,y),min(1.,YAW_SPEED/max(abs(w),1e-9))
 
 def verified_arrival(action,error,drift,idle):
     return (action==[4,0] and idle and math.hypot(*error[:2])<=.045 and

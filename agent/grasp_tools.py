@@ -36,11 +36,12 @@ class GraspTools(ToolRegistry):
                 for key in ("grasp_preview","grasp_preview_sha256","battery_pick_plan"):
                     self.store.state.pop(key,None)
                 self.store.save()
-                camera='d435' if getattr(self,'vision_mode','d405')=='d435' else 'd405'
+                mode=getattr(self,'vision_mode','d405')
+                camera='d435' if mode=='d435' else 'd405'
                 result=pipeline(self.store,a["observation_id"],a["clearance_mm"],
                     self.store.path/"previews"/call_id,self.progress,
                     head_observation_id=(self._localized('d435')
-                        if self.require_head_evidence and camera=='d405' else None))
+                        if self.require_head_evidence and camera=='d405' and mode!='plan_f' else None))
                 relative=Path("previews")/call_id/"result.json"
                 digest=hashlib.sha256((self.store.path/relative).read_bytes()).hexdigest()
                 self.store.state.update(grasp_preview=str(relative),grasp_preview_sha256=digest)
@@ -79,14 +80,16 @@ class WorkflowTools(GraspTools):
         return self.observation_limit
 
     def _dispatch(self,name,a,call_id):
-        if name=='observe_battery' and a['camera']=='d405':
+        mode=getattr(self,'vision_mode','d405')
+        coarse_camera='d405' if mode=='plan_f' else 'd435'
+        if name=='observe_battery' and a['camera']=='d405' and mode!='plan_f':
             self._localized('d435')
             if not self.store.state.get('coarse_alignment'):
                 raise AgentError('stage_not_ready','先规划 D435 粗对位；本模式仍不会执行动作')
-        if name=='plan_coarse_alignment' and self._localized('d435')!=a['observation_id']:
-            raise AgentError('stale_observation','必须使用本轮最新 D435 定位')
+        if name=='plan_coarse_alignment' and self._localized(coarse_camera)!=a['observation_id']:
+            raise AgentError('stale_observation','必须使用本轮最新 '+coarse_camera.upper()+' 定位')
         if name=='preview_battery_grasp':
-            camera='d435' if getattr(self,'vision_mode','d405')=='d435' else 'd405'
+            camera='d435' if mode=='d435' else 'd405'
             if self._localized(camera)!=a['observation_id']:
                 raise AgentError('stale_observation','必须使用本轮最新 '+camera.upper()+' 定位')
         if name=='observe_battery':

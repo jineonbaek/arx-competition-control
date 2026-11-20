@@ -1,0 +1,73 @@
+{
+	"backtrace" : 1,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_custom_target"
+		],
+		"files" : 
+		[
+			"/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs/CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 35,
+				"parent" : 0
+			}
+		]
+	},
+	"id" : "arx_chassis_interfaces__rs::@5c09c0236f34431e3ab2",
+	"name" : "arx_chassis_interfaces__rs",
+	"paths" : 
+	{
+		"build" : "arx_chassis_interfaces__rs",
+		"source" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs"
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				1,
+				2
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 1,
+			"isGenerated" : true,
+			"path" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs/CMakeFiles/arx_chassis_interfaces__rs",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs/CMakeFiles/arx_chassis_interfaces__rs.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_rs/arx_chassis_interfaces/rust/src/lib.rs.rule",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "UTILITY"
+}

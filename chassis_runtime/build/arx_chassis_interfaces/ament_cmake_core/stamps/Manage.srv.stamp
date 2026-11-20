@@ -1,0 +1,11 @@
+string operation
+string scheduler_instance
+string client_id
+string profile
+string resume_key
+uint64 output_seq
+---
+bool accepted
+string reason
+string client_id
+arx_chassis_interfaces/State state

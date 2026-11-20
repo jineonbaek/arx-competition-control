@@ -40,6 +40,33 @@ public:
   const std::string& reason() const{return reason_;}
   void cancel(const std::string& reason){if(active()){state_="failed";reason_=reason;}}
 
+  std::vector<double> start_held(const nlohmann::json& message,
+                               const std::vector<double>& actual,
+                               const std::vector<double>& reference,double now) {
+    auto points=message.at("joint_waypoints_rad").get<std::vector<std::vector<double>>>();
+    if(reference.size()!=6||actual.size()!=7||points.empty()||points.front().size()!=6)
+      throw std::invalid_argument("Loaded trajectory reference unavailable");
+    for(size_t j=0;j<6;++j) {
+      if(!std::isfinite(reference[j])||!std::isfinite(actual[j])||!std::isfinite(points.front()[j])||
+         std::abs(reference[j]-actual[j])>2.*M_PI/180+1e-12||
+         std::abs(points.front()[j]-reference[j])>2.*M_PI/180+1e-12)
+        throw std::invalid_argument("Trajectory must continue the retained load reference");
+    }
+    // Existing nominal callers describe a curve starting at measured joints;
+    // already-compensated callers start at the held reference. Anchor either
+    // curve without changing any joint deltas or derivatives. start() rechecks
+    // every shifted point against hard joint limits before accepting the ID.
+    const auto first=points.front();
+    for(auto& point:points) {
+      if(point.size()!=6)throw std::invalid_argument("Invalid loaded trajectory point");
+      for(size_t j=0;j<6;++j)point[j]+=reference[j]-first[j];
+    }
+    points.front()=reference;
+    auto anchored=message;anchored["joint_waypoints_rad"]=points;
+    start(anchored,actual,now);
+    return reference;
+  }
+
   void start(const nlohmann::json& message,const std::vector<double>& actual,double now) {
     if(active())throw std::invalid_argument("Trajectory already active");
     auto id=message.at("request_id").get<std::string>();

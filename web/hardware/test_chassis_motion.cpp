@@ -36,9 +36,9 @@ int main() {
   }
   assert(motion.velocity() == forward);
 
-  // All axes pass through zero and hold before reversing.
+  // Reverse targets ramp through zero without a timed hold.
   const Velocity reverse{-diagonal, -diagonal, -WEB_MAX_YAW};
-  double first_zero = -1, first_reverse = -1;
+  double first_reverse = -1;
   for (int i = 0; i < 850; ++i) {
     const Velocity before = motion.velocity();
     motion.request(reverse, 1, now);
@@ -47,10 +47,9 @@ int main() {
     const auto &v = motion.velocity();
     assert(std::hypot(v[0] - before[0], v[1] - before[1]) <= WEB_LINEAR_DECEL * .0025 + 1e-12);
     assert(std::abs(v[2] - before[2]) <= std::max(WEB_YAW_ACCEL, WEB_YAW_DECEL) * .0025 + 1e-12);
-    if (v == Velocity{} && first_zero < 0) first_zero = now;
     if (v[0] < 0 && first_reverse < 0) first_reverse = now;
   }
-  assert(first_zero > 0 && first_reverse - first_zero >= WEB_REVERSE_HOLD_S);
+  assert(first_reverse > 0);
   assert(motion.velocity() == reverse);
 
   // Space requests zero speed immediately, holds it, and cannot be bypassed.
@@ -88,5 +87,5 @@ int main() {
   motion.request(forward, 1, now);
   motion.step(std::numeric_limits<double>::quiet_NaN(), 0, true);
   assert(motion.mode() == 2 && motion.velocity() == Velocity{});
-  std::cout << "PASS: combined slew limits, reverse zero hold, bounded zero-speed brake, watchdog and fault protection\n";
+  std::cout << "PASS: combined slew limits, reverse without timed hold, bounded zero-speed brake, watchdog and fault protection\n";
 }

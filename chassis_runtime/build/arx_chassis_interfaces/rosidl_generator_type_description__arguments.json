@@ -1,0 +1,15 @@
+{
+  "package_name": "arx_chassis_interfaces",
+  "output_dir": "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces",
+  "idl_tuples": [
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Command.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/State.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Result.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Output.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:srv/Manage.idl"
+  ],
+  "include_paths": [
+    "service_msgs:/opt/ros/jazzy/share/service_msgs",
+    "builtin_interfaces:/opt/ros/jazzy/share/builtin_interfaces"
+  ]
+}

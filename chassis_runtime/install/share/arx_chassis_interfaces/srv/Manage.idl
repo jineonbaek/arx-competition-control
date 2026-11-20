@@ -1,0 +1,32 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from arx_chassis_interfaces/srv/Manage.srv
+// generated code does not contain a copyright notice
+
+#include "arx_chassis_interfaces/msg/State.idl"
+
+module arx_chassis_interfaces {
+  module srv {
+    struct Manage_Request {
+      string operation;
+
+      string scheduler_instance;
+
+      string client_id;
+
+      string profile;
+
+      string resume_key;
+
+      uint64 output_seq;
+    };
+    struct Manage_Response {
+      boolean accepted;
+
+      string reason;
+
+      string client_id;
+
+      arx_chassis_interfaces::msg::State state;
+    };
+  };
+};

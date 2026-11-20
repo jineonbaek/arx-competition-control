@@ -5,6 +5,7 @@ from special_segments import StraightChain,Step,pose,wrap
 from mppi_trial.effort_budget import bound
 from mppi_trial.session_policy import slew_effort
 from mppi_trial.trial_policy import speed_factors
+from mppi_trial.speed_profile import SLOW_SDK,cap_sdk
 
 POSITION=.045
 YAW=.09
@@ -27,11 +28,11 @@ class TaskApproach(StraightChain):
    along=float(np.clip((mp[:2]-self.entry_map[:2])@unit,0.,length))
    direction=self.entry_map[:2]+unit*min(length,along+.15)-mp[:2]
    if np.linalg.norm(direction)<1e-9:direction=self.goal[:2]-mp[:2]
-   c,s=math.cos(mp[2]),math.sin(mp[2]);raw[:2]=np.array([[c,s],[-s,c]])@direction/max(float(np.linalg.norm(direction)),1e-12)*min(.22,max(.14,1.4*(error-POSITION)))
+   c,s=math.cos(mp[2]),math.sin(mp[2]);raw[:2]=np.array([[c,s],[-s,c]])@direction/max(float(np.linalg.norm(direction)),1e-12)*min(SLOW_SDK,max(min(.14,SLOW_SDK),1.4*(error-POSITION)))
   # Commissioned turn-start effort. Slew and combined-effort bounds still apply.
   raw[2]=0. if abs(yaw)<=YAW else math.copysign(.10,yaw)
   xy,w=speed_factors(self.measured);raw[:2]*=xy;raw[2]*=w
-  command=bound(slew_effort(previous,bound(raw),dt))
+  command=cap_sdk(bound(slew_effort(previous,bound(raw),dt)),'slow')
   return Step(tuple(map(float,command)),[],False)
 
 class TaskStopReview:

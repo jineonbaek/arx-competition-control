@@ -43,8 +43,11 @@ def _insert_sweep(ctrl,state,points,tcp,battery,contact,window,slot,table,*,tabl
     if skip_table:lower.pop('table');required.pop('table')
     return dict(clear=True,nominal_only=True,physical_accuracy_verified=False,samples=count,lower_mm=lower,required_mm=required,table_checked=not skip_table)
 
+def valid_outside_margin(margin):
+    return bool(np.isfinite(margin) and .1<=margin<=50.)
+
 def check_outside_sweep(model,left_model,left_q,lift,waypoints,tcp,battery,window,table,*,sample_bound_mm=1.,_table_margin_mm=10.,cabinet_margin_mm=50.,skip_table=False):
-    if not np.isfinite(cabinet_margin_mm) or not .5<=cabinet_margin_mm<=50.:
+    if not valid_outside_margin(cabinet_margin_mm):
         raise ValueError('Positive outside cabinet clearance required')
     if table.get('status')!='inferred':raise ValueError('Tabletop boundary unavailable; no loaded outside motion')
     q=np.asarray(waypoints,float);tcp=rigid(tcp)

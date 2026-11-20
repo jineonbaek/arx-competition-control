@@ -1,0 +1,41 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from arx_chassis_interfaces/msg/State.msg
+// generated code does not contain a copyright notice
+
+
+module arx_chassis_interfaces {
+  module msg {
+    typedef double double__3[3];
+    struct State {
+      string scheduler_instance;
+
+      boolean ready;
+
+      string driver_instance;
+
+      boolean active;
+
+      string client_id;
+
+      string source_id;
+
+      string task_id;
+
+      uint64 generation;
+
+      uint64 output_seq;
+
+      double expires_at;
+
+      double__3 sdk;
+
+      boolean maintenance;
+
+      double__3 applied_sdk;
+
+      uint64 applied_seq;
+
+      string reason;
+    };
+  };
+};

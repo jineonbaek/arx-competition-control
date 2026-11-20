@@ -79,6 +79,7 @@ def generate_launch_description():
  if sim:nodes.append(py('replay_tf.py'))
  if not sim or os.getenv('ARX_EXPERIMENTAL_CLEAR')!='1':
   nodes.append(py('dual_observations.py',{'ARX_FAST_SENSOR_NODE':'1','ARX_STVL_EVIDENCE':'1'}))
+ if os.getenv('ARX_DESKTOP_MODE')=='mapping' and not sim:nodes.append(py('mapping_route_editor.py'))
  required=list(nodes)
  if not sim and not dual:nodes.append(py("stationary_head.py"))
  if not sim and os.getenv("ROS_DOMAIN_ID")=="192" and os.getenv("ARX_EXTERNAL_GOAL_DRIVER")!="1" and os.getenv("ARX_DESKTOP_MODE")!="mapping":nodes.append(py("mppi_goal_drive.py" if mppi else "goal_drive.py"))

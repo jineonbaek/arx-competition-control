@@ -105,7 +105,7 @@ class _PreparedExecutionBackend:
                 return
             deadline=time.monotonic()+self.timeout_s
             receipt=self.step.start()
-            last=None
+            last=None;last_tick=time.monotonic()
             while True:
                 stage=receipt['status']
                 if receipt.get('stop_required'):
@@ -117,10 +117,15 @@ class _PreparedExecutionBackend:
                     return
                 if stage not in self.running_stages:
                     raise ValueError('Unexpected execution stage')
-                if stage!=last:
-                    self._save(self._receipt('running',stage=stage));last=stage
+                pose_waiting=self.operation=='stow_for_carry' and receipt.get('waiting_for_pose') is True
+                key=(stage,pose_waiting)
+                if key!=last:
+                    self._save(self._receipt('running',stage=stage,**({'waiting_for_pose':True} if pose_waiting else {})));last=key
                 cancelled=self.cancel_event.wait(.02) or self.cancelled()
-                expired=time.monotonic()>=deadline
+                now=time.monotonic()
+                if pose_waiting:deadline+=max(0.,now-last_tick)
+                last_tick=now
+                expired=not pose_waiting and now>=deadline
                 if cancelled:
                     receipt=self.step.cancel()
                 elif expired:

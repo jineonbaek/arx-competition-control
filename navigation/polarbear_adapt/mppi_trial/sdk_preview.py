@@ -5,6 +5,22 @@ if __package__:
 else:
     from effort_budget import bound
 
+if __package__:
+    from .speed_profile import NORMAL_XY_SPEED,NORMAL_YAW_SPEED,cap_sdk
+else:
+    from speed_profile import NORMAL_XY_SPEED,NORMAL_YAW_SPEED,cap_sdk
+FORWARD_SPEED=REVERSE_SPEED=LATERAL_SPEED=NORMAL_XY_SPEED
+YAW_SPEED=NORMAL_YAW_SPEED
+
+def velocity_scale(vx,vy):
+    if not all(math.isfinite(v) for v in (vx,vy)):raise ValueError('Nonfinite measured velocity')
+    return min(1.,NORMAL_XY_SPEED/max(math.hypot(vx,vy),1e-9))
+
+def limit_velocity(vx,vy,wz):
+    if not all(math.isfinite(v) for v in (vx,vy,wz)):return 0.,0.,0.
+    scale=velocity_scale(vx,vy)
+    return vx*scale,vy*scale,max(-YAW_SPEED,min(wz,YAW_SPEED))
+
 # Low/high pulse inputs and transient peak response in m/s or rad/s.
 CURVES = {
     'forward': (.14, .22, .042, .113),
@@ -23,13 +39,18 @@ def estimate(value, positive, negative):
     fraction = min(1., (magnitude-measured_low)/(measured_high-measured_low))
     return math.copysign(low + fraction*(high-low), value)
 
-def convert(vx, vy, wz):
-    if not all(math.isfinite(v) for v in (vx, vy, wz)):
-        return 0., 0., 0.
-    x = estimate(vx, 'forward', 'backward')
-    y = estimate(vy, 'left', 'right')
-    # Current attended tests: .055 cannot reliably start yaw; .10 can.
-    # Retain the reference curve shape, increase yaw effort gain only.
-    # This is a commissioning candidate, not a new measured velocity curve.
-    yaw = estimate(wz, 'ccw', 'cw') * (.10/.055)
-    return bound((x,y,yaw))
+def extended(value,positive,negative,yaw=False):
+    low,high,ml,mh=CURVES[positive if value>=0 else negative]
+    if yaw:
+        anchors=[(0.,0.),(ml,low*(.10/.055)),(mh,.10),(.30,.30),(.80,.80)]
+    else:
+        anchors=[(0.,0.),(ml,low),(mh,high),(.22,.30),(NORMAL_XY_SPEED,.80)]
+    magnitude=abs(value)
+    for (a,u),(b,v) in zip(anchors,anchors[1:]):
+        if magnitude<=b:return math.copysign(u+(v-u)*(magnitude-a)/(b-a),value)
+    return math.copysign(.80,value)
+
+def convert(vx,vy,wz,mode='normal'):
+    if not all(math.isfinite(v) for v in (vx,vy,wz)):return 0.,0.,0.
+    values=(extended(vx,'forward','backward'),extended(vy,'left','right'),extended(wz,'ccw','cw',True))
+    return cap_sdk(bound(values),mode)

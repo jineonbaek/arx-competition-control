@@ -2,7 +2,7 @@
 #include <cmath>
 constexpr double WEB_MAX_LINEAR = 0.80;
 constexpr double WEB_MAX_YAW = 0.40;
-constexpr double WEB_CHASSIS_TIMEOUT = 0.25;
+constexpr double WEB_CHASSIS_TIMEOUT = 1.0;
 template<class Config> inline void apply_slow_lift_config(Config& c) {
   c.lift_max_vel = 0.5 / 400.0;
   c.lift_calibrate_vel = 0.5;

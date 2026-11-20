@@ -39,10 +39,10 @@ class SpecialRoutes(unittest.TestCase):
   r=MissionRoute('room');r.add(dict(type='task',pose=[0.,0.,0.],point_id='point_1',name='电池作业甲'))
   d=r.definition();self.assertEqual(d['schema_version'],2)
   s=MissionRoute('room');s.load(d);self.assertEqual(s.points[0]['name'],'电池作业甲');self.assertEqual(s.points[0]['point_id'],'point_1');self.assertFalse(s.running)
- def test_task_release_uses_direct_only_if_returned_near_source(self):
-  for x,mode in [(0.,'direct'),(.5,'navigation')]:
+ def test_task_release_uses_actual_returned_pose_for_direct_next_segment(self):
+  for x,mode in [(0.,'direct'),(.5,'direct')]:
    r=MissionRoute('room');r.add(dict(type='task',pose=[0.,0.,0.],point_id='point_1'));r.add(p('special'));r.add(p('special',1.));r.start({'point_1'},pose=[0.,0.,0.]);r.finish('arrived_stopped')
-   self.assertEqual(r.can_enter_direct([x,0.,0.],after_task=True),mode=='direct');r.release_task(pose=[x,0.,0.]);self.assertEqual(r.mode,mode)
+   self.assertEqual(r.can_enter_direct([x,0.,0.],after_task=True),mode=='direct');r.release_task(pose=[x,0.,0.]);self.assertEqual(r.mode,mode);self.assertEqual(r.direct_source['pose'],[x,0.,0.])
  def test_invalid_names_do_not_enter_route(self):
   for name in (12,'line\nnext','x'*65):
    with self.assertRaises(ValueError):point(p('special',name=name))
@@ -75,8 +75,8 @@ class Straight(unittest.TestCase):
   for m,o,t,now in [([1.,0,0],[0,0,0],1.1,1.1),([1.,0,0],[1.,0,0],2.,2.),([float('nan'),0,0],[0,0,0],1.1,1.1),([1.,0,0],[1.,0,0],1.1,2.)]:
    c=self.controller();c.step([0,0,0],[0,0,0],1.,1.,.05,[0,0,0])
    with self.assertRaises(ValueError):c.step(m,o,t,now,.05,[0,0,0])
- def test_measurement_reduces_effort_without_increasing_commissioned_limits(self):
+ def test_direct_sdk_is_not_throttled_by_ordinary_si_governor(self):
   c=self.controller();c.step([0,0,0],[0,0,0],1.,1.,.05,[.2,0,0])
-  r=c.step([.04,0,0],[.04,0,0],1.1,1.1,.05,[.2,0,0]);self.assertLess(r.command[0],.22)
+  r=c.step([.04,0,0],[.04,0,0],1.1,1.1,.05,[.2,0,0]);self.assertGreater(r.command[0],.2);self.assertLessEqual(r.command[0],.6);self.assertEqual(r.command[1:],(0.,0.))
 
 if __name__=='__main__':unittest.main()

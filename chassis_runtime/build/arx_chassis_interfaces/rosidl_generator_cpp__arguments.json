@@ -1,0 +1,53 @@
+{
+  "package_name": "arx_chassis_interfaces",
+  "output_dir": "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_cpp/arx_chassis_interfaces",
+  "template_dir": "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource",
+  "idl_tuples": [
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Command.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/State.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Result.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:msg/Output.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces:srv/Manage.idl"
+  ],
+  "ros_interface_dependencies": [
+    "service_msgs:/opt/ros/jazzy/share/service_msgs/msg/ServiceEventInfo.idl",
+    "builtin_interfaces:/opt/ros/jazzy/share/builtin_interfaces/msg/Duration.idl",
+    "builtin_interfaces:/opt/ros/jazzy/share/builtin_interfaces/msg/Time.idl"
+  ],
+  "target_dependencies": [
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../../../lib/rosidl_generator_cpp/rosidl_generator_cpp",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../../../lib/python3.12/site-packages/rosidl_generator_cpp/__init__.py",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/action__builder.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/action__struct.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/action__traits.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/action__type_support.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/idl.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/idl__builder.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/idl__struct.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/idl__traits.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/idl__type_support.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/msg__builder.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/msg__struct.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/msg__traits.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/msg__type_support.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/srv__builder.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/srv__struct.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/srv__traits.hpp.em",
+    "/opt/ros/jazzy/share/rosidl_generator_cpp/cmake/../resource/srv__type_support.hpp.em",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces/msg/Command.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces/msg/State.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces/msg/Result.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces/msg/Output.idl",
+    "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_adapter/arx_chassis_interfaces/srv/Manage.idl",
+    "/opt/ros/jazzy/share/service_msgs/msg/ServiceEventInfo.idl",
+    "/opt/ros/jazzy/share/builtin_interfaces/msg/Duration.idl",
+    "/opt/ros/jazzy/share/builtin_interfaces/msg/Time.idl"
+  ],
+  "type_description_tuples": [
+    "msg/Command.idl:/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces/msg/Command.json",
+    "msg/State.idl:/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces/msg/State.json",
+    "msg/Result.idl:/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces/msg/Result.json",
+    "msg/Output.idl:/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces/msg/Output.json",
+    "srv/Manage.idl:/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/rosidl_generator_type_description/arx_chassis_interfaces/srv/Manage.json"
+  ]
+}

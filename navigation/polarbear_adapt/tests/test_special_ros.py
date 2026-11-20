@@ -94,10 +94,15 @@ class SpecialROS(unittest.TestCase):
   from special_runtime import run_special
   with self.assertRaisesRegex(ValueError,'native_sdk'):run_special(self.n)
   self.assertEqual(self.n.transport.calls,[])
- def test_unrelated_epoch_does_not_cancel_but_real_no_progress_still_stops(self):
+ def test_unrelated_epoch_and_temporary_no_progress_resume_without_manual_restart(self):
   self.start_special(.5);self.simulate=True;self.external_after=2
   from special_runtime import run_special
-  with self.assertRaisesRegex(ValueError,'special_no_progress'):run_special(self.n)
+  old=self.n.status;self.rechecked=False
+  def status(v):
+   old(v)
+   if v=='special_no_progress_rechecking':self.rechecked=True;self.simulate=True
+  self.n.status=status
+  self.assertEqual(run_special(self.n),'arrived_stopped');self.assertTrue(self.rechecked)
   self.assertGreater(len(self.n.transport.calls),2);self.assertFalse(self.n.active)
   self.assertEqual(self.n.transport.calls[-1],(0.,0.,0.))
  def test_uncancelled_old_mppi_goal_blocks_special_output(self):

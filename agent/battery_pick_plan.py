@@ -27,10 +27,12 @@ def plan(registry,observation_id,call_id,setup=None):
             or evidence.get('quality',{}).get('status')!='consistent'):
         raise ValueError('需要当前 RGB-D 观察已通过位姿与点云复核的证据')
     handoff=evidence.get('camera_handoff') or {}
-    if camera=='d405' and (handoff.get('head_observation_id')!=registry._localized('d435')
+    plan_f=getattr(registry,'vision_mode','d405')=='plan_f'
+    if camera=='d405' and not plan_f and (handoff.get('head_observation_id')!=registry._localized('d435')
             or handoff.get('wrist_observation_id')!=observation_id
             or handoff.get('quality',{}).get('version')!=1):
         raise ValueError('缺少本轮 D435 与 D405 同目标交接证据')
+    if plan_f:handoff={'head_observation_id':store.state['battery_flow']['head']}
     if camera=='d435':handoff={'head_observation_id':observation_id}
     geometry=evidence['geometry'];line=geometry['path']
     profile_digest=hashlib.sha256(PROFILE.read_bytes()).hexdigest()
@@ -95,7 +97,7 @@ def plan(registry,observation_id,call_id,setup=None):
             T_wrist_from_tool=tcp.tolist(),R_base_from_tool=tool_rotation.tolist(),
             actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
-    if camera=='d405' and handoff.get('quality',{}).get('status')!='consistent':
+    if camera=='d405' and not plan_f and handoff.get('quality',{}).get('status')!='consistent':
         result['handoff_advisory']='D435/D405 跨相机质量仅为警告；执行仍依赖 D405 位姿和路径检查'
     output=store.path/'pick-plans'/call_id/'result.json'
     output.parent.mkdir(parents=True,exist_ok=True)

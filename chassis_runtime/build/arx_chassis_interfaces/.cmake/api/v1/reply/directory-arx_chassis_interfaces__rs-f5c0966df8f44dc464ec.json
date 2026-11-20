@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "arx_chassis_interfaces__rs",
+		"source" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs"
+	}
+}

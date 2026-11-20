@@ -1,3 +1,4 @@
+#include <arx_chassis_interfaces/msg/output.hpp>
 //
 // Created by nuc-ros2 on 24-12-6.
 //
@@ -79,35 +80,43 @@ int main(int argc, char **argv) {
   const std::string driver_instance=std::to_string(getpid())+"-"+
       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
   ChassisOutputGate output_gate(driver_instance);
+  node->declare_parameter("chassis_scheduler_instance",std::string{});
+
   auto output_deadline=std::chrono::steady_clock::time_point{};
   auto output_status=node->create_publisher<std_msgs::msg::String>("/web/chassis/output_status",1);
-  // Sole chassis input. Legacy web/nav/gamepad direct channels are intentionally
-  // absent: they would bypass Controller validation and maintenance exclusivity.
-  auto chassis_sub=node->create_subscription<std_msgs::msg::String>(
-      "/web/chassis/ordered_output",10,[&](const std_msgs::msg::String &msg){
-        try {
-          if(msg.data.size()>4096)return;
-          const auto j=nlohmann::json::parse(msg.data);
-          if(!j.at("output_seq").is_number_unsigned() || !j.at("sdk").is_array() ||
-             j.at("sdk").size()!=3)return;
-          for(const auto &v:j.at("sdk"))if(!v.is_number())return;
-          if(!j.at("issued_at").is_number() || !j.at("ttl_s").is_number())return;
-          ChassisOutput o{j.at("driver_instance").get<std::string>(),
-              j.at("output_seq").get<uint64_t>(),j.at("issued_at").get<double>(),
-              j.at("ttl_s").get<double>(),j.at("sdk").get<std::array<double,3>>()};
-          const auto now=std::chrono::steady_clock::now();
-          const double wall=std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-          if(!output_gate.accept(o,wall,control_loop->calibrated()))return;
-          const double stamp=std::chrono::duration<double>(now.time_since_epoch()).count();
-          last_command=now;
-          output_deadline=now+std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-              std::chrono::duration<double>(std::max(0.,o.issued+o.ttl-wall)));
-          const int mode=o.sdk==std::array<double,3>{0.,0.,0.}?2:1;
-          chassis_motion.request(o.sdk,mode,stamp);
-        }catch(const std::exception &e){
-          RCLCPP_WARN_THROTTLE(node->get_logger(),*node->get_clock(),2000,
-                              "Rejected chassis output: %s",e.what());
+  auto scheduler_binding_handle=node->add_on_set_parameters_callback(
+    [&](const std::vector<rclcpp::Parameter>& parameters){
+      rcl_interfaces::msg::SetParametersResult result;result.successful=true;
+      for(const auto &p:parameters)if(p.get_name()=="chassis_scheduler_instance"){
+        const bool idle=chassis_motion.mode()==2 &&
+            chassis_motion.velocity()==std::array<double,3>{0.,0.,0.} &&
+            std::chrono::steady_clock::now()>=output_deadline;
+        if(parameters.size()!=1 || p.get_type()!=rclcpp::ParameterType::PARAMETER_STRING ||
+            (!idle && p.as_string()!=output_gate.scheduler()) ||
+            !output_gate.bind_scheduler(p.as_string())){
+          result.successful=false;result.reason="Scheduler binding requires idle protected chassis";
         }
+      }
+      return result;
+    });
+  // Sole chassis input: typed output from the currently bound scheduler instance.
+  auto chassis_sub=node->create_subscription<arx_chassis_interfaces::msg::Output>(
+      "/chassis/ordered_output",rclcpp::QoS(1).reliable().durability_volatile(),
+      [&](const arx_chassis_interfaces::msg::Output &msg){
+        if(msg.reason.size()>128 || msg.source_id.size()>128)return;
+        ChassisOutput o{msg.driver_instance,msg.output_seq,msg.issued_at,msg.ttl_s,
+                       msg.sdk,msg.scheduler_instance};
+        const auto now=std::chrono::steady_clock::now();
+        const double wall=std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+        if(!output_gate.accept(o,wall,control_loop->calibrated()))return;
+        const double stamp=std::chrono::duration<double>(now.time_since_epoch()).count();
+        last_command=now;
+        output_deadline=now+std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(std::max(0.,o.issued+o.ttl-wall)));
+        const int mode=o.sdk==std::array<double,3>{0.,0.,0.}?2:1;
+        const bool keyboard_release=msg.reason=="end_output" && msg.source_id.rfind("web-",0)==0;
+        if(mode==2 && (msg.reason=="command" || keyboard_release))chassis_motion.pause(stamp);
+        else chassis_motion.request(o.sdk,mode,stamp,msg.source_id.rfind("navigation-",0)==0);
       });
   unsigned status_tick=0;
   auto stop_lift_service = node->create_service<std_srvs::srv::Trigger>(
@@ -140,9 +149,11 @@ int main(int argc, char **argv) {
     ready_pub->publish(ready_msg);
     if(++status_tick%20==0){
       std_msgs::msg::String state;
-      state.data=nlohmann::json{{"driver_instance",driver_instance},
+      state.data=nlohmann::json{{"driver_instance",driver_instance},{"scheduler_instance",output_gate.scheduler()},
           {"output_seq",output_gate.sequence()},{"ordered_output",true},
-          {"calibrated",control_loop->calibrated()}}.dump();
+          {"calibrated",control_loop->calibrated()},
+          {"applied_sdk",chassis_motion.velocity()},
+          {"applied_mode",chassis_motion.mode()}}.dump();
       output_status->publish(state);
     }
     arm_control::msg::PosCmd msg;

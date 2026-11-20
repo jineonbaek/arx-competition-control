@@ -1,0 +1,4 @@
+source;share/arx_chassis_interfaces/local_setup.bash
+source;share/arx_chassis_interfaces/local_setup.dsv
+source;share/arx_chassis_interfaces/local_setup.sh
+source;share/arx_chassis_interfaces/local_setup.zsh

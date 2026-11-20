@@ -1,0 +1,36 @@
+// generated from rosidl_generator_c/resource/idl__type_support.h.em
+// with input from arx_chassis_interfaces:msg/State.idl
+// generated code does not contain a copyright notice
+
+// IWYU pragma: private, include "arx_chassis_interfaces/msg/state.h"
+
+
+#ifndef ARX_CHASSIS_INTERFACES__MSG__DETAIL__STATE__TYPE_SUPPORT_H_
+#define ARX_CHASSIS_INTERFACES__MSG__DETAIL__STATE__TYPE_SUPPORT_H_
+
+#include "rosidl_typesupport_interface/macros.h"
+
+#include "arx_chassis_interfaces/msg/rosidl_generator_c__visibility_control.h"
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#include "rosidl_runtime_c/message_type_support_struct.h"
+
+// Forward declare the get type support functions for this type.
+ROSIDL_GENERATOR_C_PUBLIC_arx_chassis_interfaces
+const rosidl_message_type_support_t *
+ROSIDL_TYPESUPPORT_INTERFACE__MESSAGE_SYMBOL_NAME(
+  rosidl_typesupport_c,
+  arx_chassis_interfaces,
+  msg,
+  State
+)(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // ARX_CHASSIS_INTERFACES__MSG__DETAIL__STATE__TYPE_SUPPORT_H_

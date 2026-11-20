@@ -1,6 +1,7 @@
 """Native existing-controller ports. No SDK, driver lifecycle or gripper commands."""
 import time
 import numpy as np
+from navigation.pose_freshness import MOTION_MAX_AGE_NS
 
 
 class DockPoseReader:
@@ -36,6 +37,7 @@ class DockingMotion:
         self.base_factory=base_factory;self.base_client=base_client;self.timeout=timeout_s
         self.active=None;self.reader=None;self.transport=None
         self.expected_aux_driver=None
+        self.handoffs=[]
 
     def _binding(self,state,start,driver):
         if start is not None and (max(abs(a-b) for a,b in zip(state['arms']['right']['joints'],start['joints']))>np.radians(.1)
@@ -76,6 +78,21 @@ class DockingMotion:
         try:
             for plan in segments:
                 self._check(cancel)
+                # New drivers expose the exact goal supporting the load. Anchor
+                # each segment there, including already-compensated plans, and
+                # recheck shifted joint limits/arm clearance before dispatch.
+                driver=self.ctrl.adapter.trajectory_status('right')
+                if driver and 'joint_reference_rad' in driver:
+                    from agent.held_placement_geometry import loaded_trajectory_plan
+                    state=self.ctrl.snapshot();q=state['arms']['right']['joints'];h=state['body']['height']
+                    plan,offset=loaded_trajectory_plan(plan,q,driver,self.ctrl.config['arms']['right']['joint_limits_deg'])
+                    points=plan['joint_waypoints_rad'];model=self.ctrl.models['right']
+                    for a,b in zip([q]+points,points):
+                        if not model.check(a,b,h)['clear']:raise ValueError('Loaded trajectory arm sweep rejected')
+                    self.handoffs.append(dict(driver_instance=driver['driver_instance'],command_epoch=driver['command_epoch'],
+                        measured_joints_rad=list(q),held_reference_rad=driver['joint_reference_rad'],
+                        first_command_rad=points[0],constant_shift_rad=offset.tolist()))
+                    self._check(cancel)
                 def dispatch_guard(state,now):
                     if start is not None:
                         if (max(abs(a-b) for a,b in zip(state['arms']['right']['joints'],start['joints']))>np.radians(.1)
@@ -143,30 +160,46 @@ class DockingMotion:
                 return result
         self.transport=WebChassis(submit=publish)
         self.transport.sdk_units=True;self.transport.native_sdk=True
+        from agent.pose_wait import PoseWait,pose_unavailable
+        pose_wait=PoseWait(self.transport)
         deadline=self.ctrl.clock()+self.timeout;goal=None;last_source=None;stopping=None;previous=np.zeros(3)
         try:
-            while self.ctrl.clock()<deadline:
-                self._check(cancel);sample=self.reader.read()
-                if sample is None:self.sleep(.05);continue
-                _,pose,source=sample;pose=np.asarray(pose,float)
-                if not np.isfinite(np.r_[pose,source]).all() or not 0<=self.reader.now()-source<=.4:raise ValueError('Base pose stale')
-                if last_source is not None and source<=last_source:self.sleep(.05);continue
-                if goal is None:
-                    c,s=np.cos(pose[2]),np.sin(pose[2]);goal=pose+np.r_[np.array([[c,-s],[s,c]])@d[:2],d[2]]
-                dt=.05 if last_source is None else source-last_source;last_source=source
-                e=goal-pose;e[2]=np.arctan2(np.sin(e[2]),np.cos(e[2]))
-                c,s=np.cos(pose[2]),np.sin(pose[2]);xy=np.array([[c,s],[-s,c]])@e[:2]
-                if stopping is not None:
-                    if np.linalg.norm(e[:2])>.008 or abs(e[2])>.02:raise ValueError('Base drifted outside measured stopping bound')
-                    if stopping.add(source,pose):self.active=None;return self.ctrl.snapshot()
-                    self.sleep(.05);continue
-                if np.linalg.norm(e[:2])<.005 and abs(e[2])<.01:
-                    self.transport.end_output();stopping=StopWindow(after=self.reader.now());self.sleep(.05);continue
-                command=np.r_[xy*.8,e[2]*.5]
-                command[:2]*=min(1.,.02/max(np.linalg.norm(command[:2]),1e-9));command[2]=np.clip(command[2],-.02,.02)
-                command=np.clip(command,previous-.04*min(dt,.1),previous+.04*min(dt,.1))
-                self.reader.check_motion(command,source);self._check(cancel)
-                self.transport.send(command);previous=command;self.sleep(.05)
+            while self.ctrl.clock()<deadline or pose_wait.waiting:
+                tick=self.ctrl.clock();was_waiting=pose_wait.waiting;resumed_at=None
+                try:
+                    self._check(cancel);sample=self.reader.read()
+                    if sample is None:
+                        pose_wait.begin(sent[0]);pose_wait.hold();self.sleep(.05);continue
+                    _,pose,source=sample;pose=np.asarray(pose,float)
+                    if not np.isfinite(np.r_[pose,source]).all() or not 0<=self.reader.now()-source<=MOTION_MAX_AGE_NS/1e9:raise ValueError('Base pose stale')
+                    if pose_wait.waiting:
+                        if not pose_wait.ready(sample,self.reader.now(),allow_motion=stopping is None):
+                            self.sleep(.05);continue
+                        if stopping is not None and pose_wait.window is not None:stopping=pose_wait.window
+                        previous=np.zeros(3);last_source=None;resumed_at=self.ctrl.clock()
+                    if last_source is not None and source<=last_source:self.sleep(.05);continue
+                    if goal is None:
+                        c,s=np.cos(pose[2]),np.sin(pose[2]);goal=pose+np.r_[np.array([[c,-s],[s,c]])@d[:2],d[2]]
+                    dt=.05 if last_source is None else source-last_source;last_source=source
+                    e=goal-pose;e[2]=np.arctan2(np.sin(e[2]),np.cos(e[2]))
+                    c,s=np.cos(pose[2]),np.sin(pose[2]);xy=np.array([[c,s],[-s,c]])@e[:2]
+                    if stopping is not None:
+                        if np.linalg.norm(e[:2])>.008 or abs(e[2])>.02:raise ValueError('Base drifted outside measured stopping bound')
+                        if stopping.add(source,pose):self.active=None;return self.ctrl.snapshot()
+                        self.sleep(.05);continue
+                    if np.linalg.norm(e[:2])<.005 and abs(e[2])<.01:
+                        self.transport.end_output();stopping=StopWindow(after=self.reader.now());self.sleep(.05);continue
+                    command=np.r_[xy*.8,e[2]*.5]
+                    command[:2]*=min(1.,.02/max(np.linalg.norm(command[:2]),1e-9));command[2]=np.clip(command[2],-.02,.02)
+                    command=np.clip(command,previous-.04*min(dt,.1),previous+.04*min(dt,.1))
+                    self.reader.check_motion(command,source);self._check(cancel)
+                    self.transport.send(command);previous=command;self.sleep(.05)
+                except Exception as exc:
+                    if not pose_unavailable(exc):raise
+                    pose_wait.begin(sent[0]);pose_wait.hold();self.sleep(.05)
+                finally:
+                    if was_waiting or pose_wait.waiting:
+                        deadline+=max(0.,(self.ctrl.clock() if resumed_at is None else resumed_at)-tick)
             raise ValueError('Base measured goal timed out')
         except Exception:self.hold();raise
         finally:

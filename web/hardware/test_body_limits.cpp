@@ -19,6 +19,6 @@ int main() {
   assert(!valid_chassis_target(.01,0,0,2));
   assert(!valid_chassis_target(0,0,0,3));
   assert(!valid_chassis_target(std::numeric_limits<double>::quiet_NaN(),0,0,1));
-  assert(!chassis_expired(.249) && chassis_expired(.25) && chassis_expired(1));
-  std::cout << "PASS: lift 0..18, bounded chassis, stop mode, unconditional 250ms timeout\n";
+  assert(!chassis_expired(.999) && chassis_expired(1.) && chassis_expired(1.001));
+  std::cout << "PASS: lift 0..18, bounded chassis, stop mode, unconditional 1000ms timeout\n";
 }

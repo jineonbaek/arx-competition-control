@@ -1,0 +1,10 @@
+msg/Command.idl
+msg/Command.msg
+msg/Output.idl
+msg/Output.msg
+msg/Result.idl
+msg/Result.msg
+msg/State.idl
+msg/State.msg
+srv/Manage.idl
+srv/Manage.srv

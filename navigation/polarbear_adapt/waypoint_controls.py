@@ -1,4 +1,5 @@
 import copy,json,math,os
+from pathlib import Path
 from geometry_msgs.msg import PoseStamped,Point
 from std_msgs.msg import Empty,String
 from visualization_msgs.msg import Marker,MarkerArray
@@ -7,7 +8,8 @@ from mission_route import MissionRoute,point
 from mission_runtime import TaskRuntime
 
 class Waypoints:
- def __init__(self,driver):
+ def __init__(self,driver,mapping_only=False):
+  self.mapping_only=mapping_only
   self.driver=driver;self.map_id=os.getenv('ARX_SAVED_MAP') or ('live:'+os.getenv('ARX_ADAPT_RUN','isolated'))
   self.route=MissionRoute(self.map_id);self.forwarded=set();self.kind='stop';self.phase=None;self.goal_stamp=0;self.last_resume_pose=None;self.accept_after_ns=0;self.mode_revision=0;self.capture_ids=set()
   qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -20,7 +22,12 @@ class Waypoints:
   driver.create_subscription(String,'/pb/waypoints/kind',self.set_kind,10)
   driver.create_subscription(String,'/pb/waypoints/edit',self.edit,10)
   driver.create_subscription(Empty,'/pb/waypoints/start',self.start,5);driver.create_subscription(Empty,'/pb/waypoints/clear',self.clear,5)
-  self.runtime=TaskRuntime(self);self.hub=self.runtime.hub;self.timer=driver.create_timer(.1,self.runtime.tick);self.show()
+  if mapping_only:
+   from mapping_route_editor import EditorRuntime
+   self.runtime=EditorRuntime();self.hub=self.runtime.hub;self.timer=None
+  else:
+   self.runtime=TaskRuntime(self);self.hub=self.runtime.hub;self.timer=driver.create_timer(.1,self.runtime.tick)
+  self.show()
  def close(self):self.runtime.close()
  def blocking(self):return self.hub.blocking()
  def set_kind(self,msg):
@@ -42,7 +49,7 @@ class Waypoints:
    value=dict(type='task' if kind in ('point_1','point_2') else kind,pose=poses[0].tolist())
    if kind in ('point_1','point_2'):value['point_id']=kind
    if 'name' in v:value['name']=v['name']
-   self.route.add(value);self.phase='已添加当前车位'
+   self.route.add(self.working_point(value));self.phase='已添加当前车位'
   except Exception as e:self.phase='当前位置添加被拒绝：'+str(e)
   self.show()
  def add(self,msg):
@@ -51,10 +58,14 @@ class Waypoints:
   value=dict(type='task' if self.kind in ('point_1','point_2') else self.kind,pose=[p.x,p.y,2*math.atan2(q.z,q.w)])
   if value['type']=='task':value['point_id']=self.kind
   self._add(value)
+ def working_point(self,value):
+  if value.get('type')=='task' and any(p.get('test_task_id') for p in self.route.points):
+   value=dict(value);value['type']='special';value['test_task_id']=value.pop('point_id')
+  return value
  def _add(self,value):
   try:
    if self.blocking():raise ValueError('task handoff active')
-   self.route.add(value);self.phase=None
+   self.route.add(self.working_point(value));self.phase=None
   except ValueError as e:self.phase=str(e)
   self.show()
  def add_json(self,msg):
@@ -67,11 +78,44 @@ class Waypoints:
    if self.blocking() or self.route.running:raise ValueError('route running or handoff active')
    if len(msg.data)>262144:raise ValueError('edit too large')
    v=json.loads(msg.data);action=v['action']
-   if action=='load':self.route.load(v['definition'],v.get('allow_map_change') is True)
+   if action=='test_mode':
+    if self.driver.target is not None:raise ValueError('请先结束当前单点导航')
+    from route_test_mode import test_definition
+    if not any(p['type']=='task' or p.get('test_task_id') for p in self.route.points):raise ValueError('当前路线没有可测试的任务点')
+    self.route.load(test_definition(self.route.definition(),v['enabled']))
+   elif action=='replace_current':
+    if self.driver.target is not None:raise ValueError('请先结束当前单点导航')
+    if v.get('route_id')!=self.route.route_id:raise ValueError('路线已改变，请重新选择点')
+    matches=[p for p in self.route.points if p['id']==v.get('id')]
+    if len(matches)!=1 or matches[0]!=v.get('expected_point'):raise ValueError('选中点已改变，请重新选择')
+    ident=v.get('request_id')
+    if not isinstance(ident,str) or not 1<=len(ident)<=80:raise ValueError('invalid replacement request')
+    if ident in self.capture_ids:return
+    poses=self.driver.special_poses()
+    updated=dict(matches[0],pose=poses[0].tolist());updated=point(updated)
+    if len(self.capture_ids)>=512:self.capture_ids.clear()
+    self.capture_ids.add(ident)
+    self.route.points[self.route.points.index(matches[0])]=updated
+   elif action=='replace_if_unchanged':
+    if self.driver.target is not None or v['expected_definition']!=self.route.definition():raise ValueError('路线已改变或单点导航未结束，未重加载')
+    self.route.load(v['definition'])
+   elif action=='load_if_empty':
+    if (self.route.state!='draft' or self.route.points or self.driver.target is not None
+        or v.get('expected_route_id')!=self.route.route_id):raise ValueError('当前路线已改变，保留现有编辑或目标')
+    self.route.load(v['definition'])
+   elif action=='load':self.route.load(v['definition'],v.get('allow_map_change') is True)
    elif action=='delete':
     i=v['index'];assert type(i) is int and 0<=i<len(self.route.points);self.route.points.pop(i)
    elif action=='move':
-    i,j=v['index'],v['to'];assert type(i) is int and type(j) is int and 0<=i<len(self.route.points) and 0<=j<len(self.route.points)
+    if 'id' in v:
+     if v.get('route_id')!=self.route.route_id:raise ValueError('路线已改变，请重新选择点')
+     delta=v.get('delta')
+     if type(delta) is not int or delta not in (-1,1):raise ValueError('invalid move direction')
+     matches=[i for i,p in enumerate(self.route.points) if p['id']==v['id']]
+     if len(matches)!=1:raise ValueError('选中点不存在')
+     i=matches[0];j=max(0,min(len(self.route.points)-1,i+delta))
+    else:
+     i,j=v['index'],v['to'];assert type(i) is int and type(j) is int and 0<=i<len(self.route.points) and 0<=j<len(self.route.points)
     self.route.points.insert(j,self.route.points.pop(i))
    else:raise ValueError('unknown edit')
    self.phase=None
@@ -89,6 +133,7 @@ class Waypoints:
   else:
    label=labels.get(r.state,r.state)
    if self.phase:label=(label+'；' if r.state=='draft' else '')+self.phase
+  if any(p.get('test_task_id') for p in r.points):label='测试模式（无真实作业）；'+label
   self.status.publish(String(data=f'{label}  {r.index}/{len(r.points)}'))
   self.definition_pub.publish(String(data=json.dumps(r.definition(),ensure_ascii=False,allow_nan=False)))
   markers=[Marker(action=Marker.DELETEALL)]
@@ -97,6 +142,7 @@ class Waypoints:
    color=(.25,.75,.1) if i<r.index else ((.1,.8,1.) if p['type']=='via' else ((1.,.4,.2) if p.get('point_id')=='point_1' else ((.8,.2,1.) if p['type']=='task' else (1.,.75,.1))))
    m.color.r,m.color.g,m.color.b=color;m.color.a=1.
    t=copy.deepcopy(m);t.ns='waypoint_numbers';t.type=Marker.TEXT_VIEW_FACING;t.text=f"{i+1}:"+({'point_1':'T1','point_2':'T2'}.get(p.get('point_id'),'V' if p['type']=='via' else 'SPECIAL' if p['type']=='special' else 'LEGACY STOP'))+(' '+p['name'] if p.get('name') else '');t.pose.position.z=.36;t.scale.z=.17
+   if p.get('test_task_id'):t.text=f"{i+1}:TEST "+('T1后退' if p['test_task_id']=='point_1' else 'T2直达下一点')
    markers.extend([m,t])
   for i,(a,b) in enumerate(zip(r.points,r.points[1:])):
    task=b['type']=='task'
@@ -125,13 +171,15 @@ class Waypoints:
   else:
    self.forwarded.add((msg.header.stamp.sec,msg.header.stamp.nanosec));self.constraints();self.driver.accept_goal(msg);self.goals.publish(msg)
  def start(self,_):
+  if self.mapping_only:self.show('纯建图只编辑路线，请切换导航模式后执行');return
   try:
    if self.blocking():raise ValueError('任务尚未归还控制权')
    if self.driver.ready_file is not None and not self.driver.ready_file.is_file():raise ValueError('定位未就绪')
    if self.route.running or self.driver.target is not None:self.show();return
    console=self.runtime.console()
    if not console['execution_enabled'] or not console['body']['fresh'] or (console.get('chassis_scheduler') or {}).get('maintenance'):raise ValueError('底盘执行接口未就绪或处于维护测试')
-   self.dispatch(self.route.start(self.hub.available_points(),pose=self.driver.special_poses()[0]))
+   competition=bool(os.getenv('ARX_ADAPT_RUN') and (Path(os.environ['ARX_ADAPT_RUN'])/'competition-map').is_file())
+   self.dispatch(self.route.start(self.hub.available_points(),pose=self.driver.special_poses()[0],direct_start=competition))
   except (ValueError,OSError,KeyError,TypeError) as e:self.phase=('开始被拒绝：'+str(e)).replace('task worker unavailable:','任务程序未接入：')
   self.show()
  def clear(self,_):

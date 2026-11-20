@@ -3,7 +3,7 @@ set -eo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
 mode=${1:-navigation}
-case "$mode" in mapping|navigation|mapping-navigation|current-map|new-map|resume-map|saved-map) ;; *) exit 2;; esac
+case "$mode" in mapping|navigation|mapping-navigation|current-map|new-map|resume-map|saved-map|set-map-direction|save-competition|save-competition-route|reload-competition-route) ;; *) exit 2;; esac
 exec 9>"${XDG_RUNTIME_DIR:-/tmp}/arx-navigation-${UID}.lock"
 flock -n 9 || { echo '另一项雷达或导航操作正在进行。'; exit 1; }
 mkdir -p reports
@@ -13,9 +13,8 @@ source sensor_env.sh
 source desktop/session.sh
 fail(){ echo "$1"; if [[ -n "${DISPLAY:-}" ]];then zenity --error --text="$1
 $log" || true;fi;exit 1; }
-read -r bottom head < <(python3 desktop/lidar_ingress.py status)
-[[ "$bottom" == 1 ]] || fail '底盘点云已关闭。请在「雷达开关」中启用底盘点云后再启动。'
-python3 desktop/lidar_ingress.py apply || fail '应用雷达开关失败。'
+rviz_prefix=$(bash desktop/prepare_rviz.sh) || fail '正式 RViz 插件构建或校验失败。'
+printf '正式导航目录：%s\nGit版本：%s\nRViz插件：%s\n' "$root" "$(git rev-parse --short HEAD)" "$rviz_prefix"
 health() {
   python3 desktop/chain_health.py "$@" "${head_check[@]}"
 }
@@ -31,6 +30,23 @@ save_current() {
   rm -f -- "$result"
   return "$status"
 }
+if [[ "$mode" == reload-competition-route ]]; then
+  current=$(session_run || true)
+  session_live "$current" && [[ -f "$current/competition-map" ]] || fail '当前不是比赛地图会话。'
+  route_source=$(python3 desktop/competition_map.py resolve) || fail '保存的比赛路线地图版本不可用。'
+  python3 desktop/competition_route.py reload "$current" "$route_source" || fail '重加载失败，保留当前点位。'
+  exit 0
+fi
+if [[ "$mode" == save-competition || "$mode" == save-competition-route ]]; then
+  current=$(session_run || true)
+  session_live "$current" && [[ -f "$current/competition-map" ]] || fail '当前不是可更新的比赛地图会话。'
+  save_current || fail '保存比赛地图失败。'
+  if [[ -n "${DISPLAY:-}" ]]; then zenity --info --text="比赛地图及同坐标版本的比赛路线已保存；下次导航只加载路线，不自动开跑。" 9>&- || true; fi
+  exit 0
+fi
+read -r bottom head < <(python3 desktop/lidar_ingress.py status)
+[[ "$bottom" == 1 ]] || fail '底盘点云已关闭。请在「雷达开关」中启用底盘点云后再启动。'
+python3 desktop/lidar_ingress.py apply || fail '应用雷达开关失败。'
 head_check=()
 [[ "$head" != 1 ]] || head_check+=(--head)
 old=$(session_run || true)
@@ -41,18 +57,55 @@ saved=''
 resume=false
 use_live_hint=false
 force_new=false
+competition=false
+orient=false
+competition_target() {
+  if session_live "$old" && [[ -f "$old/competition-map" ]]; then
+    session_idle || fail '请先结束导航并停车。'
+    save_current >/dev/null || fail '保存当前比赛地图失败，保留原会话。'
+  fi
+  python3 desktop/competition_map.py resolve
+}
 case "$mode" in
+  mapping)
+    mapping_selection=$(zenity --list --radiolist --title='建图一键启动' --width=520 --height=280 \
+      --text='继续最新比赛地图，或先将车头与长边平行并静止，再设定方向重新建图。' \
+      --column='选择' --column='运行方式' TRUE '继续比赛地图（默认）' FALSE '设定方向并重新建图' 9>&-) || exit 0
+    competition=true
+    case "$mapping_selection" in
+      '继续比赛地图（默认）')
+        checkpoint=$(competition_target) || fail '比赛地图不完整，未启动。'
+        resume=true ;;
+      '设定方向并重新建图')
+        force_new=true; orient=true
+        session_idle || fail '请先结束导航并停车。' ;;
+      *) exit 0 ;;
+    esac
+    ;;
   current-map)
     case "$old_mode" in mapping|mapping-navigation|legacy-mapping) ;; *) fail '当前没有可切换的建图会话。';; esac
     session_idle || fail '请先停止路线并停车。'
     health mapping || fail '建图链路异常。请先用建图一键启动恢复。'
     saved=$(save_current) || fail '保存失败，原建图会话仍在。'
     checkpoint=$saved
-    mode=navigation
+    mode=mapping-navigation
+    resume=true
+    competition=true
     ;;
   navigation)
-    selection=$(zenity --list --title='导航一键启动' --column='运行方式' '使用已保存地图' '边建图边导航' 9>&-) || exit 0
-    if [[ "$selection" == '边建图边导航' ]]; then mode=mapping-navigation; fi
+    selection=$(zenity --list --radiolist --title='导航一键启动' --width=480 --height=260 \
+      --column='选择' --column='运行方式' \
+      TRUE '比赛地图（默认）' FALSE '使用已保存地图' FALSE '边建图边导航' 9>&-) || exit 0
+    case "$selection" in
+      '比赛地图（默认）'|'边建图边导航')
+        competition=true
+        checkpoint=$(competition_target) || fail '比赛地图不存在或不完整。'
+        mode=mapping-navigation
+        resume=true
+        ;;
+      '使用已保存地图') ;;
+      *) exit 0 ;;
+    esac
     ;;
   resume-map)
     mode=${3:-mapping}
@@ -66,6 +119,7 @@ case "$mode" in
     fi
     resume=true
     if [[ "${4:-}" == --live-hint ]]; then use_live_hint=true; fi
+    if [[ "${5:-}" == --competition ]]; then competition=true; fi
     ;;
   saved-map)
     mode=navigation
@@ -73,9 +127,12 @@ case "$mode" in
     [[ -s "$saved" && -s "${saved%.yaml}.pgm" && ! -e "${saved%/*}/INCOMPLETE" ]] ||
       fail '指定地图不完整。'
     ;;
-  new-map)
+  new-map|set-map-direction)
     mode=mapping
     force_new=true
+    competition=true
+    orient=true
+    session_idle || fail '请先结束导航并停车。'
     ;;
 esac
 if [[ "$mode" == navigation && -z "$saved" ]];then
@@ -87,6 +144,14 @@ if [[ "$mode" == navigation && -z "$saved" ]];then
   [[ -s "$saved" ]] || exit 0
 fi
 same=false
+if $competition && ! $force_new && session_live "$old" && [[ -f "$old/competition-map" ]]; then
+  use_live_hint=true
+  if [[ "$old_mode" == "$mode" ]]; then
+    # Same live map: preserve route/executor state and let the health/reuse gate below decide.
+    resume=false
+    checkpoint=''
+  fi
+fi
 if ! $force_new && ! $resume && [[ "$old_mode" == "$mode" ]]; then
   if [[ "$mode" != navigation || "$(cat "$old/desktop-map" 2>/dev/null)" == "$saved" ]]; then
     if [[ "$mode" != navigation && ! -e "$old/mapping-engine" ]]; then
@@ -164,7 +229,11 @@ if ! $same;then
   ARX_ADAPT_RUN=$(mktemp -d "$root/reports/desktop-$mode-$(date +%Y%m%d-%H%M%S)-XXXXXXXX")
   echo "$mode" >"$ARX_ADAPT_RUN/desktop-mode"
   unset ARX_RESUME_GRAPH ARX_RESUME_SEED ARX_SAVED_MAP ARX_MAP_SEED ARX_OBSTACLE_CHECKPOINT ARX_FAST_SENSOR_NODE ARX_SCAN_BOOTSTRAP
-  unset ARX_MAPPING_ENGINE ARX_DUAL_ORIGIN_RESUME
+  unset ARX_MAPPING_ENGINE ARX_DUAL_ORIGIN_RESUME ARX_MAP_INITIAL_HEADING
+  if $competition; then touch "$ARX_ADAPT_RUN/competition-map"; fi
+  if $competition; then
+    python3 desktop/competition_route.py init "$ARX_ADAPT_RUN" "${checkpoint:-$saved}" "$orient" || fail '比赛地图坐标身份初始化失败。'
+  fi
   if [[ "$mode" != navigation ]]; then
     if ! $resume || [[ -s "${checkpoint%.yaml}.dual-origin.npz" ]]; then
       [[ "$head" == 1 ]] || fail '双光心建图需要启用前、后雷达。'
@@ -218,6 +287,10 @@ if ! $same;then
     fi
     stop_session "$old" "$checkpoint" || fail '原会话仍在运行，请查看日志。'
   fi
+  if $orient; then
+    export ARX_MAP_INITIAL_HEADING="$ARX_ADAPT_RUN/initial-heading.json"
+    python3 desktop/mapping_direction.py "$ARX_MAP_INITIAL_HEADING" || fail '设定方向失败，请保持静止后重新启动建图。'
+  fi
   nohup bash polarbear_adapt/start.sh >"$ARX_ADAPT_RUN/launch.log" 2>&1 </dev/null 9>&- &
   child=$!;pending=$child;echo "$child" >"$ARX_ADAPT_RUN/launch.pid"
   for ((i=0;i<70;i++));do
@@ -238,7 +311,9 @@ if ! $same;then
       pending=''
       flock -u 9
       exec 9>&-
-      exec bash desktop/start_navigation.sh resume-map "$checkpoint"
+      recovery_args=(resume-map "$checkpoint")
+      if $competition; then recovery_args+=(mapping --live-hint --competition); fi
+      exec bash desktop/start_navigation.sh "${recovery_args[@]}"
     fi
     fail "地图或定位没有就绪。${checkpoint:+已保存：$checkpoint}"
   fi
@@ -247,7 +322,21 @@ if ! $same;then
   if [[ "$mode" != mapping && "${ARX_EXTERNAL_GOAL_DRIVER:-0}" != 1 ]]; then touch "$ARX_ADAPT_RUN/drive-ready"; fi
   pending=''
 fi
+if $competition && ! $orient && ! $same; then
+  route_source=${checkpoint:-$saved}
+  [[ -n "$route_source" ]] || fail '比赛路线缺少对应地图版本，未加载。'
+  python3 desktop/competition_route.py load "$ARX_ADAPT_RUN" "$route_source" ||
+    fail '地图已启动，但比赛路线未能可靠加载；保持待开始，请检查路线。'
+fi
 viewer=$(pgrep -u "$UID" -f '[r]viz2 .*polarbear_adapt/polarbear.rviz' || true)
+if [[ -n "$viewer" && "$same" == true ]]; then
+  for pid in $viewer; do
+    if ! grep -Fq "$rviz_prefix/lib/libarx_waypoint_rviz.so" "/proc/$pid/maps"; then
+      stop_owned "$pid" 'polarbear_adapt/polarbear.rviz' || fail '旧 RViz 窗口未退出。'
+    fi
+  done
+  viewer=$(pgrep -u "$UID" -f '[r]viz2 .*polarbear_adapt/polarbear.rviz' || true)
+fi
 if [[ -n "$viewer" && "$same" == false ]];then
   for pid in $viewer;do stop_owned "$pid" 'polarbear_adapt/polarbear.rviz' || fail '旧 RViz 窗口未退出。';done
   viewer=''

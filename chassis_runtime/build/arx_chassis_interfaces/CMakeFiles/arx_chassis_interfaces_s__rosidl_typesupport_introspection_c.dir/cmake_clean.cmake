@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/arx_chassis_interfaces_s__rosidl_typesupport_introspection_c.dir/rosidl_generator_py/arx_chassis_interfaces/_arx_chassis_interfaces_s.ep.rosidl_typesupport_introspection_c.c.o"
+  "CMakeFiles/arx_chassis_interfaces_s__rosidl_typesupport_introspection_c.dir/rosidl_generator_py/arx_chassis_interfaces/_arx_chassis_interfaces_s.ep.rosidl_typesupport_introspection_c.c.o.d"
+  "rosidl_generator_py/arx_chassis_interfaces/arx_chassis_interfaces_s__rosidl_typesupport_introspection_c.pdb"
+  "rosidl_generator_py/arx_chassis_interfaces/arx_chassis_interfaces_s__rosidl_typesupport_introspection_c.so"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang C)
+  include(CMakeFiles/arx_chassis_interfaces_s__rosidl_typesupport_introspection_c.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

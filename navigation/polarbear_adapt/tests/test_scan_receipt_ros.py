@@ -24,7 +24,7 @@ class ScanReceiptTests(unittest.TestCase):
   for age in (.581,-.01):
    self.cached_old();self.independent(age=age);self.assertIn('/pb/scan',self.n.stale_inputs())
  def test_pose_deadline_remains_independent(self):
-  self.cached_old();self.independent();msg=copy.deepcopy(self.n.pose_snapshot);msg.header.stamp=Time(nanoseconds=self.n.get_clock().now().nanoseconds-401_000_000).to_msg();self.n.receive_chassis_snapshot(msg)
+  self.cached_old();self.independent();msg=copy.deepcopy(self.n.pose_snapshot);msg.header.stamp=Time(nanoseconds=self.n.get_clock().now().nanoseconds-1_001_000_000).to_msg();self.n.receive_chassis_snapshot(msg)
   with self.assertRaisesRegex(ValueError,'motion_pose_stale_or_invalid'):self.n.motion_poses()
  def test_same_or_older_than_main_stream_cannot_renew_receipt(self):
   self.cached_old();st=self.n.sensor['/pb/scan'];source=st.sec*1_000_000_000+st.nanosec

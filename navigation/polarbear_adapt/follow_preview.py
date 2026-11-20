@@ -16,6 +16,7 @@ from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, TransformListener, TransformException
 
 from chassis_command import WebChassis, follow_velocity
+from chassis_pose_policy import MOTION_MAX_AGE_NS
 from path_audit import AuditGrid, heading, planar
 
 
@@ -83,7 +84,7 @@ class Follow(Node):
 
     def pose(self, frame, now):
         t = self.tf.lookup_transform(frame,'base_link',Time())
-        if not fresh(now,t.header.stamp,.4):
+        if not fresh(now,t.header.stamp,MOTION_MAX_AGE_NS/1e9):
             raise ValueError('定位 TF 过期')
         v = t.transform
         return np.array([v.translation.x,v.translation.y,heading(v.rotation)])
@@ -136,9 +137,9 @@ class Follow(Node):
         now, received = self.now(), time.monotonic()
         stale = []
         # The filtered scan is published after deskew and ground segmentation.
-        for topic, limit in (('/pb/scan', .58), ('/localization/odometry', .4)):
+        for topic, limit, receipt_limit in (('/pb/scan', .58, .2), ('/localization/odometry', MOTION_MAX_AGE_NS/1e9, MOTION_MAX_AGE_NS/1e9)):
             stamp = self.sensor.get(topic)
-            if stamp is None or not fresh(now, stamp, limit) or received-self.sensor_received[topic] > .2:
+            if stamp is None or not fresh(now, stamp, limit) or received-self.sensor_received[topic] > receipt_limit:
                 stale.append(topic)
         for frame in ('map', 'odom'):
             if frame not in self.grids or not fresh(now, self.grids[frame][0], 1.5):

@@ -1,0 +1,42 @@
+{
+  "env.sh": {
+    "before": "c22bb52e340b33bdf0f8126c5e886993778cb5786d8000e1e6427a2627dc20af",
+    "after": "9ca4dad0c02ec8bf43a82f5655bd85b8626603f2e7756509f2eb93c556fb08b3"
+  },
+  "web/hardware/CMakeLists.txt": {
+    "before": "76048dfddebd7e4a02f406ff05cdb379047c244a025a6702355ed98c013fbfb8",
+    "after": "9902616281917020413da9da9ea6e264eb6a0cced652abc982cbeefb71d8a6c7"
+  },
+  "web/hardware/test_chassis_output.cpp": {
+    "before": "dedf30867ebe647dad56d8b13bc049f3defecc8142acde6fa6e9afcb97455bb4",
+    "after": "14898f41358b255dd91b990dc1f7d419226e4591ef9aaeae07b6079545045164"
+  },
+  "web/hardware/chassis_output.hpp": {
+    "before": "beb9aedd77f8ecf650ed3944ce690110bf3ec071b859a24e6f7fd49d78115b3e",
+    "after": "2054ce90acb7e07e68b7d4f4228d06a37d70741a7954daa30535a094193ee118"
+  },
+  "web/hardware/lift_controller_web.cpp": {
+    "before": "a310bc5156beb262c1fa22f743923e60e71cd6bdfc71f5130765e1f6a949953f",
+    "after": "7fb020e60f739c953dce06724fe275f12488c0ae4dcef8930ade21dae63deb1e"
+  },
+  "web/config/control.json": {
+    "before": "de979c03ce27a770e49d1250394f986e2f777cb2c13e0368f32ffd143af696c3",
+    "after": "61ef38800f3558743068994eebdad3aea47220d2f17e99026e08c46ba0bdc60a"
+  },
+  "web/public/js/main.js": {
+    "before": "3bf0587880aac0b3e7480579364cdae2d3fd3dde83e56c33da123517ff63d4cb",
+    "after": "45654d0cd0f696bac4463aaceb3ec0d7a911c98577c1155e8edc5026a855b696"
+  },
+  "web/src/control.py": {
+    "before": "106c5f28b8fed41434cafcd0ba2fc7d27918a0dd8214c76f4b78542522a1efdb",
+    "after": "814c217f9fb5c80f98bdc8cacdcd816b4e9a79d757dc222f22ac268023e04090"
+  },
+  "web/src/ros_adapter.py": {
+    "before": "f5dc2b5572b39de4a262bd45ccf2294e81f20b3138775b25ac9176742ab77081",
+    "after": "e58c84437a8aa3d395a2fc698060323a6f458160c7786041d8724fc732553131"
+  },
+  "navigation/polarbear_adapt/chassis_command.py": {
+    "before": "03ff6cfb70464c787581f430cfc359d45080b48884b5cb138b838ce7050260c5",
+    "after": "cebbebaa925594732ff5ba2f4019af2438b77f13bf6276ab5bc7b0f6fd31b94a"
+  }
+}

@@ -1,9 +1,10 @@
 """Typed route policy. No ROS, transport, hardware or task-action semantics."""
 import copy,math,uuid
+from chassis_pose_policy import MOTION_MAX_AGE_NS
 
 def uid():return str(uuid.uuid4())
 def point(value):
- if not isinstance(value,dict) or set(value)-{'id','type','pose','point_id','pass_radius_m','name'}:raise ValueError('invalid point fields')
+ if not isinstance(value,dict) or set(value)-{'id','type','pose','point_id','pass_radius_m','name','test_task_id'}:raise ValueError('invalid point fields')
  kind=value.get('type','stop');pose=value.get('pose')
  if kind not in ('stop','via','task','special') or not isinstance(pose,list) or len(pose)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) for x in pose):raise ValueError('invalid point pose/type')
  ident=value.get('id',uid())
@@ -13,6 +14,9 @@ def point(value):
   name=value['name']
   if not isinstance(name,str) or len(name)>64 or any(ord(c)<32 or ord(c)==127 for c in name):raise ValueError('invalid point name')
   if name.strip():p['name']=name.strip()
+ if 'test_task_id' in value:
+  if kind!='special' or value['test_task_id'] not in ('point_1','point_2'):raise ValueError('invalid test task marker')
+  p['test_task_id']=value['test_task_id']
  if kind=='task':
   if value.get('point_id') not in ('point_1','point_2'):raise ValueError('invalid task point_id')
   p['point_id']=value['point_id']
@@ -64,29 +68,42 @@ class MissionRoute:
  def can_enter_direct(self,pose,after_task=False):
   i=self.index+(1 if after_task else 0)
   if pose is None or len(pose)!=3 or not all(math.isfinite(v) for v in pose):return False
-  if after_task and i<len(self.points) and self.points[i]['type']=='task':return True
+  if after_task and i<len(self.points) and self.points[i]['type'] in ('task','special'):return True
   return (i+1<len(self.points) and self.points[i]['type']=='special' and self.points[i+1]['type']=='special'
           and distance(pose,self.points[i]['pose'])<=.10)
- def _group(self,pose=None):
+ def _direct_end(self,start):
+  end=start
+  while (end+1<len(self.points) and self.points[end+1]['type']=='special'
+         and not self.points[end].get('test_task_id') and not self.points[end+1].get('test_task_id')):end+=1
+  return end
+ def _group(self,pose=None,after_task=False,direct_start=False):
   self.mode='navigation';self.direct_source=None
   if self.index>=len(self.points):self.running=False;self.state='completed';self.target_index=None;return None
   self.state='running';self.sample=None
   if self.points[self.index]['type']=='task':
    self.mode='task_direct';self.target_index=self.index
    return copy.deepcopy(self.points[self.index])
+  if (self.points[self.index].get('test_task_id') or (after_task and self.points[self.index]['type']=='special')
+      or (direct_start and self.points[self.index]['type']=='special' and distance(pose,self.points[self.index]['pose'])>.10)):
+   # A distant competition entry must visit the first point, not skip it.
+   self.direct_source=dict(pose=list(pose));self.mode='direct';self.target_index=self.index
+   self.target_index=self._direct_end(self.target_index)
+   return copy.deepcopy(self.points[self.target_index])
   if self.can_enter_direct(pose):
    self.direct_source=copy.deepcopy(self.points[self.index])
    self.index+=1;self.mode='direct';self.target_index=self.index
-   while self.target_index+1<len(self.points) and self.points[self.target_index+1]['type']=='special':self.target_index+=1
+   self.target_index=self._direct_end(self.target_index)
    return copy.deepcopy(self.points[self.target_index])
   self.target_index=next((i for i in range(self.index,len(self.points)) if self.points[i]['type']!='via'),len(self.points)-1)
-  if self.points[self.target_index]['type']=='task' and self.target_index>self.index:self.target_index-=1
+  if (self.points[self.target_index]['type']=='task' or self.points[self.target_index].get('test_task_id')) and self.target_index>self.index:self.target_index-=1
   return copy.deepcopy(self.points[self.target_index])
- def start(self,available=(),pose=None):
+ def start(self,available=(),pose=None,direct_start=False):
   if self.running or self.state!='draft' or not self.points:return None
+  if any(p.get('test_task_id') for p in self.points) and any(p['type']=='task' for p in self.points):raise ValueError('mixed test and real tasks are not executable')
   needed={p['point_id'] for p in self.points if p['type']=='task'}
   if needed-set(available):raise ValueError('task worker unavailable: '+','.join(sorted(needed-set(available))))
-  self.running=True;self.mission_id=uid();return self._group(pose)
+  if direct_start and (pose is None or len(pose)!=3 or not all(math.isfinite(v) for v in pose)):raise ValueError('valid competition entry pose required')
+  self.running=True;self.mission_id=uid();return self._group(pose,direct_start=direct_start)
  def direct_points(self):
   return copy.deepcopy(self.points[self.index:self.target_index+1]) if self.running and self.mode in ('direct','task_direct') and self.target_index is not None else []
  def advance_direct(self,point_id):
@@ -95,7 +112,7 @@ class MissionRoute:
  def vias(self):
   if not self.running or self.target_index is None or self.state!='running' or self.mode in ('direct','task_direct'):return []
   end=self.target_index
-  if self.points[end]['type']=='via' and end+1<len(self.points) and self.points[end+1]['type']=='task':end+=1
+  if self.points[end]['type']=='via' and end+1<len(self.points) and (self.points[end+1]['type']=='task' or self.points[end+1].get('test_task_id')):end+=1
   return copy.deepcopy(self.points[self.index:end])
  def observe(self,pose,odom,stamp):
   if not self.vias():return False
@@ -111,7 +128,7 @@ class MissionRoute:
    mismatch=distance(body(previous[1],pose),body(previous[2],odom))
    if max(map_step,odom_step)>max(.06,.45*dt) or mismatch>.04 or max(map_yaw,odom_yaw)>max(.08,.6*dt) or abs(map_yaw-odom_yaw)>.04:
     self.sample=None;self.running=False;self.state='localization_jump';raise ValueError('localization jump')
-   if dt>.4:
+   if dt>MOTION_MAX_AGE_NS/1e9:
     self.sample=(stamp,list(pose),list(odom));return False
   self.sample=(stamp,list(pose),list(odom))
   a=previous[1] if previous is not None else pose
@@ -125,9 +142,13 @@ class MissionRoute:
   if self.mode=='direct' and self.index<self.target_index:raise ValueError('unvisited special before terminal arrival')
   p=self.points[self.target_index];self.index=self.target_index
   if p['type']=='task':self.state='waiting_task';return None
+  if p.get('test_task_id'):
+   self.index+=1;return self._group(pose,after_task=True)
   if self.mode=='navigation' and p['type']=='special' and self.can_enter_direct(pose):return self._group(pose)
   self.index+=1;return self._group(pose)
  def release_task(self,pose=None):
   if not self.running or self.state!='waiting_task':return None
-  self.index+=1;return self._group(pose)
+  if self.index+1<len(self.points) and self.points[self.index+1]['type']=='special':
+   if pose is None or len(pose)!=3 or not all(math.isfinite(v) for v in pose):raise ValueError('actual post-task pose required')
+  self.index+=1;return self._group(pose,after_task=True)
  def cancel(self):self.running=False;self.state='cancelled';self.sample=None

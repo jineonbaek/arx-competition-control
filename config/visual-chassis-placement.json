@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "observation_max_age_s": 1.0,
+  "admission_forward_m": 0.020,
+  "admission_lateral_m": 0.020,
+  "admission_yaw_deg": 2.0,
+  "max_translation_step_m": 0.050,
+  "max_yaw_step_deg": 2.0,
+  "max_total_translation_m": 0.30,
+  "max_total_yaw_deg": 15.0,
+  "handoff_max_age_s": 2.0,
+  "max_correction_cycles": 8
+}

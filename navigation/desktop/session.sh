@@ -60,6 +60,7 @@ stop_session() {
     if [[ "$(tr '\0' ' ' <"/proc/$(cat "$run/goal-drive.pid")/cmdline" 2>/dev/null)" == *'polarbear_adapt/mppi_goal_drive.py'* ]];then drive_pattern='polarbear_adapt/mppi_goal_drive.py';fi
     stop_owned "$(cat "$run/goal-drive.pid")" "$drive_pattern" || return 1
   fi
-  stop_owned "$(cat "$run/launch.pid")" 'ros2 launch polarbear_adapt/navigation.launch.py' || return 1
+  stop_owned "$(cat "$run/launch.pid")" 'ros2 launch polarbear_adapt/navigation.launch.py' ||
+    python3 desktop/session_processes.py live "$run" || return 1
   python3 desktop/session_processes.py stop "$run"
 }

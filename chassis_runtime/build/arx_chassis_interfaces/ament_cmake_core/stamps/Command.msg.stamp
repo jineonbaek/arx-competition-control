@@ -1,0 +1,12 @@
+string request_id
+string scheduler_instance
+string client_id
+string operation
+string kind
+string source_id
+string task_id
+uint64 generation
+uint64 seq
+float64 issued_at
+float64 ttl_s
+float64[3] sdk

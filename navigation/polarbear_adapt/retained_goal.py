@@ -15,6 +15,7 @@ def recovery_kind(error):
         return 'replan' if code and 102<=int(code[1])<=107 else 'park'
     if prefix=='console_not_ready_or_busy':return 'console'
     if prefix=='task_worker_unavailable':return 'worker'
+    if isinstance(error,HTTPError) and error.code in (502,503,504):return 'console'
     if isinstance(error,(TimeoutError,ConnectionError,URLError)) and not isinstance(error,HTTPError):return 'console'
     return 'park'
 

@@ -3,4 +3,6 @@
   <class name="arx_waypoints/Panel" type="arx_waypoints::Panel" base_class_type="rviz_common::Panel"><description>Order, start or cancel a waypoint route.</description></class>
   <class name="arx_waypoints/Add" type="arx_waypoints::Add" base_class_type="rviz_common::Tool"><description>Add a map pose without starting the robot.</description></class>
   <class name="arx_waypoints/ForegroundPolygon" type="arx_waypoints::ForegroundPolygon" base_class_type="rviz_common::Display"><description>Display a footprint in front of the 3D scene.</description></class>
+  <class name="arx_waypoints/StartupView" type="arx_waypoints::StartupView" base_class_type="rviz_common::Display"><description>Center the startup camera on the current chassis with 10 m horizontal coverage. Read-only.</description></class>
+  <class name="arx_waypoints/EndNavigation" type="arx_waypoints::EndNavigation" base_class_type="rviz_common::Tool"><description>End single-goal or waypoint navigation while preserving route points.</description></class>
 </library>

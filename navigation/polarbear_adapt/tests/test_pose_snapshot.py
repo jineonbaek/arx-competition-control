@@ -10,7 +10,7 @@ class PoseTests(unittest.TestCase):
   self.assertTrue(self.feed(10.3,now=10.634))
  def test_invalid_then_three_new_samples(self):
   for t in (10,10.1,10.2):self.feed(t)
-  self.assertFalse(self.feed(10.3,now=11))
+  self.assertFalse(self.feed(10.3,now=11.4))
   self.assertFalse(self.feed(11.1));self.assertFalse(self.feed(11.2));self.assertTrue(self.feed(11.3))
  def test_alignment_jump_withdraws_and_requires_new_samples(self):
   for t in (10,10.1,10.2):self.feed(t)

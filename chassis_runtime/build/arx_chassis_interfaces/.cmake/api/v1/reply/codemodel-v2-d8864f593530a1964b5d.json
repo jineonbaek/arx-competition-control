@@ -1,0 +1,267 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-3e2959aa562ad1b17ec2.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						15,
+						16,
+						17,
+						18,
+						19
+					]
+				},
+				{
+					"build" : "arx_chassis_interfaces__py",
+					"jsonFile" : "directory-arx_chassis_interfaces__py-4f5fa1a8a2fc124b3160.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__py",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "arx_chassis_interfaces__rs",
+					"jsonFile" : "directory-arx_chassis_interfaces__rs-f5c0966df8f44dc464ec.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.20"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces/arx_chassis_interfaces__rs",
+					"targetIndexes" : 
+					[
+						14
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2
+					],
+					"name" : "arx_chassis_interfaces",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17,
+						18,
+						19
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_build_arx_chassis_interfaces_egg::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_build_arx_chassis_interfaces_egg-990bbb9aa11a1b2c7a74.json",
+					"name" : "ament_cmake_python_build_arx_chassis_interfaces_egg",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_copy_arx_chassis_interfaces::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_copy_arx_chassis_interfaces-716fa1ab434ac41d7fa8.json",
+					"name" : "ament_cmake_python_copy_arx_chassis_interfaces",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces-d39b08a174a8e81f23bf.json",
+					"name" : "arx_chassis_interfaces",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__cpp-77e24bdb7f451e18d1e3.json",
+					"name" : "arx_chassis_interfaces__cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "arx_chassis_interfaces__py::@c1c8551f73ce7df93d73",
+					"jsonFile" : "target-arx_chassis_interfaces__py-fd280ad22fa4c3a2629c.json",
+					"name" : "arx_chassis_interfaces__py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_generator_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_generator_c-1836205054c7f38b786b.json",
+					"name" : "arx_chassis_interfaces__rosidl_generator_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_generator_py::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_generator_py-6b0cd185f5dbafcb011b.json",
+					"name" : "arx_chassis_interfaces__rosidl_generator_py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_generator_type_description::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_generator_type_description-cc562b3eae8f29c80c4b.json",
+					"name" : "arx_chassis_interfaces__rosidl_generator_type_description",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_c-82eb60818448db1c214c.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_cpp-d6a087b8886848efc78b.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_fastrtps_c-f7477e66861e93b5ac6c.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_fastrtps_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_fastrtps_cpp-c8d8df8fb6ea84cb459f.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_fastrtps_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_introspection_c-8cad86768aea1f9384a1.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces__rosidl_typesupport_introspection_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces__rosidl_typesupport_introspection_cpp-c20e05cfdb59d1cb841a.json",
+					"name" : "arx_chassis_interfaces__rosidl_typesupport_introspection_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "arx_chassis_interfaces__rs::@5c09c0236f34431e3ab2",
+					"jsonFile" : "target-arx_chassis_interfaces__rs-9724bbe27f8bd488f256.json",
+					"name" : "arx_chassis_interfaces__rs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces_s__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces_s__rosidl_typesupport_c-46b3e1bbd13e30499788.json",
+					"name" : "arx_chassis_interfaces_s__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces_s__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces_s__rosidl_typesupport_fastrtps_c-e6a73f7cc3f742b83b0e.json",
+					"name" : "arx_chassis_interfaces_s__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces_s__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces_s__rosidl_typesupport_introspection_c-8424e7db8934e0c903a7.json",
+					"name" : "arx_chassis_interfaces_s__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "arx_chassis_interfaces_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-arx_chassis_interfaces_uninstall-d203c2c353207ce70cf8.json",
+					"name" : "arx_chassis_interfaces_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-5d04605d1f4acb36f1d7.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/arx/arx-competition-control/chassis_runtime/build/arx_chassis_interfaces",
+		"source" : "/home/arx/arx-competition-control/chassis_runtime/src/arx_chassis_interfaces"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

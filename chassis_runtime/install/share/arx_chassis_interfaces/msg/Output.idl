@@ -1,0 +1,27 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from arx_chassis_interfaces/msg/Output.msg
+// generated code does not contain a copyright notice
+
+
+module arx_chassis_interfaces {
+  module msg {
+    typedef double double__3[3];
+    struct Output {
+      string scheduler_instance;
+
+      string driver_instance;
+
+      uint64 output_seq;
+
+      double issued_at;
+
+      double ttl_s;
+
+      double__3 sdk;
+
+      string reason;
+
+      string source_id;
+    };
+  };
+};

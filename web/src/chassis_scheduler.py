@@ -21,7 +21,7 @@ def finite(v):
 
 class ChassisScheduler:
     def __init__(self,output,*,clock=time.monotonic,wall=time.time,
-                 output_clock=time.monotonic_ns,lease=.3,lock=None):
+                 output_clock=time.monotonic_ns,lease=1.0,lock=None):
         self.output,self.clock,self.wall=output,clock,wall
         self.output_clock,self.lease=output_clock,lease
         self.lock=lock or threading.RLock()

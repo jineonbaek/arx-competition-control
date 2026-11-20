@@ -61,9 +61,15 @@ class PerceptionTests(unittest.TestCase):
                         patch('agent.battery_observation.surface_location',
                               side_effect=None if depth_ok else ValueError('Invalid depth')):
                     report=worker.segment({'frame':str(root/'frame.npz'),
-                        'image':str(root/'rgb.png'),'output':str(root/'out')})
+                        'image':str(root/'rgb.png'),'output':str(root/'out'),
+                        'dino_prompt':'selected dino','qwen_task':'selected qwen',
+                        'recognition_profile_id':'selected-profile'})
                 self.assertEqual(report['path'],'pose_tracking' if tracked else 'qwen_fallback')
                 self.assertEqual(worker.vision.detect.called,not tracked)
+                self.assertEqual(report['recognition_profile_id'],'selected-profile')
+                if not tracked:
+                    self.assertEqual(worker.vision.detect.call_args.args[1],'selected dino')
+                    self.assertEqual(pipeline.run_frame.call_args.args[4],'selected qwen')
 
     def test_real_vision_fallback_selects_without_qwen_mask_review(self):
         import importlib.util,sys,types
