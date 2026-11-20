@@ -92,8 +92,18 @@ class Controller:
         self.chassis_deadline = 0
         self.chassis_message = None
         self.base_sequences = {}
-        self.chassis = ChassisScheduler(lambda output:self.adapter.chassis_output(output), clock=clock,
-                                        lease=config["chassis_lease_s"], lock=self.lock)
+        self.chassis_errors=(InvalidChassis,)
+        if config.get('chassis_backend') == 'ros':
+            import sys
+            from pathlib import Path
+            sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'chassis_runtime'))
+            from arx_chassis.proxy import ChassisProxy
+            from arx_chassis.core import Rejected as RemoteChassisRejected
+            self.chassis_errors=(InvalidChassis,RemoteChassisRejected)
+            self.chassis=ChassisProxy()
+        else:
+            self.chassis = ChassisScheduler(lambda output:self.adapter.chassis_output(output), clock=clock,
+                                           lease=config["chassis_lease_s"], lock=self.lock)
 
     def reserve_competition(self, expected_epoch):
         with self.lock:
@@ -567,7 +577,10 @@ class Controller:
                                ("joint_limits_deg", "gripper_limits_raw", "gripper_open_raw", "gripper_closed_raw", "tcp_limits_mm")} for s in arms},
                                "lift": self.config["body"]["lift_limits_raw"],
                                "linear": self.config["body"]["max_linear_m_s"],
-                               "angular": self.config["body"]["max_angular_rad_s"]},
+                               "angular": self.config["body"]["max_angular_rad_s"],
+                               "forward": self.config["body"].get("manual_sdk_axes",{}).get("x",self.config["body"]["max_linear_m_s"]),
+                               "lateral": self.config["body"].get("manual_sdk_axes",{}).get("y",self.config["body"]["max_linear_m_s"]),
+                               "chassis_input_to_sdk": self.config["body"].get("chassis_input_scale",2.5)/2.5},
                     "chassis_active": self.chassis_owner is not None,
                     "chassis_scheduler": self.chassis.snapshot(),
                     "motion_reserved": self.motion_owner is not None,
@@ -732,6 +745,9 @@ class Controller:
         raise Rejected("指令类型无效")
 
     def _sync_chassis(self):
+        if self.config.get('chassis_backend')=='ros' and not self.chassis.snapshot().get('ready'):
+            self.chassis_owner='ros-state-unknown';self.chassis_deadline=0
+            return
         a=self.chassis.active
         self.chassis_owner=None if a is None or not any(a['sdk']) else a['client']
         self.chassis_deadline=0 if a is None else a['deadline']
@@ -759,18 +775,24 @@ class Controller:
             if reason:raise Rejected(reason)
             c=self.config['body']
             linear,angular=(c['max_linear_m_s'],c['max_angular_rad_s'])
-            if kind=='chassis.nav_sdk':linear,angular=1.,.112
+            if kind=='chassis.nav_sdk':linear,angular=.8,.8
             if kind=='chassis.gamepad_sdk':linear,angular=2.,2.
             values=tuple(data[k] for k in ('x','y','omega'))
-            if (not all(number(v) for v in values) or math.hypot(*values[:2])>linear+1e-12
-                    or abs(values[2])>angular):raise Rejected('底盘执行值无效或超出原有限制')
-            sdk=values
-            if kind=='chassis':sdk=tuple(v*c.get('chassis_input_scale',2.5)/2.5 for v in values)
+            if not all(number(v) for v in values):raise Rejected('底盘执行值必须为有限数值')
+            # Ordinary chassis callers keep their historical input units. The
+            # browser adapter converts its displayed SDK values at the boundary.
+            sdk=tuple(v*c.get('chassis_input_scale',2.5)/2.5 for v in values) if kind=='chassis' else values
+            if math.hypot(*sdk[:2])>linear+1e-12 or abs(sdk[2])>angular+1e-12:
+                raise Rejected('底盘 SDK 执行值超出限制')
+            if kind=='chassis':
+                axes=c.get('manual_sdk_axes',{})
+                if abs(sdk[0])>axes.get('x',linear)+1e-12 or abs(sdk[1])>axes.get('y',linear)+1e-12:
+                    raise Rejected('底盘 SDK 执行值超出当前机型分轴限制')
         else:sdk=None
         try:
             return self.chassis.submit(data,client,sdk,
                 maintenance=client if client is self.chassis.maintenance else None)
-        except InvalidChassis as error:raise Rejected(str(error)) from error
+        except self.chassis_errors as error:raise Rejected(str(error)) from error
         finally:self._sync_chassis()
 
     def end_chassis_output(self,client):
@@ -781,13 +803,13 @@ class Controller:
     def reserve_chassis_maintenance(self):
         with self.lock:
             try:return self.chassis.reserve_maintenance()
-            except InvalidChassis as error:raise Rejected(str(error)) from error
+            except self.chassis_errors as error:raise Rejected(str(error)) from error
             finally:self._sync_chassis()
 
     def release_chassis_maintenance(self,token):
         with self.lock:
             try:self.chassis.release_maintenance(token)
-            except InvalidChassis as error:raise Rejected(str(error)) from error
+            except self.chassis_errors as error:raise Rejected(str(error)) from error
             finally:self._sync_chassis()
 
     def _stop_chassis(self, reason, force=False):
