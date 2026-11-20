@@ -19,7 +19,7 @@ class RetreatTests(unittest.TestCase):
         self.step=ChassisRetreatStep(self.controller,'owned')
 
     def test_stops_after_200mm_without_forward_correction_then_uses_existing_stop_window(self):
-        with patch('navigation.polarbear_adapt.chassis_command.build_opener') as http:
+        with patch('urllib.request.build_opener') as http:
             self.step.start();http.assert_not_called()
         self.assertEqual(self.commands,[])
         self.assertEqual(self.step.poll()['status'],'backing_chassis')
@@ -70,14 +70,15 @@ class RetreatTests(unittest.TestCase):
 
     def test_real_controller_keeps_task_owner_and_arm_lift_while_using_native_transport(self):
         from web.tests.test_control import Controller,FakeAdapter,configured
-        adapter=FakeAdapter();adapter.nav_chassis_sdk=Mock()
-        controller=Controller(configured(),adapter,lambda:self.now)
+        adapter=FakeAdapter();adapter.chassis_output=Mock()
+        config=configured();config['chassis_backend']='memory'
+        controller=Controller(config,adapter,lambda:self.now)
         for side in ('left','right'):controller.update_arm(side,[0.]*6,-.9,[0.]*6)
         controller.update_body(5.1,[0.]*4,0.,0.,0.)
         token=controller.reserve_motion(controller.command_epoch)
         step=ChassisRetreatStep(controller,token)
         step.start();step.poll()
-        adapter.nav_chassis_sdk.assert_called_once()
+        adapter.chassis_output.assert_called_once()
         self.assertTrue(controller.snapshot()['chassis_active'])
         step.cancel()
         snapshot=controller.snapshot()
@@ -85,7 +86,9 @@ class RetreatTests(unittest.TestCase):
         self.assertTrue(controller.motion_valid(token))
         self.assertEqual(snapshot['arms']['right']['gripper'],-.9)
         self.assertEqual(snapshot['body']['height'],5.1)
-        self.assertTrue(all(kind=='chassis' for kind,args in adapter.calls))
+        self.assertEqual(adapter.chassis_output.call_count,2)
+        self.assertEqual(adapter.chassis_output.call_args.args[0]['sdk'],[0.,0.,0.])
+        self.assertEqual(adapter.calls,[])
 
     def test_existing_map_and_odom_sweeps_and_source_validation_are_reused(self):
         reader=_PoseReader.__new__(_PoseReader);reader.measured=np.zeros(3)

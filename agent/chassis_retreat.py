@@ -104,6 +104,9 @@ class ChassisRetreatStep:
         self.previous=np.zeros(3);self.last=None;self.stop=None;self.done=False
 
     def start(self):
+        # Finish ROS discovery before WebChassis timestamps its first 300 ms command.
+        if getattr(self.controller,'config',{}).get('chassis_backend')=='ros':
+            self.controller.chassis.session(self.token,'navigation').ensure()
         self.transport=WebChassis(submit=lambda command:self.controller.submit(command,self.token))
         self.transport.sdk_units=True;self.transport.native_sdk=True
         self.reader=_PoseReader()
