@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 from test_control import Controller, FakeAdapter, configured, Rejected
 from competition_task import CompetitionTask, STAGES
-from control import LEFT_HOLD_JOINTS_DEG, RIGHT_AVOIDANCE_JOINTS_DEG
+from control import LEFT_HOLD_2_JOINTS_DEG, RIGHT_AVOIDANCE_JOINTS_DEG
 from competition_modules import GraspModule, CarryReceiptModule, QwenRecovery
 from battery_task import BatteryTask
 
@@ -91,7 +91,7 @@ class CompetitionTests(unittest.TestCase):
         self.recovery.decide.assert_not_called()
         fixed = [call for call in self.adapter.calls if call[0]=='arm']
         self.assertEqual(len(fixed), 2)
-        self.assertEqual(fixed[0][1][1], [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG])
+        self.assertEqual(fixed[0][1][1], [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG])
         self.assertEqual(fixed[0][1][2], 0)
         self.assertEqual(fixed[1][1][1], [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG])
         self.assertEqual(fixed[1][1][2], -1.)
@@ -285,7 +285,7 @@ class CompetitionTests(unittest.TestCase):
         self.action('stop');self.wait('paused')
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
         for name, args in self.adapter.calls:
-            if name=='arm' and args[1] != [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG]:
+            if name=='arm' and args[1] != [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG]:
                 self.assertEqual(args[2], 0 if args[0]=='left' else -1.)
             self.assertNotEqual(name,'mode')
 

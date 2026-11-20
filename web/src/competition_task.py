@@ -182,15 +182,15 @@ class CompetitionTask:
         if prestarted is not None:
             s['competition_token'].prestarted_lift_target = prestarted
             s['token'].prestarted_lift_target = None
-        self.controller.submit({'type':'arm.fixed_hold', 'arm':'left'}, s['token'])
+        self.controller.submit({'type':'arm.fixed_hold2', 'arm':'left'}, s['token'])
         self.controller.submit({'type':'arm.avoidance_preset', 'arm':'right'}, s['token'])
-        self._save(s, 'left_hold_requested', 'J1-J6 0/0/0/73/0/0 deg; gripper closed')
+        self._save(s, 'left_hold_requested', 'J1-J6 0/0/90/0/0/0 deg; gripper closed')
         self._save(s, 'right_avoidance_requested', 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
         deadline = time.monotonic() + LEFT_HOLD_TIMEOUT_S
         while time.monotonic() < deadline:
             self._check(s)
             snapshot = self.controller.snapshot()
-            left = snapshot['left_fixed_hold']
+            left = snapshot['left_fixed_hold2']
             right = snapshot['right_avoidance_preset']
             if left['arrived'] and right['arrived']:
                 self._save(s, 'left_hold_ready', 'max joint error %.3f deg' % left['max_error_deg'])
