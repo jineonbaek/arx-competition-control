@@ -4,8 +4,10 @@ import json
 import math
 from numbers import Real
 import threading
+import time
 from pathlib import Path
 
+from agent.motion_feedback import ArrivalMonitor
 from agent.storage import RunStore,atomic_json
 from agent.perception_session import PerceptionSession
 from control import Rejected
@@ -321,8 +323,42 @@ class BatteryTask:
         (self.active['store'].path/'cancel.flag').touch(mode=0o600)
         return self._view(client)
 
+    def _prepare_plan_f_lift(self, state, flow):
+        settings=state['store'].state.get('battery_task_settings',{})
+        if settings.get('vision_mode')!='plan_f':return
+        policy=copy.deepcopy(flow.tools.backends.policies['coarse']['lift_policy'])
+        policy['settle_s']=min(policy['settle_s'],.05)
+        target=settings['lift_target_rad'];acceptance=settings['lift_acceptance_rad']
+        monitor=ArrivalMonitor([acceptance],started_at=self.controller.clock(),
+            minimum=[acceptance],**policy)
+        snapshot=self.controller.snapshot();body=snapshot.get('body',{})
+        if body.get('fresh') is not True or body.get('height',-1)<acceptance:
+            prestarted=self.controller.take_prestarted_lift(state['token'],target)
+            if not prestarted:
+                result=self.controller.submit({'type':'lift','target':target},state['token'])
+                if result.get('ok') is not True:raise ValueError('Plan F lift submission not confirmed')
+            moving=True
+        else:moving=False
+        while True:
+            snapshot=self.controller.snapshot();body=snapshot.get('body',{});now=self.controller.clock()
+            ready=(self.controller.motion_valid(state['token'])
+                   and snapshot.get('chassis_active') is False
+                   and snapshot.get('capabilities',{}).get('lift')==''
+                   and body.get('fresh') is True)
+            result=monitor.update([body.get('height')],body.get('received'),now,
+                ready=ready,cancelled=state['store'].cancelled)
+            if result['arrived']:
+                if moving:self.controller.submit({'type':'lift.stop'},state['token'])
+                return
+            if result['stop_required']:
+                if moving and self.controller.motion_valid(state['token']):
+                    self.controller.submit({'type':'lift.stop'},state['token'])
+                raise ValueError('Plan F lift preparation failed: '+result['status'])
+            time.sleep(.02)
+
     def _run(self, state, flow):
         try:
+            self._prepare_plan_f_lift(state,flow)
             result=flow.run()
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:

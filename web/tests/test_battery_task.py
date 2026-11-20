@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock,patch
 
 import numpy as np
@@ -20,9 +21,15 @@ from test_control import Controller, FakeAdapter, configured, Rejected
 class _Flow:
     def __init__(self, store, gate, result=None):
         self.store=store;self.gate=gate
+        self.started=threading.Event()
+        lift_policy=dict(tolerance=[.02],max_speed=[.2],settle_s=.25,
+            timeout_s=2.,stall_s=1.,max_age_s=.3)
+        self.tools=SimpleNamespace(backends=SimpleNamespace(
+            policies={'coarse':{'lift_policy':lift_policy}}))
         self.result=result or {'status':'needs_attention','reason':'fixture'}
 
     def run(self):
+        self.started.set()
         self.gate.wait(2)
         return dict(self.result)
 
@@ -307,6 +314,35 @@ class BatteryTaskTests(unittest.TestCase):
         end=time.monotonic()+2
         while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
         self.assertEqual(depth.requested,{'d435':False,'d405':True})
+
+    def test_plan_f_reuses_floor_arrival_before_first_d405_without_recommanding_ready_lift(self):
+        self.controller.update_body(12.,[0.]*4,0.,0.,0.)
+        stop=threading.Event()
+        def feedback():
+            while not stop.wait(.02):self.controller.update_body(12.,[0.]*4,0.,0.,0.)
+        updater=threading.Thread(target=feedback,daemon=True);updater.start()
+        try:
+            self.task.action('owner',{'action':'start','request_id':'plan-f-ready','expected_epoch':0,
+                'environment_clear':True,'lift_target_rad':12.52,'observer_z_mm':700.5,
+                'vision_mode':'plan_f'})
+            self.assertTrue(self.created[0][0] and self.task.active['runner'].started.wait(1))
+            self.assertEqual(self.adapter.calls,[])
+        finally:
+            stop.set();self.gate.set();updater.join(1);self.wait('needs_attention')
+
+    def test_plan_f_lifts_to_existing_floor_arrival_before_first_d405(self):
+        self.controller.update_body(11.,[0.]*4,0.,0.,0.)
+        self.task.action('owner',{'action':'start','request_id':'plan-f-lift','expected_epoch':0,
+            'environment_clear':True,'lift_target_rad':12.52,'observer_z_mm':700.5,
+            'vision_mode':'plan_f'})
+        end=time.monotonic()+1
+        while not self.adapter.calls and time.monotonic()<end:time.sleep(.01)
+        self.assertEqual(self.adapter.calls,[('lift',(12.52,))])
+        for _ in range(5):
+            time.sleep(.02);self.controller.update_body(12.,[0.]*4,0.,0.,0.)
+        self.assertTrue(self.task.active['runner'].started.wait(1))
+        self.assertEqual(self.adapter.calls,[('lift',(12.52,)),('lift',(12.,))])
+        self.gate.set();self.wait('needs_attention')
 
 
 if __name__=='__main__':unittest.main()
