@@ -1,1 +1,0 @@
-{"enabled":true,"allow_sparse":true,"note":"Fixed limits in escape_policy and native plugin: <=2 clusters, <=3 cells/cluster, <=6 cells total; .18m withdrawal trigger plus braking reserve; sparse SDK XY<=.14."}

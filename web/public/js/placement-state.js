@@ -1,4 +1,0 @@
-export const phases={held:'核对持物证据',head:'D435红圈深度定位',preplace:'到预放位置',wrist:'D405复核红圈',correct:'修正预放位置',reobserve:'动作后重新复核',descend:'低速下降到支撑面',release:'确认到位后松爪',withdraw:'撤回夹爪',verify:'识别电池并检查稳定'};
-export function canStart(state,clear,held){return state?.execution_enabled===true && state?.available===true && state?.recovery_required!==true && clear===true && held===true;}
-export function targetText(r){const p=r?.target_base_m;if(!Array.isArray(p)||p.length!==3||!p.every(Number.isFinite))return '三维落点尚不可用';return `圈内左侧 · base_link XYZ ${p.map(x=>(x*1000).toFixed(1)).join(' / ')} mm`;}
-export function toleranceText(r){if(![r?.xy_tolerance_mm,r?.z_tolerance_mm,r?.yaw_tolerance_deg].every(x=>Number.isFinite(x)&&x>0))return '有效容差尚不可用';return `水平每轴 ${r.xy_tolerance_mm.toFixed(1)} mm，支撑高度 ${r.z_tolerance_mm.toFixed(1)} mm，姿态 ${r.yaw_tolerance_deg.toFixed(1)}°`;}
