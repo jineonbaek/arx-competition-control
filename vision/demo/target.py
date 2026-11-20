@@ -3,13 +3,16 @@ from pathlib import Path
 from PIL import Image
 
 REFERENCE = Path(__file__).resolve().parents[1] / "config/battery-reference.png"
-DINO_PROMPT = "a rectangular drone battery pack with a protruding handle at one end, partially inserted into a drone."
-TASK = ("找到无人机上的可拆卸比赛电池。比赛起始区域通常只有无人机和电池。"
-        "按整块电池的可见外形判断：长方形或圆角矩形外壳、侧面卡扣、端部手柄和电源连接位置。"
-        "不要求看到长圆孔、四个小圆孔或其他孔位；这些细节可能被遮挡，定位和抓取由 D405 与 FoundationPose 完成。"
-        "左下角和右下角的固定夹爪是机器人自身，必须排除；仓口、金属筐、桌面和无人机其他结构属于背景。"
-        "忽略颜色、明暗、材质、胶带、条码和文字差异，打印件可以没有标签。"
-        "若当前视角只能看到电池壳体而看不到孔位，仍应按整体外形选择最接近的电池；只有确实没有电池候选时才返回 not_found。")
+DINO_PROMPT = "drone battery handle . battery carry handle . removable drone battery ."
+TASK = ("找到安装在无人机电池槽中的可拆卸比赛电池。\n\n"
+        "当前D435视角通常只能看到电池外露端部和前端提手，长方体电池主体大部分被无人机机身遮挡。"
+        "因此不要要求看到完整电池外壳、侧面卡扣、电源连接器、标签或其他孔位。\n\n"
+        "主要依据电池前端提手判断：提手与电池外端面连成一体，具有宽横向、圆角矩形的提手开口或提手槽，"
+        "提手后方连接被无人机机身遮挡的长方体电池主体。目标位于无人机电池槽口处，而不是地面或无人机机架上。\n\n"
+        "优先选择同时包含提手和相连电池端面的候选。若候选只覆盖提手，但其位置明确位于电池槽口并与电池端面连接，也可以选择。\n\n"
+        "必须排除无人机起落架、机臂、螺旋桨、空电池槽、地面标定板、桌面，以及画面下方的机器人夹爪和机械臂。"
+        "忽略颜色、明暗、材质、标签、条码和打印纹理差异。\n\n"
+        "如果多个候选无法可靠区分，返回 ambiguous；如果画面中确实没有电池提手或电池外端部，返回 not_found。")
 
 
 def shape_view(image):
