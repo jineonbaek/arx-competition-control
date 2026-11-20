@@ -53,8 +53,13 @@ def segment(store,ident,output,cancelled):
     log=output/"recognition.log"
     session=getattr(store,'perception_session',None)
     if session is not None:
-        report=session.call('segment',dict(frame=str(frame_path(store,ident)),image=str(image),
-            output=str(output)),cancelled,420)
+        arguments=dict(frame=str(frame_path(store,ident)),image=str(image),output=str(output))
+        arguments['vision_mode']=store.state.get('battery_task_settings',{}).get('vision_mode','d405')
+        profile=store.state.get('battery_task_settings',{}).get('recognition_profile')
+        if profile:
+            arguments.update(dino_prompt=profile['dino_prompt'],qwen_task=profile['qwen_task'],
+                             recognition_profile_id=profile['id'])
+        report=session.call('segment',arguments,cancelled,420)
         atomic_json(log,report)
     else:
         code=run_worker([str(VISION/".venv/bin/python"),str(VISION/"pipeline.py"),

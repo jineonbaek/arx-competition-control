@@ -90,6 +90,8 @@ class Models:
         if self.vision is None:self.vision=VisionModels()
         started=time.monotonic();output=Path(args['output']);output.mkdir(exist_ok=True,parents=True)
         reference=load_reference()
+        dino_prompt=args.get('dino_prompt',DINO_PROMPT)
+        qwen_task=args.get('qwen_task',TASK)
         with np.load(args['frame'],allow_pickle=False) as archive:
             frame={k:archive[k] for k in archive.files}
         validate_frame(frame);camera=str(frame['camera_id']);image=Image.open(args['image']).convert('RGB')
@@ -109,13 +111,14 @@ class Models:
             except ValueError as error:tracking_error=str(error)
         candidates=[]
         if chosen is None:
-            detected=self.vision.detect(shape_view(image),DINO_PROMPT)
+            detected=self.vision.detect(shape_view(image),dino_prompt)
             candidates,_=filter_fixed_gripper_candidates(detected,image.size,camera)
             chosen=local_choice(candidates,frame,self.vision,image,
                 self.head_target if camera=='d405' else None)
         if chosen is None:
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
-            report=run_frame(self.vision,judge,image,reference,TASK,output,camera=camera,review_mask=False)
+            report=run_frame(self.vision,judge,image,reference,qwen_task,output,camera=camera,
+                             review_mask=False,dino_prompt=dino_prompt)
             atomic_json(output/'qwen-reports.json',judge.records)
             report['path']='qwen_fallback'
         else:
@@ -126,11 +129,17 @@ class Models:
                 selection=dict(status='selected',candidate_id=row['candidate_id'],reason=method),
                 review=dict(status='accepted',reason='Local mask, depth and target association'),
                 geometry=mask_geometry(mask),sam2_predicted_iou=score,candidates=candidates)
-        if report.get('status')=='perception_accepted' and camera=='d435':
+        if report.get('status')=='perception_accepted' and (camera=='d435' or
+                (camera=='d405' and args.get('vision_mode')=='plan_f' and self.head_target is None)):
             from .battery_observation import surface_location
             mask=np.asarray(Image.open(output/'mask.png'))>0
-            self.head_target=np.asarray(surface_location(frame,mask)['surface_base_mm'])
-        report.update(output=str(output),elapsed_s=round(time.monotonic()-started,3),tracking_error=tracking_error)
+            try:
+                self.head_target=np.asarray(surface_location(frame,mask)['surface_base_mm'])
+            except ValueError:
+                # Plan F keeps the existing depth rejection and retry in observe().
+                if camera=='d435':raise
+        report.update(output=str(output),elapsed_s=round(time.monotonic()-started,3),tracking_error=tracking_error,
+                      recognition_profile_id=args.get('recognition_profile_id','default'))
         image.save(output/'rgb.png');atomic_json(output/'recognition.json',report)
         return report
 
