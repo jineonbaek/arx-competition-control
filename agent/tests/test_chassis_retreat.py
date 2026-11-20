@@ -90,23 +90,38 @@ class RetreatTests(unittest.TestCase):
         self.assertEqual(adapter.chassis_output.call_args.args[0]['sdk'],[0.,0.,0.])
         self.assertEqual(adapter.calls,[])
 
-    def test_existing_map_and_odom_sweeps_and_source_validation_are_reused(self):
-        reader=_PoseReader.__new__(_PoseReader);reader.measured=np.zeros(3)
-        clear=Mock();clear.along.return_value={'first':False}
-        node=Mock();node.motion_poses.return_value=(self.odom,self.odom,50.)
-        node.grids={'map':(None,clear),'odom':(None,clear)};reader.node=node
-        reader.check_motion(np.array([-.1,0.,0.]),50.)
-        node.checked.assert_called_once();node.validate_motion_proof.assert_called_once_with(50.)
-        self.assertTrue(clear.along.called)
-
-    def test_existing_obstacle_rejection_prevents_send_boundary_validation(self):
-        reader=_PoseReader.__new__(_PoseReader);reader.measured=np.zeros(3)
+    def test_retreat_ignores_blocked_costmaps_but_validates_pose_source(self):
+        reader=_PoseReader.__new__(_PoseReader)
         blocked=Mock();blocked.along.return_value={'first':{'occupied':True}}
-        node=Mock();node.motion_poses.return_value=(self.odom,self.odom,50.)
-        node.grids={'map':(None,blocked),'odom':(None,blocked)};reader.node=node
-        with self.assertRaisesRegex(ValueError,'map_sweep_blocked'):
+        blocked.inspect.return_value={'first_cell':{'occupied':True}}
+        node=Mock();node.grids={'map':(None,blocked),'odom':(None,blocked)}
+        node.checked.side_effect=lambda **kw: None if kw.get('occupancy') is False else (_ for _ in ()).throw(ValueError('map_footprint_blocked'))
+        reader.node=node
+        reader.check_motion(np.array([-.1,0.,0.]),50.)
+        node.checked.assert_called_once_with(occupancy=False)
+        node.validate_motion_proof.assert_called_once_with(50.)
+        blocked.along.assert_not_called();blocked.inspect.assert_not_called()
+
+    def test_retreat_still_rejects_invalid_pose_at_send_boundary(self):
+        reader=_PoseReader.__new__(_PoseReader);reader.node=Mock()
+        reader.node.validate_motion_proof.side_effect=ValueError('motion_pose_changed_during_proof')
+        with self.assertRaisesRegex(ValueError,'motion_pose_changed_during_proof'):
             reader.check_motion(np.array([-.1,0.,0.]),50.)
-        node.validate_motion_proof.assert_not_called()
+
+    def test_pose_read_skips_occupancy_check(self):
+        reader=_PoseReader.__new__(_PoseReader)
+        reader.node=Mock();reader.node.received_pose=True;reader.node.target=self.odom.copy()
+        reader.node.motion_poses.return_value=(self.odom,self.odom,50.)
+        reader.executor=Mock();reader.previous_pose=None
+        self.assertEqual(reader.read()[2],50.)
+        reader.node.checked.assert_called_once_with(occupancy=False)
+
+    def test_only_costmap_staleness_is_excluded_from_retreat(self):
+        from agent.chassis_retreat import _retreat_stale_inputs
+        follow=SimpleNamespace(Follow=SimpleNamespace(stale_inputs=lambda node:
+            ['map_costmap','/pb/scan','odom_costmap','/localization/odometry']))
+        with patch.dict('sys.modules',{'follow_preview':follow}):
+            self.assertEqual(_retreat_stale_inputs(object()),['/pb/scan','/localization/odometry'])
 
 
 if __name__=='__main__':unittest.main()

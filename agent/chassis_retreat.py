@@ -8,8 +8,13 @@ import numpy as np
 from navigation.pose_freshness import MOTION_MAX_AGE_NS
 from .pose_wait import PoseWait,pose_unavailable
 from navigation.polarbear_adapt.chassis_command import WebChassis
-from navigation.polarbear_adapt.continuous_track import tracking_command, swept_poses, PERIOD
+from navigation.polarbear_adapt.continuous_track import tracking_command, PERIOD
 from navigation.polarbear_adapt.mppi_trial.stationary import StopWindow
+
+
+def _retreat_stale_inputs(node):
+    from follow_preview import Follow
+    return [source for source in Follow.stale_inputs(node) if source not in ('map_costmap','odom_costmap')]
 
 
 class _PoseReader:
@@ -38,7 +43,7 @@ class _PoseReader:
             receive_dual_origin_health=Driver.receive_dual_origin_health
             grid=Follow.grid
             sensor_message=Follow.sensor_message
-            stale_inputs=Follow.stale_inputs
+            stale_inputs=_retreat_stale_inputs
             now=Follow.now
             def receive(self,message):
                 self.received_pose=True
@@ -81,18 +86,15 @@ class _PoseReader:
             if self.node.require_dual_origin and self.node.dual_origin_health is None:return None
             self.node.target=sample[0].copy()
             self.node.target[:2]-=.200*np.array([np.cos(sample[0][2]),np.sin(sample[0][2])])
-        self.node.checked()
+        self.node.checked(occupancy=False)
         if self.previous_pose is not None and sample[2]>self.previous_pose[1]:
             self.measured=self.body_delta(self.previous_pose[0],sample[1])/(sample[2]-self.previous_pose[1])
         self.previous_pose=(sample[1].copy(),sample[2])
         return sample
 
     def check_motion(self,command,source):
-        self.node.checked()
-        mp,op,_=self.node.motion_poses()
-        for frame,current in [('map',mp),('odom',op)]:
-            for sweep in swept_poses(current,command,self.measured):
-                if self.node.grids[frame][1].along(sweep)['first']:raise ValueError(frame+'_sweep_blocked')
+        # Extraction skips costmap collision checks; keep existing pose authority checks.
+        self.node.checked(occupancy=False)
         self.node.validate_motion_proof(source)
 
     def close(self):
