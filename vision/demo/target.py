@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image
 
 REFERENCE = Path(__file__).resolve().parents[1] / "config/battery-reference.png"
-DINO_PROMPT = "drone battery handle . battery carry handle . removable drone battery ."
+DINO_PROMPT = "battery pull handle . recessed battery handle ."
 TASK = ("找到安装在无人机电池槽中的可拆卸比赛电池。\n\n"
         "当前D435视角通常只能看到电池外露端部和前端提手，长方体电池主体大部分被无人机机身遮挡。"
         "因此不要要求看到完整电池外壳、侧面卡扣、电源连接器、标签或其他孔位。\n\n"
