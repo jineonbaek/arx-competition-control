@@ -152,7 +152,17 @@ class PickMonitor:
                     failure_detail=self.failure_detail)
 
     def abort(self,reason):
-        if self.failure is None:self.failure=str(reason) if reason else 'execution_unknown'
+        if self.failure is None:
+            self.failure=str(reason) if reason else 'execution_unknown'
+            if self.failure_detail is None:
+                if self.stage=='closing':
+                    actual=None if self.gripper.previous is None else float(self.gripper.previous[0])
+                    self.failure_detail=f'夹爪闭合停止[{self.failure}]: actual={actual}, target={self.gripper_target}, tolerance={self.gripper.tolerance.tolist()}, stall_s={self.gripper.stall}, timeout_s={self.gripper.timeout}'
+                else:
+                    value=self.last_value
+                    xyz=None if value is None else value[:3].round(3).tolist()
+                    rotation=None if value is None else value[3:].round(3).tolist()
+                    self.failure_detail=f'预抓/插入到位停止[{self.failure}]: XYZ={xyz}mm, rotvec={rotation}deg; limits={self.arm.tolerance.tolist()}; stall_s={self.arm.stall}, timeout_s={self.arm.timeout}'
         return self._receipt()
 
     def _read(self,snapshot,now,ready,cancelled):

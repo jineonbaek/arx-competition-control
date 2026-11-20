@@ -63,6 +63,34 @@ class PickFeedbackLogTests(unittest.TestCase):
         for text in ('actual=12.10000', 'expected=12.00000', 'limit=0.02'):
             self.assertIn(text, receipt['failure_detail'])
 
+    def test_arrival_stall_reports_current_tcp_error_and_existing_tolerances(self):
+        f = self.fixture
+        monitor = f.make()
+        monitor.target[2, 3] += .013
+        for t in (10.01, 10.11, 10.22, 10.42, 10.62, 10.82, 11.02):
+            receipt = monitor.update(f.state(t), t, ready=True)
+        self.assertEqual(receipt['status'], 'stalled')
+        for text in ('预抓/插入到位停止[stalled]', 'XYZ=', '-13.0', 'rotvec=', 'limits=', 'stall_s='):
+            self.assertIn(text, receipt['failure_detail'])
+        self.assertEqual(monitor.update(f.state(11.1), 11.1, ready=True), receipt)
+
+    def test_opening_stall_keeps_diagnostic_and_existing_stop(self):
+        from agent.gripper_open import OpenThenApproachStep
+        import numpy as np
+        f = self.fixture
+        controller = SimpleNamespace(clock=lambda: 10., config={'arms': {'right': {
+            'gripper_open_raw': -3.14, 'gripper_limits_raw': [-3.14, 0.]}}})
+        child = SimpleNamespace(controller=controller, token='owned', monitor=f.make(),
+            preflight=lambda *a: True, cancel=lambda: {'status': 'cancelled', 'stop_required': True})
+        step = OpenThenApproachStep(child, f.q)
+        step.arrival.previous = np.array([2.7])
+        receipt = step._abort('stalled')
+        self.assertEqual(receipt['status'], 'stalled')
+        self.assertTrue(receipt['stop_required'])
+        for text in ('夹爪张开阶段停止[stalled]', '[2.7]', 'minimum=[2.9]'):
+            self.assertIn(text, receipt['failure_detail'])
+        self.assertEqual(step._abort('timeout'), receipt)
+
     def test_valid_feedback_has_no_failure_detail(self):
         f = self.fixture
         monitor = f.make()
