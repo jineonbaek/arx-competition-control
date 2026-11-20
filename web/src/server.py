@@ -37,6 +37,7 @@ from cabinet_execution import CabinetExecutionTask
 from visual_docking_live import LiveDockTask
 from fast_visual_level import FastVisualLevel
 from d435_live_overlay import LiveOverlay
+from plan_d_vision import PlanDVision
 from placement_reference import PlacementReferenceController
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
@@ -68,6 +69,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
+    plan_d_vision = PlanDVision(head_scene, controller)
     d435_overlay=d435_overlay or LiveOverlay(head_scene)
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
@@ -141,6 +143,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == '/api/plan-d-vision':
+                if not self.client():return self.json(403,{'message':'请先打开自动抓取页面'})
+                return self.json(200,plan_d_vision.snapshot())
             if path == '/api/placement-reference':
                 if not self.client():return self.json(403,{'message':'请先打开视觉放置页面'})
                 try:return self.json(200,placement_reference.snapshot())
@@ -309,6 +314,22 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
+            if path == '/api/plan-d-vision':
+                expected = 'http://' + self.headers.get('Host', '')
+                if self.headers.get('Origin') != expected or not self.client():
+                    self.close_connection = True
+                    return self.json(403,{'message':'请求来源无效'})
+                try:
+                    if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
+                        raise ValueError('仅接受 JSON')
+                    length = int(self.headers.get('Content-Length','0'))
+                    if not 0 < length <= 8192:
+                        raise ValueError('请求大小无效')
+                    if strict_json(self.rfile.read(length)) != {'op':'capture'}:
+                        raise ValueError('仅支持 PlanD 识别采集')
+                    return self.json(202,plan_d_vision.refresh())
+                except ValueError as error:
+                    return self.json(400,{'message':str(error)})
             if path not in ('/api/placement-reference','/api/d435-overlay','/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
