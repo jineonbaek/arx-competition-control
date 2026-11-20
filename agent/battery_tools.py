@@ -127,7 +127,7 @@ class BatteryExecutionTools(WorkflowTools):
                    'pose_rejected','handoff_rejected'}
         stage=self.store.state.get('mission',{}).get('stage')
         offsets=(self.backends.observer_search_offsets()
-                 if camera=='d405' and stage=='COARSE_ALIGNED'
+                 if camera=='d405' and stage=='COARSE_ALIGNED' and self.vision_mode!='plan_f'
                  and hasattr(self.backends,'observer_search_offsets') else [])
         search_index=0
         current=dict(a);attempt_id=call_id

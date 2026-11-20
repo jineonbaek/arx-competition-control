@@ -93,6 +93,30 @@ class BatteryTaskTests(unittest.TestCase):
             finally:
                 if self.controller.motion_valid(token):self.controller.release_motion(token)
 
+    def test_plan_f_ignores_unused_observer_z_but_preserves_lift_validation(self):
+        self.task.task_settings={'lift_target_rad':3.,'lift_acceptance_rad':3.,
+                                 'observer_z_mm':700.5,'vision_mode':'d405'}
+        request={'action':'start','expected_epoch':0,'environment_clear':True,'lift_target_rad':12.52}
+        for mode in ('plan_f','d405'):
+            for index,value in enumerate((None,'',-1,1501,True,'missing')):
+                with self.subTest(mode=mode,value=value):
+                    data=dict(request,vision_mode=mode,request_id=mode+str(index))
+                    if value!='missing':data['observer_z_mm']=value
+                    with patch.object(self.task,'_start',return_value={'status':'fixture'}) as start:
+                        if mode=='plan_f':
+                            self.task.action('owner',data)
+                            settings=start.call_args.args[3]
+                            self.assertEqual(settings['observer_z_mm'],700.5)
+                            self.assertEqual(settings['lift_target_rad'],12.52)
+                            self.assertEqual(settings['lift_acceptance_rad'],12.)
+                        else:
+                            with self.assertRaises(ValueError):self.task.action('owner',data)
+                            start.assert_not_called()
+        for index,lift in enumerate((None,.9,18.1,True)):
+            with self.subTest(lift=lift),self.assertRaises(ValueError):
+                self.task.action('owner',dict(request,vision_mode='plan_f',
+                    request_id='bad-lift-'+str(index),lift_target_rad=lift,observer_z_mm=None))
+
     def test_start_fixed_points_are_bounded_and_saved_for_this_run(self):
         invalid=[{'lift_target_rad':6.6},
                  {'lift_target_rad':0.9,'observer_z_mm':700.5},

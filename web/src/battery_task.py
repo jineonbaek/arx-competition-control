@@ -179,6 +179,10 @@ class BatteryTask:
             cached=self.requests.get((client,request))
             if cached is not None:return copy.deepcopy(cached)
             if action=='start':
+                if (data.get('vision_mode',self.task_settings.get('vision_mode','d405'))=='plan_f'
+                        and ('lift_target_rad' in data or 'observer_z_mm' in data)):
+                    # Plan F has no observer-Z move; retain configuration, ignoring this unused input.
+                    data=dict(data,observer_z_mm=self.task_settings['observer_z_mm'])
                 required={'action','request_id','expected_epoch','environment_clear'}
                 settings={'lift_target_rad','observer_z_mm'}
                 optional=settings|{'vision_mode'}

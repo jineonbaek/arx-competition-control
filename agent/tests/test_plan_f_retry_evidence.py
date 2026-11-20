@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 from agent.battery_tools import BatteryExecutionTools
 from agent.config import Config
@@ -56,6 +56,25 @@ class PlanFRetryEvidenceTests(unittest.TestCase):
         with patch('agent.grasp_tools.observe',side_effect=lambda *a:self.observation(time.time())):
             result=self.tools.execute('observe_battery',{'camera':'d405'},'fresh')
         self.assertTrue(result['ok'],result)
+
+    def test_plan_f_retries_missing_target_without_z_search_but_plan_a_keeps_search(self):
+        self.store.state['coarse_alignment']='coarse.json'
+        for mode in ('plan_f','d405'):
+            with self.subTest(mode=mode):
+                self.tools.vision_mode=mode
+                observed=self.observation(time.time())
+                backend=SimpleNamespace(observer_search_offsets=Mock(return_value=[10.]),
+                                        adjust_observer_search=Mock())
+                self.tools.backends=backend
+                with patch('agent.grasp_tools.observe',side_effect=[
+                        dict(observed,status='target_not_found'),observed]) as observe,patch.object(self.tools,'_localized',return_value='head'):
+                    result=self.tools._perception('observe_battery',{'camera':'d405'},'missing_'+mode)
+                self.assertEqual(result['status'],'localized')
+                self.assertEqual(observe.call_count,2)
+                if mode=='plan_f':
+                    backend.adjust_observer_search.assert_not_called()
+                else:
+                    backend.adjust_observer_search.assert_called_once_with('missing_'+mode,0,10.)
 
     def test_plan_a_still_requires_observer_completion(self):
         self.tools.vision_mode='d405';old=self.observation(time.time())
