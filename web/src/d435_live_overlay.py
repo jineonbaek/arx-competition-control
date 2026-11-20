@@ -255,6 +255,19 @@ def visible_face_overlay(quad):
     return edges, (gripper_end, cabinet_end)
 
 
+def _draw_dashed_line(canvas, start, end, color, thickness=2, dash_px=9):
+    start = np.asarray(start, float); end = np.asarray(end, float)
+    length = float(np.linalg.norm(end-start))
+    if not np.isfinite(length) or length < 1:
+        return
+    direction = (end-start)/length
+    for offset in np.arange(0., length, dash_px*2):
+        a = start + direction*offset
+        b = start + direction*min(length, offset+dash_px)
+        cv2.line(canvas, tuple(np.rint(a).astype(int)), tuple(np.rint(b).astype(int)),
+                 color, thickness, cv2.LINE_AA)
+
+
 def write_depth_map(xyz, path, near_m=.3, far_m=1.2):
     depth = np.asarray(xyz, float)[:, :, 2]
     valid = np.isfinite(depth) & (depth >= near_m) & (depth <= far_m)
@@ -374,9 +387,18 @@ class LiveOverlay:
             front_px = project_base(front_base, frame['base_from_color'], intrinsics)
             if center_px is None: raise ValueError('电池中心不在当前 D435 画面内')
             pixels = battery_box_pixels(object_pose, self.bounds, frame['base_from_color'], intrinsics)
-            measured_top = battery_top_face(frame['rgb'], frame['xyz'], center_px, center_camera[2])
-            edges, battery_axis = visible_face_overlay(measured_top)
-            depth_aligned = measured_top is not None
+            observation = battery_depth_face(frame['rgb'], frame['xyz'], center_px,
+                                             center_camera[2], projected_pixels=pixels)
+            measured_contour = None; inferred_edges = None
+            if observation is not None:
+                edges = []
+                measured_contour = observation['contour']
+                inferred_edges = edges_from_pixels(pixels)
+                battery_axis = (center_px, front_px) if front_px is not None else visible_face_overlay(observation['quad'])[1]
+            else:
+                measured_top = _gray_battery_top_face(frame['rgb'], frame['xyz'], center_px, center_camera[2])
+                edges, battery_axis = visible_face_overlay(measured_top)
+            depth_aligned = observation is not None or bool(edges)
             detection = detect(frame['rgb']); cabinet_axis = None; cabinet_reason = detection.get('reason', '')
             if detection.get('status') == 'complete':
                 cabinet_axis = cabinet_axis_from_quad(detection['inner_quad_px'], intrinsics)
@@ -384,7 +406,8 @@ class LiveOverlay:
                     cabinet_reason = ''
             result = self.render(frame['rgb'], edges, detection, battery_axis,
                                  cabinet_axis, frame['id'], cabinet_reason=cabinet_reason, reference_id=reference_id,
-                                 depth_aligned=depth_aligned, xyz=frame['xyz'])
+                                 depth_aligned=depth_aligned, xyz=frame['xyz'], measured_contour=measured_contour,
+                                 inferred_edges=inferred_edges, battery_observation=observation)
             with self.lock: self.state = dict(result, running=False, updated_at=time.time(), reason=result.get('reason', ''))
         except Exception as error:
             data = dict(sequence=str(time.time_ns()), updated_at=time.time(), stale=False, error=str(error),
@@ -393,11 +416,17 @@ class LiveOverlay:
             with self.lock: self.state = dict(status='unavailable', running=False, updated_at=time.time(), reason=str(error))
 
     def render(self, rgb, battery_edges, detection, battery_axis, cabinet_axis, sequence,
-               *, cabinet_reason='', reference_id='', depth_aligned=False, xyz=None):
+               *, cabinet_reason='', reference_id='', depth_aligned=False, xyz=None,
+               measured_contour=None, inferred_edges=None, battery_observation=None):
         self.output.mkdir(parents=True, exist_ok=True)
         canvas = cv2.cvtColor(np.asarray(rgb, np.uint8), cv2.COLOR_RGB2BGR)
         for start, end in battery_edges:
             cv2.line(canvas, start, end, (255, 0, 255), 3, cv2.LINE_AA)
+        if measured_contour is not None and len(measured_contour) >= 3:
+            cv2.polylines(canvas, [np.rint(measured_contour).astype(np.int32)], True,
+                          (255, 0, 255), 4, cv2.LINE_AA)
+        for start, end in inferred_edges or []:
+            _draw_dashed_line(canvas, start, end, (255, 80, 190), 2)
         if detection.get('outer_contour_px'): cv2.polylines(canvas, [np.asarray(detection['outer_contour_px'], np.int32)], True, (0, 0, 255), 4, cv2.LINE_AA)
         if detection.get('inner_contour_px'): cv2.polylines(canvas, [np.asarray(detection['inner_contour_px'], np.int32)], True, (0, 0, 255), 3, cv2.LINE_AA)
         if battery_axis and all(point is not None for point in battery_axis):
@@ -410,11 +439,18 @@ class LiveOverlay:
         if not cv2.imwrite(str(temporary), canvas, [cv2.IMWRITE_JPEG_QUALITY, 92]): raise OSError('D435 叠加画面写入失败')
         os.replace(temporary, self.output / 'd435.jpg')
         if xyz is not None: write_depth_map(xyz, self.output / 'd435-depth.jpg')
+        battery_visible = bool(battery_edges) or measured_contour is not None
         battery_status = 'visible' if battery_axis else 'unavailable'; cabinet_status = 'visible' if cabinet_axis else 'unavailable'
         reason = '' if cabinet_status == 'visible' else (cabinet_reason or '仓口进入轴未识别')
+        observation = battery_observation or {}
         metadata = dict(sequence=str(sequence), updated_at=time.time(), stale=False, error='', status='ready',
-                        battery_contour=dict(status='visible' if battery_edges else 'unavailable', color='magenta',
-                                             method='current depth-supported visible face only'),
+                        battery_contour=dict(status='visible' if battery_visible else 'unavailable', color='magenta',
+                                             method=observation.get('method', 'current depth-supported visible face only'),
+                                             visible_fraction=float(observation.get('visible_fraction', 1. if battery_edges else 0.)),
+                                             boundary_contacts=list(observation.get('boundary_contacts', [])),
+                                             confidence=float(observation.get('confidence', 1. if battery_edges else 0.)),
+                                             inferred_completion=bool(inferred_edges),
+                                             hidden_space_clearance_proven=False),
                         cabinet_rim=dict(status='visible' if detection.get('status') == 'complete' else detection.get('status', 'unavailable'), color='red'),
                         battery_axis=dict(status=battery_status, color='yellow', direction='object -Z / cabinet-facing leading face'),
                         cabinet_axis=dict(status=cabinet_status, color='cyan', direction='inside'),

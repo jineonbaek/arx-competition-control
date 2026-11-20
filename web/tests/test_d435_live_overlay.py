@@ -151,6 +151,28 @@ class OverlayTests(unittest.TestCase):
             self.assertFalse(metadata['stale'])
             self.assertEqual(result['status'], 'ready')
 
+    def test_render_labels_measured_partial_contour_and_inferred_completion(self):
+        image = np.zeros((100, 140, 3), np.uint8)
+        observation = dict(method='depth_partial_plane', visible_fraction=.61,
+                           boundary_contacts=['top', 'right'], confidence=.82)
+        measured = [[78, 0], [139, 0], [139, 70], [82, 72]]
+        inferred = [((78, 0), (139, 0)), ((82, 72), (139, 70)),
+                    ((78, 0), (82, 72)), ((139, 0), (139, 70))]
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = LiveOverlay.__new__(LiveOverlay)
+            overlay.output = Path(directory)
+            overlay.render(image, [], {'status': 'not_found'}, ((110, 55), (100, 35)), None, 'partial-1',
+                           measured_contour=measured, inferred_edges=inferred,
+                           battery_observation=observation)
+            metadata = json.loads((Path(directory) / 'd435.json').read_text())
+        self.assertEqual(metadata['battery_contour']['status'], 'visible')
+        self.assertEqual(metadata['battery_contour']['method'], 'depth_partial_plane')
+        self.assertEqual(metadata['battery_contour']['boundary_contacts'], ['top', 'right'])
+        self.assertAlmostEqual(metadata['battery_contour']['visible_fraction'], .61)
+        self.assertAlmostEqual(metadata['battery_contour']['confidence'], .82)
+        self.assertTrue(metadata['battery_contour']['inferred_completion'])
+        self.assertFalse(metadata['battery_contour']['hidden_space_clearance_proven'])
+
 
 if __name__ == '__main__':
     unittest.main()
