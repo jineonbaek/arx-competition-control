@@ -4,7 +4,8 @@ from pathlib import Path
 import sys
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from control import Controller, Rejected
+from control import (Controller, Rejected, LEFT_HOLD_JOINTS_DEG,
+                     LEFT_HOLD_2_JOINTS_DEG, RIGHT_AVOIDANCE_JOINTS_DEG)
 
 class FakeAdapter:
     def __init__(self): self.calls = []
@@ -59,6 +60,9 @@ class ControlTests(unittest.TestCase):
     def test_observation_mode_blocks_every_actuator_without_writes(self):
         self.controller.config["execution_enabled"] = False
         commands = [
+            {"type": "arm.fixed_hold", "arm": "left"},
+            {"type": "arm.fixed_hold2", "arm": "left"},
+            {"type": "arm.avoidance_preset", "arm": "right"},
             {"type": "arm.joints", "arm": "left", "joints": [0.] * 6},
             {"type": "arm.tcp", "arm": "left", "position_mm": [0.] * 3, "orientation_deg": [0.] * 3},
             {"type": "gripper", "arm": "left", "position": -2.},
@@ -86,6 +90,64 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(args[2], -1.5)
         self.assertEqual(args[4], 5)
         self.assertEqual(len(self.adapter.calls), 1)
+
+    def test_left_fixed_hold_is_one_atomic_joint_and_closed_gripper_command(self):
+        self.controller.submit({"type":"arm.fixed_hold", "arm":"left"}, "A")
+        args = self.adapter.calls[-1][1]
+        self.assertEqual(args[0], "left")
+        self.assertEqual(args[1], [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG])
+        self.assertEqual(args[2], 0)
+        self.assertEqual(args[4], 5)
+        with self.assertRaises(Rejected):
+            self.controller.submit({"type":"arm.fixed_hold", "arm":"right"}, "A")
+
+    def test_left_fixed_hold_arrival_uses_one_degree_per_joint(self):
+        target = [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG]
+        self.controller.update_arm("left", target, 0, [0.]*6)
+        self.assertTrue(self.controller.snapshot()["left_fixed_hold"]["arrived"])
+        target[2] += math.radians(1.01)
+        self.controller.update_arm("left", target, 0, [0.]*6)
+        self.assertFalse(self.controller.snapshot()["left_fixed_hold"]["arrived"])
+
+    def test_left_fixed_hold2_reuses_atomic_closed_gripper_and_one_degree_tolerance(self):
+        self.controller.submit({"type":"arm.fixed_hold2", "arm":"left"}, "A")
+        args = self.adapter.calls[-1][1]
+        self.assertEqual(args[1], [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG])
+        self.assertEqual(args[2], 0)
+        target = [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG]
+        self.controller.update_arm("left", target, 0, [0.]*6)
+        self.assertTrue(self.controller.snapshot()["left_fixed_hold2"]["arrived"])
+        target[2] += math.radians(1.01)
+        self.controller.update_arm("left", target, 0, [0.]*6)
+        self.assertFalse(self.controller.snapshot()["left_fixed_hold2"]["arrived"])
+
+    def test_right_avoidance_preset_reuses_joint_write_and_left_tolerance(self):
+        self.controller.submit({"type":"arm.avoidance_preset", "arm":"right"}, "A")
+        args = self.adapter.calls[-1][1]
+        self.assertEqual(args[0], "right")
+        self.assertEqual(args[1], [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG])
+        self.assertEqual(args[2], -1.5)
+        target = [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG]
+        self.controller.update_arm("right", target, -1.5, [0.]*6)
+        state = self.controller.snapshot()["right_avoidance_preset"]
+        self.assertEqual(state["tolerance_deg"], 1.)
+        self.assertTrue(state["arrived"])
+        target[3] += math.radians(1.01)
+        self.controller.update_arm("right", target, -1.5, [0.]*6)
+        self.assertFalse(self.controller.snapshot()["right_avoidance_preset"]["arrived"])
+        with self.assertRaises(Rejected):
+            self.controller.submit({"type":"arm.avoidance_preset", "arm":"left"}, "A")
+
+    def test_control_page_exposes_fixed_presets_without_editable_targets(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "public/index.html").read_text()
+        script = (root / "public/js/main.js").read_text()
+        self.assertIn('id="left-fixed-hold"', html)
+        self.assertIn('id="left-fixed-hold2"', html)
+        self.assertIn('id="right-avoidance-preset"', html)
+        self.assertIn("{type:'arm.fixed_hold',arm:'left'}", script)
+        self.assertIn("{type:'arm.fixed_hold2',arm:'left'}", script)
+        self.assertIn("{type:'arm.avoidance_preset',arm:'right'}", script)
 
     def test_stop_holds_measured_positions_and_does_not_open_gripper(self):
         self.controller.update_arm("left", [0.1] * 6, -2., [0.] * 6)

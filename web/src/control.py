@@ -19,6 +19,10 @@ DIRECTIONS = {
 }
 
 ARM_MODES = {0: "力矩清零", 1: "机械臂复位", 2: "阻尼模式", 3: "重力补偿"}
+LEFT_HOLD_JOINTS_DEG = [0., 0., 0., 73., 0., 0.]
+LEFT_HOLD_2_JOINTS_DEG = [0., 0., 90., 0., 0., 0.]
+RIGHT_AVOIDANCE_JOINTS_DEG = [0., 0., 65., -65., 0., 0.]
+LEFT_HOLD_TOLERANCE_DEG = 1.
 
 
 def number(value):
@@ -542,6 +546,20 @@ class Controller:
                     capabilities["%s:arm.mode.%d" % (side, mode)] = self.arm_reason(side, "arm.mode", mode)
             for kind in ("chassis", "chassis.stop", "lift", "lift.stop"):
                 capabilities[kind] = self.body_reason(kind)
+            left = arms["left"]
+            left_errors = ([abs(math.degrees(value) - target)
+                            for value, target in zip(left["joints"], LEFT_HOLD_JOINTS_DEG)]
+                           if left.get("fresh") and vector(left.get("joints"), 6) else None)
+            left_errors_2 = ([abs(math.degrees(value) - target)
+                              for value, target in zip(left["joints"], LEFT_HOLD_2_JOINTS_DEG)]
+                             if left.get("fresh") and vector(left.get("joints"), 6) else None)
+            right = arms["right"]
+            right_avoidance_errors = ([abs(math.degrees(value) - target)
+                                        for value, target in zip(right["joints"], RIGHT_AVOIDANCE_JOINTS_DEG)]
+                                       if right.get("fresh") and vector(right.get("joints"), 6) else None)
+            capabilities["left:arm.fixed_hold"] = self.arm_reason("left", "arm.joints")
+            capabilities["left:arm.fixed_hold2"] = self.arm_reason("left", "arm.joints")
+            capabilities["right:arm.avoidance_preset"] = self.arm_reason("right", "arm.joints")
             return {"time": time.time(), "ros": self.adapter.status(),
                     "execution_enabled": self.config["execution_enabled"],
                     "arms": arms, "body": body, "capabilities": capabilities,
@@ -554,6 +572,20 @@ class Controller:
                     "chassis_scheduler": self.chassis.snapshot(),
                     "motion_reserved": self.motion_owner is not None,
                     "competition_reserved": self.competition_owner is not None,
+                    "left_fixed_hold": {"joints_deg": LEFT_HOLD_JOINTS_DEG[:],
+                        "gripper_raw": self.config["arms"]["left"]["gripper_closed_raw"],
+                        "tolerance_deg": LEFT_HOLD_TOLERANCE_DEG,
+                        "max_error_deg": max(left_errors) if left_errors else None,
+                        "arrived": bool(left_errors and max(left_errors) <= LEFT_HOLD_TOLERANCE_DEG)},
+                    "left_fixed_hold2": {"joints_deg": LEFT_HOLD_2_JOINTS_DEG[:],
+                        "gripper_raw": self.config["arms"]["left"]["gripper_closed_raw"],
+                        "tolerance_deg": LEFT_HOLD_TOLERANCE_DEG,
+                        "max_error_deg": max(left_errors_2) if left_errors_2 else None,
+                        "arrived": bool(left_errors_2 and max(left_errors_2) <= LEFT_HOLD_TOLERANCE_DEG)},
+                    "right_avoidance_preset": {"joints_deg": RIGHT_AVOIDANCE_JOINTS_DEG[:],
+                        "tolerance_deg": LEFT_HOLD_TOLERANCE_DEG,
+                        "max_error_deg": max(right_avoidance_errors) if right_avoidance_errors else None,
+                        "arrived": bool(right_avoidance_errors and max(right_avoidance_errors) <= LEFT_HOLD_TOLERANCE_DEG)},
                     "motion_interrupted": self.motion_interrupted, "command_epoch": self.command_epoch,
                     "nav_sdk_ready": self.adapter.chassis_ready(),
                     "logs": list(self.logs)}
@@ -602,7 +634,10 @@ class Controller:
                 raise Rejected("底盘页面控制 ID 无效")
             sequence_client = (client, control_id)
             data = {k: v for k, v in data.items() if k != "control_id"}
-        schemas = {"arm.joints": {"type", "arm", "joints"}, "arm.tcp": {"type", "arm", "position_mm", "orientation_deg"},
+        schemas = {"arm.joints": {"type", "arm", "joints"}, "arm.fixed_hold": {"type", "arm"},
+                   "arm.fixed_hold2": {"type", "arm"},
+                   "arm.avoidance_preset": {"type", "arm"},
+                   "arm.tcp": {"type", "arm", "position_mm", "orientation_deg"},
                    "gripper": {"type", "arm", "position"}, "arm.stop": {"type", "arm"},
                    "arm.mode": {"type", "arm", "mode"},
                    "chassis": {"type", "direction", "speed", "turn_speed", "sequence"},
@@ -630,7 +665,23 @@ class Controller:
                 if self.motion_trajectory is not None and self.motion_trajectory['side']==side:
                     self.motion_trajectory = None
                 return
-            if kind == "arm.joints":
+            if kind in ("arm.fixed_hold", "arm.fixed_hold2"):
+                if side != "left":
+                    raise Rejected("固定保持点位仅用于左臂")
+                target = LEFT_HOLD_JOINTS_DEG if kind == "arm.fixed_hold" else LEFT_HOLD_2_JOINTS_DEG
+                if any(not pair[0] <= value <= pair[1]
+                       for value, pair in zip(target, c["joint_limits_deg"])):
+                    raise Rejected("左臂固定保持点位超出已配置范围")
+                joints = [math.radians(value) for value in target]
+                gripper = c["gripper_closed_raw"]
+            elif kind == "arm.avoidance_preset":
+                if side != "right":
+                    raise Rejected("避障预设点位仅用于右臂")
+                if any(not pair[0] <= value <= pair[1]
+                       for value, pair in zip(RIGHT_AVOIDANCE_JOINTS_DEG, c["joint_limits_deg"])):
+                    raise Rejected("右臂避障预设点位超出已配置范围")
+                joints = [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG]
+            elif kind == "arm.joints":
                 if not vector(data["joints"], 6):
                     raise Rejected("需要六个有限关节角度")
                 for i, (v, pair) in enumerate(zip(data["joints"], c["joint_limits_deg"])):
@@ -655,7 +706,8 @@ class Controller:
             confirmation = None
             if c.get("command_result_topic"):
                 driver_kind = ('arm.joints.auto' if automatic_joint_speed and kind == 'arm.joints' and isinstance(client, _MotionToken)
-                               and c.get('automatic_joint_speed_deg_s') else kind)
+                               and c.get('automatic_joint_speed_deg_s') else
+                               'arm.joints' if kind in ('arm.fixed_hold','arm.fixed_hold2','arm.avoidance_preset') else kind)
                 confirmation = self.adapter.arm(side, joints, gripper, tcp, mode, kind=driver_kind, wait=False)
             else:
                 self.adapter.arm(side, joints, gripper, tcp, mode)

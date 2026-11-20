@@ -18,6 +18,7 @@ STAGES = (
     ('place', '红框 A 口插入、释放并稳定 3 秒'),
 )
 ACTIVE = ('running', 'recovering', 'stopping')
+LEFT_HOLD_TIMEOUT_S = 60.
 
 
 class Interrupted(Exception):
@@ -135,11 +136,6 @@ class CompetitionTask:
                     pick=self.modules.get('pick')
                     if s['index']<=1 and callable(getattr(pick,'prewarm',None)):
                         pick.prewarm(s['cancel'])
-                    if (action=='start' and s['index']==0
-                            and callable(getattr(pick,'preposition_lift',None))):
-                        self.controller.set_competition_navigation(lease,True)
-                        pick.preposition_lift(self.controller,lease)
-                        s['lift_prepositioned']=True
                     worker.start()
                 except Exception:
                     s['status'] = 'needs_attention'
@@ -179,6 +175,31 @@ class CompetitionTask:
             if s['token'] is None:
                 s['token']=self.controller.reserve_motion(self.controller.snapshot()['command_epoch'],
                     competition=s['competition_token'])
+
+    def _prepare_arm_presets(self, s):
+        self._mode(s, False)
+        prestarted = s['token'].prestarted_lift_target
+        if prestarted is not None:
+            s['competition_token'].prestarted_lift_target = prestarted
+            s['token'].prestarted_lift_target = None
+        self.controller.submit({'type':'arm.fixed_hold', 'arm':'left'}, s['token'])
+        self.controller.submit({'type':'arm.avoidance_preset', 'arm':'right'}, s['token'])
+        self._save(s, 'left_hold_requested', 'J1-J6 0/0/0/73/0/0 deg; gripper closed')
+        self._save(s, 'right_avoidance_requested', 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
+        deadline = time.monotonic() + LEFT_HOLD_TIMEOUT_S
+        while time.monotonic() < deadline:
+            self._check(s)
+            snapshot = self.controller.snapshot()
+            left = snapshot['left_fixed_hold']
+            right = snapshot['right_avoidance_preset']
+            if left['arrived'] and right['arrived']:
+                self._save(s, 'left_hold_ready', 'max joint error %.3f deg' % left['max_error_deg'])
+                self._save(s, 'right_avoidance_ready', 'max joint error %.3f deg' % right['max_error_deg'])
+                self.controller.release_motion(s['token'])
+                s['token'] = None
+                return
+            s['cancel'].wait(.05)
+        raise ValueError('左右臂预设点位 60 秒内未进入每轴 ±1°')
 
     def _wait(self, s, function):
         """Cancellation can discard a slow model reply; it never executes tools itself."""
@@ -272,6 +293,15 @@ class CompetitionTask:
     def _run(self, s):
         status, reason = 'completed', ''
         try:
+            missing = [label for key, label in STAGES if key not in self.modules]
+            if missing:
+                raise ValueError(missing[0] + '：能力未接入')
+            self._prepare_arm_presets(s)
+            pick = self.modules.get('pick')
+            if (s['index']==0 and callable(getattr(pick,'preposition_lift',None))):
+                self.controller.set_competition_navigation(s['competition_token'],True)
+                pick.preposition_lift(self.controller,s['competition_token'])
+                s['lift_prepositioned']=True
             self._save(s, 'current_state_checked', json.dumps(self._robot_evidence(), ensure_ascii=False)[:500])
             while s['index'] < len(STAGES):
                 self._check(s)

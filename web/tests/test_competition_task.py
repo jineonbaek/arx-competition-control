@@ -1,4 +1,5 @@
 """Competition scheduling and ownership with inert modules and fake robot IO."""
+import math
 import tempfile
 import threading
 import time
@@ -8,6 +9,7 @@ from unittest.mock import Mock
 
 from test_control import Controller, FakeAdapter, configured, Rejected
 from competition_task import CompetitionTask, STAGES
+from control import LEFT_HOLD_JOINTS_DEG, RIGHT_AVOIDANCE_JOINTS_DEG
 from competition_modules import GraspModule, CarryReceiptModule, QwenRecovery
 from battery_task import BatteryTask
 
@@ -49,6 +51,11 @@ class CompetitionTests(unittest.TestCase):
         self.controller.update_body(5., [0.]*4, 0., 0., 0.)
         for side in ('left', 'right'):
             self.controller.update_arm(side, [0.]*6, -1., [0.]*6)
+        original_arm = self.adapter.arm
+        def arm(side, joints, gripper, tcp, mode, **kwargs):
+            original_arm(side, joints, gripper, tcp, mode, **kwargs)
+            self.controller.update_arm(side, list(joints), gripper, list(tcp))
+        self.adapter.arm = arm
         self.trace = []
         self.modules = {key:Module(self.trace, key) for key, _ in STAGES}
         self.recovery = Mock()
@@ -82,7 +89,12 @@ class CompetitionTests(unittest.TestCase):
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
         self.assertFalse(view['control_owned'])
         self.recovery.decide.assert_not_called()
-        self.assertEqual(self.adapter.calls, [])
+        fixed = [call for call in self.adapter.calls if call[0]=='arm']
+        self.assertEqual(len(fixed), 2)
+        self.assertEqual(fixed[0][1][1], [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG])
+        self.assertEqual(fixed[0][1][2], 0)
+        self.assertEqual(fixed[1][1][1], [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG])
+        self.assertEqual(fixed[1][1][2], -1.)
 
     def test_map_start_prewarms_grasp_while_navigation_is_running(self):
         battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}
@@ -94,7 +106,12 @@ class CompetitionTests(unittest.TestCase):
         while not battery.prewarm.called and time.monotonic()<deadline:time.sleep(.01)
         battery.prewarm.assert_called_once()
         battery.start_owned.assert_not_called()
+        while ('lift',(5.52,)) not in self.adapter.calls and time.monotonic()<deadline:time.sleep(.01)
         self.assertIn(('lift',(5.52,)),self.adapter.calls)
+        arm_indices = [i for i, call in enumerate(self.adapter.calls) if call[0]=='arm']
+        lift_index = self.adapter.calls.index(('lift',(5.52,)))
+        self.assertTrue(arm_indices and max(arm_indices) < lift_index)
+        self.assertEqual(self.task.active['competition_token'].prestarted_lift_target, 5.52)
         self.action('stop');self.wait('paused')
         battery.discard_prewarm.assert_called()
         self.assertIn(('lift',(5.0,)),self.adapter.calls)
@@ -230,9 +247,10 @@ class CompetitionTests(unittest.TestCase):
 
     def test_new_controller_instance_does_not_resume_saved_run(self):
         self.action('start');self.wait('completed')
+        calls = list(self.adapter.calls)
         restored=CompetitionTask(self.controller,self.temp.name)
         self.assertEqual(restored.snapshot()['status'],'idle')
-        self.assertEqual(self.adapter.calls,[])
+        self.assertEqual(self.adapter.calls,calls)
 
     def test_borrowed_grasp_keeps_parent_token_and_details_until_parent_finishes(self):
         class Flow:
@@ -267,7 +285,8 @@ class CompetitionTests(unittest.TestCase):
         self.action('stop');self.wait('paused')
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
         for name, args in self.adapter.calls:
-            if name=='arm':self.assertEqual(args[2],-1.)
+            if name=='arm' and args[1] != [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG]:
+                self.assertEqual(args[2], 0 if args[0]=='left' else -1.)
             self.assertNotEqual(name,'mode')
 
 

@@ -23,6 +23,8 @@ let lastLogKey = '';
 let localLogId = 0;
 let toastTimer;
 let modeBusy = false;
+let leftHoldBusy = false;
+let rightAvoidanceBusy = false;
 const localLogs = [];
 const jointInputs = [], jointSliders = [], jointErrors = [], jointActual = [], jointRanges = [];
 const tcpInputs = [];
@@ -165,6 +167,24 @@ function render(force=false) {
     el.disabled ||= modeBusy;
   }
   $('joint-mode').textContent=editor.dirty.joints?'目标编辑':'实时跟随';
+  const hold=snapshot.left_fixed_hold;
+  const hold2=snapshot.left_fixed_hold2;
+  const rightAvoidance=snapshot.right_avoidance_preset;
+  $('left-fixed-hold-status').hidden=side!=='left';
+  $('left-fixed-hold2-status').hidden=side!=='left';
+  $('right-avoidance-preset-status').hidden=side!=='right';
+  $('left-fixed-hold').hidden=side!=='left';
+  $('left-fixed-hold2').hidden=side!=='left';
+  $('right-avoidance-preset').hidden=side!=='right';
+  $('left-fixed-hold-status').textContent=hold?.arrived
+    ? '左臂固定点位：已到位 · 最大误差 '+fmt(hold.max_error_deg,2)+'° · 夹爪闭合目标保持'
+    : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪闭合';
+  $('left-fixed-hold2-status').textContent=hold2?.arrived
+    ? '左臂固定点位2：已到位 · 最大误差 '+fmt(hold2.max_error_deg,2)+'° · 夹爪闭合目标保持'
+    : '左臂固定点位2：'+(Number.isFinite(hold2?.max_error_deg)?'最大误差 '+fmt(hold2.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪闭合';
+  $('right-avoidance-preset-status').textContent=rightAvoidance?.arrived
+    ? '右臂避障预设位：已到位 · 最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'° · 夹爪保持'
+    : '右臂避障预设位：'+(Number.isFinite(rightAvoidance?.max_error_deg)?'最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪保持';
   $('tcp-mode').textContent=editor.dirty.tcp?'目标编辑':'mm / °';
   for(let i=0;i<6;i++) {
     const pair=limits.joint_limits_deg?.[i];
@@ -188,6 +208,12 @@ function render(force=false) {
   });
   $('tcp-actual').textContent=arm.base_wrist?'腕部 XYZ '+arm.base_wrist.slice(0,3).map(v=>fmt(v,1)).join(' / ')+' mm':'实际位姿 —';
   for(const [id,type] of [['joint-send','arm.joints'],['tcp-send','arm.wrist'],['gripper-send','gripper'],['arm-stop','arm.stop']])button(id,side+':'+type);
+  button('left-fixed-hold','left:arm.fixed_hold');
+  button('left-fixed-hold2','left:arm.fixed_hold2');
+  button('right-avoidance-preset','right:arm.avoidance_preset');
+  $('left-fixed-hold').disabled ||= leftHoldBusy;
+  $('left-fixed-hold2').disabled ||= leftHoldBusy;
+  $('right-avoidance-preset').disabled ||= rightAvoidanceBusy;
   for(const [id,value] of [['gripper-open',limits.gripper_open_raw],['gripper-close',limits.gripper_closed_raw]]){
     button(id,side+':gripper'); $(id).disabled ||= !Number.isFinite(value);
   }
@@ -243,6 +269,24 @@ $('joint-send').addEventListener('click',async()=>{
   if(!jointInputs.every((input,i)=>markValidity(input,jointErrors[i],snapshot.limits.arms[editor.side].joint_limits_deg?.[i]).valid))return;
   const side=editor.side;
   await command({type:'arm.joints',arm:side,joints:jointInputs.map(x=>Number(x.value))});
+});
+$('left-fixed-hold').addEventListener('click',async()=>{
+  if(leftHoldBusy)return;
+  leftHoldBusy=true;render();
+  try{await command({type:'arm.fixed_hold',arm:'left'});}
+  finally{leftHoldBusy=false;render();}
+});
+$('left-fixed-hold2').addEventListener('click',async()=>{
+  if(leftHoldBusy)return;
+  leftHoldBusy=true;render();
+  try{await command({type:'arm.fixed_hold2',arm:'left'});}
+  finally{leftHoldBusy=false;render();}
+});
+$('right-avoidance-preset').addEventListener('click',async()=>{
+  if(rightAvoidanceBusy)return;
+  rightAvoidanceBusy=true;render();
+  try{await command({type:'arm.avoidance_preset',arm:'right'});}
+  finally{rightAvoidanceBusy=false;render();}
 });
 $('tcp-send').addEventListener('click',async()=>{
   if(!tcpInputs.every(x=>checkedNumber(x.value).valid)){$('tcp-error').textContent='末端位姿需要六个有效数值';return;}
