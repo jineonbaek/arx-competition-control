@@ -3,6 +3,7 @@ import os
 import json
 from pathlib import Path
 import sys
+import uuid
 import numpy as np
 from navigation.pose_freshness import MOTION_MAX_AGE_NS
 from .pose_wait import PoseWait,pose_unavailable
@@ -110,7 +111,8 @@ class ChassisRetreatStep:
         # Finish ROS discovery before WebChassis timestamps its first source-stamped command.
         if getattr(self.controller,'config',{}).get('chassis_backend')=='ros':
             self.controller.chassis.session(self.token,'navigation').ensure()
-        self.transport=WebChassis(submit=lambda command:self.controller.submit(command,self.token))
+        self.transport=WebChassis(source_id='navigation-'+uuid.uuid4().hex,
+            submit=lambda command:self.controller.submit(command,self.token))
         self.transport.sdk_units=True;self.transport.native_sdk=True
         self.reader=_PoseReader();self.pose_wait=PoseWait(self.transport)
 
