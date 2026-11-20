@@ -22,7 +22,7 @@ ARM_MODES = {0: "力矩清零", 1: "机械臂复位", 2: "阻尼模式", 3: "重
 LEFT_HOLD_JOINTS_DEG = [0., 0., 0., 73., 0., 0.]
 LEFT_HOLD_2_JOINTS_DEG = [0., 0., 90., 0., 0., 0.]
 RIGHT_AVOIDANCE_JOINTS_DEG = [0., 0., 65., -65., 0., 0.]
-LEFT_HOLD_TOLERANCE_DEG = 1.
+LEFT_HOLD_TOLERANCE_DEG = 2.
 
 
 def number(value):

@@ -101,23 +101,25 @@ class ControlTests(unittest.TestCase):
         with self.assertRaises(Rejected):
             self.controller.submit({"type":"arm.fixed_hold", "arm":"right"}, "A")
 
-    def test_left_fixed_hold_arrival_uses_one_degree_per_joint(self):
+    def test_left_fixed_hold_arrival_uses_two_degrees_per_joint(self):
         target = [math.radians(value) for value in LEFT_HOLD_JOINTS_DEG]
+        target[2] += math.radians(1.99)
         self.controller.update_arm("left", target, 0, [0.]*6)
         self.assertTrue(self.controller.snapshot()["left_fixed_hold"]["arrived"])
-        target[2] += math.radians(1.01)
+        target[2] += math.radians(.02)
         self.controller.update_arm("left", target, 0, [0.]*6)
         self.assertFalse(self.controller.snapshot()["left_fixed_hold"]["arrived"])
 
-    def test_left_fixed_hold2_reuses_atomic_closed_gripper_and_one_degree_tolerance(self):
+    def test_left_fixed_hold2_reuses_atomic_closed_gripper_and_two_degree_tolerance(self):
         self.controller.submit({"type":"arm.fixed_hold2", "arm":"left"}, "A")
         args = self.adapter.calls[-1][1]
         self.assertEqual(args[1], [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG])
         self.assertEqual(args[2], 0)
         target = [math.radians(value) for value in LEFT_HOLD_2_JOINTS_DEG]
+        target[2] += math.radians(1.99)
         self.controller.update_arm("left", target, 0, [0.]*6)
         self.assertTrue(self.controller.snapshot()["left_fixed_hold2"]["arrived"])
-        target[2] += math.radians(1.01)
+        target[2] += math.radians(.02)
         self.controller.update_arm("left", target, 0, [0.]*6)
         self.assertFalse(self.controller.snapshot()["left_fixed_hold2"]["arrived"])
 
@@ -128,11 +130,12 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(args[1], [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG])
         self.assertEqual(args[2], -1.5)
         target = [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG]
+        target[3] += math.radians(1.99)
         self.controller.update_arm("right", target, -1.5, [0.]*6)
         state = self.controller.snapshot()["right_avoidance_preset"]
-        self.assertEqual(state["tolerance_deg"], 1.)
+        self.assertEqual(state["tolerance_deg"], 2.)
         self.assertTrue(state["arrived"])
-        target[3] += math.radians(1.01)
+        target[3] += math.radians(.02)
         self.controller.update_arm("right", target, -1.5, [0.]*6)
         self.assertFalse(self.controller.snapshot()["right_avoidance_preset"]["arrived"])
         with self.assertRaises(Rejected):

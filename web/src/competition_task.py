@@ -199,7 +199,7 @@ class CompetitionTask:
                 s['token'] = None
                 return
             s['cancel'].wait(.05)
-        raise ValueError('左右臂预设点位 60 秒内未进入每轴 ±1°')
+        raise ValueError('左右臂预设点位 60 秒内未进入每轴 ±2°')
 
     def _wait(self, s, function):
         """Cancellation can discard a slow model reply; it never executes tools itself."""
