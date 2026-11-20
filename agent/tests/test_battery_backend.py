@@ -1,6 +1,7 @@
 """Dynamic Agent request routing and recovery with an inert prepared step."""
 import copy
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import numpy as np
@@ -9,6 +10,8 @@ from web.src.handeye_column import ColumnModel
 from agent.battery_flow import plan_digest
 from agent.storage import RunStore
 from agent.battery_backend import BatteryControllerBackend
+from agent.battery_production import review_plan
+from agent.battery_tcp import load_pick_setup
 from agent.tests.test_coarse_backend import Step
 from agent.tests.test_execution_policy import policy
 
@@ -182,5 +185,31 @@ class BackendTests(unittest.TestCase):
                                    measured[:3,:3],atol=1e-8)
         np.testing.assert_allclose(model.wrist_transform(controller.q,controller.lift),measured,atol=1e-6)
         self.assertEqual(plan_digest(restored.state['coarse_observer_plan']),plan_digest(reviewed))
+
+    def test_plan_c_builds_existing_coarse_and_pick_plans_from_saved_joint_points(self):
+        now=time.time();model=ColumnModel()
+        class FixedController(Controller):
+            models={'right':model}
+            def snapshot(self):
+                arm=dict(joints=[0.]*6,fresh=True,timestamp=now)
+                return dict(arms={'left':copy.deepcopy(arm),'right':copy.deepcopy(arm)},
+                            body={'height':5.52,'fresh':True,'timestamp':now})
+        self.store.state['battery_task_settings']={'vision_mode':'fixed','plan_c':{
+            'lift_target_rad':5.52,'lift_acceptance_rad':5.,
+            'pregrasp_joints_rad':[0.]*6,'grasp_joints_rad':[0.,.001,0.,0.,0.,0.]}}
+        settings=policy();setup=load_pick_setup(timing_limits=settings['timing_limits'],
+            alignment_tolerance_deg=settings['alignment_tolerance_deg'],
+            j6_tolerance_deg=settings['j6_tolerance_deg'])
+        backend=BatteryControllerBackend(FixedController(),'owned',self.store,
+            policies={'coarse':dict(settings['coarse'],timing_limits=settings['timing_limits']),
+                      'pick':settings['pick']},pick_setup=setup,preflight=lambda *a:True,
+            cancelled=lambda:False,timeout_s={'execute_coarse_alignment':1.,
+                'execute_battery_approach':1.,'execute_pick':1.})
+        coarse=backend.fixed_coarse_plan();pick=backend.fixed_pick_plan()
+        self.assertEqual(coarse['observer']['joints_rad'],[0.]*6)
+        self.assertEqual(coarse['lift']['acceptance_rad'],5.)
+        self.assertEqual(pick['joint_waypoints_rad'][-1],[0.,.001,0.,0.,0.,0.])
+        self.assertTrue(review_plan('execute_coarse_alignment',coarse,environment_clear=True)['collision_free'])
+        self.assertTrue(review_plan('execute_pick',pick,environment_clear=True)['collision_free'])
 
 if __name__=='__main__':unittest.main()
