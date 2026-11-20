@@ -4,6 +4,7 @@ import {ChassisOutput} from './chassis-output.js';
 
 const $ = id => document.getElementById(id);
 const armName = side => side === 'left' ? '左臂' : '右臂';
+const rightPlacePreobserveJoints = [0, 0, 25, -25, 0, -90];
 const fmt = (v, digits = 2) => Number.isFinite(v) ? v.toFixed(digits) : '—';
 let snapshot = null;
 let connected = false;
@@ -178,9 +179,11 @@ function render(force=false) {
   $('left-fixed-hold-status').hidden=side!=='left';
   $('left-fixed-hold2-status').hidden=side!=='left';
   $('right-avoidance-preset-status').hidden=side!=='right';
+  $('right-place-preobserve-status').hidden=side!=='right';
   $('left-fixed-hold').hidden=side!=='left';
   $('left-fixed-hold2').hidden=side!=='left';
   $('right-avoidance-preset').hidden=side!=='right';
+  $('right-place-preobserve').hidden=side!=='right';
   $('left-fixed-hold-status').textContent=hold?.arrived
     ? '左臂固定点位：已到位 · 最大误差 '+fmt(hold.max_error_deg,2)+'° · 夹爪闭合目标保持'
     : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪闭合';
@@ -190,6 +193,12 @@ function render(force=false) {
   $('right-avoidance-preset-status').textContent=rightAvoidance?.arrived
     ? '右臂避障预设位：已到位 · 最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'° · 夹爪保持'
     : '右臂避障预设位：'+(Number.isFinite(rightAvoidance?.max_error_deg)?'最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪保持';
+  const rightPlaceError=snapshot.arms.right.fresh && snapshot.arms.right.joints?.length===6
+    ? Math.max(...snapshot.arms.right.joints.map((v,i)=>Math.abs(v*180/Math.PI-rightPlacePreobserveJoints[i]))) : NaN;
+  $('right-place-preobserve-status').textContent='右臂放置预观察点：'+
+    (Number.isFinite(rightPlaceError)
+      ? (rightPlaceError<=rightAvoidance.tolerance_deg?'已到位 · ':'')+'最大误差 '+fmt(rightPlaceError,2)+'°'
+      : '等待反馈')+' · 六轴容差 ±'+rightAvoidance.tolerance_deg+'° · 夹爪保持';
   $('tcp-mode').textContent=editor.dirty.tcp?'目标编辑':'mm / °';
   for(let i=0;i<6;i++) {
     const pair=limits.joint_limits_deg?.[i];
@@ -216,9 +225,11 @@ function render(force=false) {
   button('left-fixed-hold','left:arm.fixed_hold');
   button('left-fixed-hold2','left:arm.fixed_hold2');
   button('right-avoidance-preset','right:arm.avoidance_preset');
+  button('right-place-preobserve','right:arm.joints');
   $('left-fixed-hold').disabled ||= leftHoldBusy;
   $('left-fixed-hold2').disabled ||= leftHoldBusy;
   $('right-avoidance-preset').disabled ||= rightAvoidanceBusy;
+  $('right-place-preobserve').disabled ||= rightAvoidanceBusy;
   for(const [id,value] of [['gripper-open',limits.gripper_open_raw],['gripper-close',limits.gripper_closed_raw]]){
     button(id,side+':gripper'); $(id).disabled ||= !Number.isFinite(value);
   }
@@ -291,6 +302,12 @@ $('right-avoidance-preset').addEventListener('click',async()=>{
   if(rightAvoidanceBusy)return;
   rightAvoidanceBusy=true;render();
   try{await command({type:'arm.avoidance_preset',arm:'right'});}
+  finally{rightAvoidanceBusy=false;render();}
+});
+$('right-place-preobserve').addEventListener('click',async()=>{
+  if(rightAvoidanceBusy)return;
+  rightAvoidanceBusy=true;render();
+  try{await command({type:'arm.joints',arm:'right',joints:rightPlacePreobserveJoints});}
   finally{rightAvoidanceBusy=false;render();}
 });
 $('tcp-send').addEventListener('click',async()=>{

@@ -59,6 +59,7 @@
         <details class="control-section" open><summary><span>关节控制</span><span id="joint-mode" class="subtle-tag">实时跟随</span></summary>
           <div id="joint-controls-body"></div>
           <div class="section-actions"><span class="hint"><span id="left-fixed-hold-status">左臂固定点位：等待反馈 · 六轴容差 ±1° · 夹爪闭合</span><br><span id="left-fixed-hold2-status">左臂固定点位2：等待反馈 · 六轴容差 ±1° · 夹爪闭合</span><span id="right-avoidance-preset-status" hidden>右臂避障预设位：等待反馈 · 六轴容差 ±1° · 夹爪保持</span></span><div class="button-row"><button id="left-fixed-hold" class="button secondary" type="button" disabled>左臂固定点位</button><button id="left-fixed-hold2" class="button secondary" type="button" disabled>左臂固定点位2</button><button id="right-avoidance-preset" class="button secondary" type="button" hidden disabled>右臂避障预设位</button><button id="joint-send" class="button primary" disabled>发送到左臂</button></div></div>
+          <div class="section-actions"><span id="right-place-preobserve-status" class="hint" hidden>右臂放置预观察点：等待反馈 · 六轴容差 ±1° · 夹爪保持</span><button id="right-place-preobserve" class="button secondary" type="button" hidden disabled>右臂放置预观察点</button></div>
         </details>
         <details class="control-section" open><summary><span>夹爪控制</span><span id="gripper-actual" class="actual-value">实际 —</span></summary>
           <div class="control-label"><label for="gripper-input">目标位置</label><div class="number-wrap"><input id="gripper-input" type="number" step="0.01" inputmode="decimal" disabled><span>SDK 原值</span></div></div>
