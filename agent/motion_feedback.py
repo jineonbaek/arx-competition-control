@@ -83,7 +83,7 @@ def tool_feedback(snapshot,model,wrist_from_tool,target_base_tool,*,now,max_age_
     if (not np.isfinite([now,max_age_s,max_pair_skew_s,expected_lift_rad,lift_tolerance_rad]).all()
             or min(max_age_s,max_pair_skew_s,lift_tolerance_rad)<=0
             or not 0<=expected_lift_rad<=18):raise ValueError('Invalid feedback policy')
-    if snapshot.get('chassis_active') is not False:raise ValueError('Chassis command is active or unknown')
+    if snapshot.get('chassis_active') is not False:raise ValueError('底盘输出状态非静止: chassis_active='+str(snapshot.get('chassis_active')))
     try:
         arm=snapshot['arms']['right'];body=snapshot['body']
         q=np.asarray(arm['joints'],float);height=float(body['height'])
@@ -92,8 +92,8 @@ def tool_feedback(snapshot,model,wrist_from_tool,target_base_tool,*,now,max_age_
                 or not 0<=height<=18 or not np.isfinite(stamps).all()
                 or arm.get('fresh') is not True or body.get('fresh') is not True
                 or np.any(stamps>now) or np.any(now-stamps>max_age_s)
-                or np.ptp(stamps)>max_pair_skew_s):raise ValueError('Missing fresh paired arm and lift feedback')
-        if abs(height-expected_lift_rad)>lift_tolerance_rad:raise ValueError('Lift changed during arm motion')
+                or np.ptp(stamps)>max_pair_skew_s):raise ValueError(f'右臂/升降反馈时效或配对无效: arm_age={now-stamps[0]:.4f}s, lift_age={now-stamps[1]:.4f}s, skew={np.ptp(stamps):.4f}s; max_age={max_age_s}s, max_skew={max_pair_skew_s}s; arm_fresh={arm.get("fresh")}, lift_fresh={body.get("fresh")}; q={q.tolist()}, lift={height}')
+        if abs(height-expected_lift_rad)>lift_tolerance_rad:raise ValueError(f'升降高度变化: actual={height:.5f}rad, expected={expected_lift_rad:.5f}rad, limit={lift_tolerance_rad}rad')
     except (KeyError,TypeError) as error:raise ValueError('Invalid robot feedback') from error
     actual=rigid(model.wrist_transform(q,height)@tcp)
     rotation=Rotation.from_matrix(target[:3,:3].T@actual[:3,:3])
@@ -135,7 +135,7 @@ class PickMonitor:
         self.gripper=ArrivalMonitor([self.gripper_target],started_at=started_at,**self.gripper_policy)
         self.stage='inserting';self.last_poll=started_at
         self.last_value=None;self.last_sample=None;self.arrival_sample=None
-        self.failure=None
+        self.failure=None;self.failure_detail=None
 
     def begin_settling(self,now):
         """Start the arrival window once the reference trajectory has ended."""
@@ -148,7 +148,8 @@ class PickMonitor:
 
     def _receipt(self,close=False):
         return dict(status=self.failure or self.stage,close_permitted=close,
-                    stop_required=self.failure is not None,grasp_confirmed=False)
+                    stop_required=self.failure is not None,grasp_confirmed=False,
+                    failure_detail=self.failure_detail)
 
     def abort(self,reason):
         if self.failure is None:self.failure=str(reason) if reason else 'execution_unknown'
@@ -165,13 +166,14 @@ class PickMonitor:
             measured=tool_feedback(snapshot,self.model,self.tcp,self.target,now=now,**self.feedback_policy)
             value=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
             stamp=measured['sample_time']
-            if self.last_sample is not None and stamp<self.last_sample:raise ValueError('Out-of-order feedback')
+            if self.last_sample is not None and stamp<self.last_sample:raise ValueError(f'反馈时间倒退: sample={stamp:.6f}, previous={self.last_sample:.6f}')
             if self.stage!='inserting':
-                if np.any(np.abs(value)>self.arm.tolerance):raise ValueError('Tool drifted after arrival')
+                if np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
                 if self.last_sample is not None and stamp-self.last_sample>self.arm.max_age:
-                    raise ValueError('Feedback gap after arrival')
+                    raise ValueError(f'到位后反馈间隔过长: gap={stamp-self.last_sample:.4f}s, limit={self.arm.max_age}s')
             return value,stamp
-        except (ValueError,TypeError,KeyError):
+        except (ValueError,TypeError,KeyError) as error:
+            self.failure_detail=f'抓取反馈校验失败[{self.stage}]: {error}'
             self.abort('feedback_invalid');return None
 
     def update(self,snapshot,now,*,ready,cancelled=False):
