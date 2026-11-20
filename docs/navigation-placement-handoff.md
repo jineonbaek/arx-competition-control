@@ -48,3 +48,17 @@ A refused 9985 connection means the navigation team's task runtime is not listen
 - `test_navigation_owned_placement`: borrowed token, stale admission rejection and ownership retention on early driver failure.
 
 These tests do not represent a physical navigation or insertion trial.
+
+### Deployment verification, 2026-11-20
+
+The 9983 API reports `placement_backend=visual_chassis_d405_insert_160`; the `place` stage is connected and no longer labeled as a recorded preview. All four grasp modes remain present. Focused Python tests: 36/36. Focused map/camera/placement JavaScript tests: 14/14. No real navigation route or placement was executed.
+
+The navigation team's 9985 listener was still offline at verification. The saved cabinet reference `ref-1795094043742-95e73fde` has `d435.valid=false`; readiness reports this rather than substituting a new unconfirmed reference. Placement-height preparation must satisfy the separate zero-radian requirement before dispatch.
+
+The host's pre-existing `test_navigation_session` suite is 5/8 on both the unmodified baseline and the integration check. Its existing arm-preset preparation now runs before navigation, while these older fixtures do not provide valid arm feedback. The unchanged failing cases are:
+
+- `test_missing_place_cancels_route_and_returns_manual_without_fake_complete`
+- `test_stop_during_grasp_cancels_navigation_too`
+- `test_total_sequence_real_handoff_never_opens_manual_between_jobs`
+
+The current host's `competition_task.py` and its arm-preset behavior were deliberately preserved. The new real-HTTP placement protocol tests exercise the new adapter independently of those pre-existing fixture failures.
