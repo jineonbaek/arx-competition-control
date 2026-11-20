@@ -47,7 +47,7 @@
     "lift_tolerance_rad": 0.05,
     "max_pair_skew_s": 0.15,
     "arm_policy": {
-      "tolerance": [5.0, 5.0, 5.0, 1.5, 1.5, 1.5],
+      "tolerance": [5.0, 5.0, 5.0, 2.0, 2.0, 2.0],
       "max_speed": [2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
       "settle_s": 0.1,
       "timeout_s": 10.0,
