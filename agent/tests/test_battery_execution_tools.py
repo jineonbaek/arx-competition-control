@@ -116,7 +116,7 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.assertIsNone(self.store.state['mission']['plan'])
         self.assertEqual(self.step.calls,[])
 
-    def test_plan_f_accepts_d405_as_the_existing_head_observation(self):
+    def test_plan_f_reuses_first_d405_observation_without_coarse_motion_evidence(self):
         first=self.observation('d405',time.time())
         self.store.state['battery_task_settings']={'vision_mode':'plan_f'}
         self.store.state['mission'].update(stage='IDLE',plan=None)
@@ -126,11 +126,20 @@ class BatteryExecutionToolsTests(unittest.TestCase):
             result=tools.execute('observe_battery',{'camera':'d405'},'plan-f-head')
         self.assertTrue(result['ok'],result)
         self.assertEqual(self.store.state['mission']['stage'],'HEAD_LOCALIZED')
-        proposal=dict(observation_id=first['observation_id'],executable=False,tcp=None)
-        with patch('agent.grasp_tools.plan_coarse',return_value=proposal):
-            result=tools.execute('plan_coarse_alignment',
-                {'observation_id':first['observation_id']},'plan-f-coarse')
+        self.store.state['mission']['stage']='COARSE_ALIGNED'
+        preview=dict(status='preview_complete',observation_id=first['observation_id'])
+        with patch.object(tools,'_perception',return_value=preview):
+            result=tools.execute('preview_battery_grasp',
+                {'observation_id':first['observation_id'],'clearance_mm':50},'plan-f-preview')
         self.assertTrue(result['ok'],result)
+        planned=self.store.path/'plan-f-pick.json';planned.write_text('{}')
+        proposal=dict(status='kinematic_preview',result_file=planned.name,
+            observation_id=first['observation_id'],vision_mode='plan_f')
+        with patch('agent.battery_tools.plan_battery_pick',return_value=proposal):
+            result=tools.execute('plan_battery_pick',
+                {'observation_id':first['observation_id']},'plan-f-pick')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(self.store.state['mission']['stage'],'PICK_APPROACH_PLANNED')
 
     def test_new_archive_with_pre_motion_camera_timestamp_is_rejected(self):
         before=time.time();self.assertTrue(self.run_coarse()['ok'])
