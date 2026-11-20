@@ -15,6 +15,8 @@ def transform_reference(profile,base_from_object,camera_from_object):
     approach=base[:3,:3]@np.asarray(profile["approach_object"])
     bump=base[:3,:3]@np.asarray(profile["bump_direction_object"])
     approach=approach/np.linalg.norm(approach);bump=bump/np.linalg.norm(bump)
+    # The installed battery bump is physically downward; canonicalize FoundationPose's 180-degree axial symmetry.
+    if bump[2]>0:bump=-bump
     tool_x=approach
     tool_z=-bump
     tool_y=np.cross(tool_z,tool_x);tool_y/=np.linalg.norm(tool_y)
