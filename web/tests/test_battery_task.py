@@ -294,5 +294,19 @@ class BatteryTaskTests(unittest.TestCase):
         while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
         self.assertEqual(depth.requested,{'d435':False,'d405':True})
 
+    def test_plan_f_only_requires_d405_depth(self):
+        depth=_Depth()
+        task=BatteryTask(Path(self.temp.name)/'plan-f-depth',self.controller,
+            lambda store,controller,token,environment_clear:_Flow(store,self.gate),depth_control=depth)
+        self.addCleanup(task.close)
+        task.action('owner',{'action':'start','request_id':'plan-f-depth','expected_epoch':0,
+            'environment_clear':True,'lift_target_rad':12.52,'observer_z_mm':700.5,
+            'vision_mode':'plan_f'})
+        self.assertEqual(depth.calls,[{'camera':'d405','enabled':True}])
+        self.gate.set()
+        end=time.monotonic()+2
+        while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
+        self.assertEqual(depth.requested,{'d435':False,'d405':True})
+
 
 if __name__=='__main__':unittest.main()

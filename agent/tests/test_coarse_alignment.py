@@ -109,6 +109,23 @@ class CoarseTests(unittest.TestCase):
             self.assertFalse(result['executable']);self.assertIsNone(result['tcp'])
             self.assertFalse(result['ik_checked'])
 
+    def test_plan_f_uses_first_d405_frame_for_existing_coarse_plan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=RunStore.create(directory);self.addCleanup(store.close)
+            tools=GraspTools(Config(),store);tools.vision_mode='plan_f'
+            f=frame();f.update(camera_id=np.array('d405'),joints=np.zeros(6),left_joints=np.zeros(6))
+            blob=io.BytesIO();np.savez(blob,**f)
+            obs=save_frame(store,blob.getvalue(),source='fixture',camera='d405')
+            ident=obs['observation_id'];path=store.path/'result.json'
+            atomic_json(path,dict(observation_id=ident,camera='d405',status='localized',
+                location=dict(surface_base_mm=[500,-250,750],kind='visible_surface_not_grip',
+                    surface_bounds_p90_base_mm=[[480,-270,730],[520,-230,770]])))
+            store.state['battery_observations']={ident:path.name}
+            result=plan(tools,ident,'plan-f')
+            self.assertEqual(result['observer']['kind'],'d405_guided')
+            self.assertEqual(result['x_y_alignment'],'d405_guided')
+            self.assertEqual(result['lift']['target_rad'],5.52)
+
     def test_observer_search_uses_absolute_z_offset_and_checked_joint_path(self):
         from web.src.handeye_column import ColumnModel
         model=ColumnModel();limits=[[-90,90],[-6,206],[-6,172],[-74,74],[-85,85],[-100,100]]

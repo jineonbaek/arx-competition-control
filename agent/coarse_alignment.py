@@ -85,18 +85,20 @@ def observer_search_geometry(observer,offset_mm,current_q,current_lift,model,lim
 
 def plan(registry,observation_id,call_id):
     store=registry.store
+    mode=getattr(registry,'vision_mode','d405')
+    camera='d405' if mode=='plan_f' else 'd435'
     relative=store.state.get('battery_observations',{}).get(observation_id)
-    if not relative:raise ValueError('需要本任务已完成的 D435 观察定位')
+    if not relative:raise ValueError('需要本任务已完成的 '+camera.upper()+' 观察定位')
     path=(store.path/relative).resolve()
     if not path.is_relative_to(store.path.resolve()):raise ValueError('定位证据路径无效')
     evidence=json.loads(path.read_text())
-    if (evidence.get('observation_id')!=observation_id or evidence.get('camera')!='d435'
+    if (evidence.get('observation_id')!=observation_id or evidence.get('camera')!=camera
             or evidence.get('status')!='localized'):
-        raise ValueError('需要已定位成功的 D435 证据')
+        raise ValueError('需要已定位成功的 '+camera.upper()+' 证据')
     location=evidence['location']
     if location.get('kind')!='visible_surface_not_grip':raise ValueError('未知粗定位类型')
     with np.load(frame_path(store,observation_id),allow_pickle=False) as frame:
-        if str(frame['camera_id'])!='d435':raise ValueError('非 D435 原始深度证据')
+        if str(frame['camera_id'])!=camera:raise ValueError('非 '+camera.upper()+' 原始深度证据')
         height=float(frame['lift_rad'])
         feedback={k:frame[k].copy() for k in ('joints','left_joints','image_time','arm_time',
             'left_arm_time','body_time','lift_rad') if k in frame}
@@ -110,7 +112,7 @@ def plan(registry,observation_id,call_id):
         coarse_policy=load(ROOT/'config/battery-execution.json',
             gripper_limits=config['arms']['right']['gripper_limits_raw'])['coarse']
     observer_search=coarse_policy['observer_search']
-    plan_b=getattr(registry,'vision_mode','d405')=='d435'
+    plan_b=mode=='d435'
     calibration_blob=(D435_CALIBRATION if plan_b else CALIBRATION).read_bytes()
     model=ColumnModel()
     if plan_b:
@@ -129,6 +131,10 @@ def plan(registry,observation_id,call_id):
         observer_rpy_deg=observer_search['rpy_deg'],
         current_joints=feedback['joints'],observer=observer,
         limits_deg=config['arms']['right']['joint_limits_deg'])
+    if mode=='plan_f':
+        result['x_y_alignment']='d405_guided'
+        result['observer']['kind']='d405_guided'
+        result['observer']['note']='按首轮 D405 位置选择观察区域；移动后使用新 D405 帧精定位。'
     if plan_b:
         result['x_y_alignment']='d435_frozen'
         result['note']='仅执行既有升降动作；右臂保持当前关节位，后续复用冻结的 D435 位姿规划抓取。'

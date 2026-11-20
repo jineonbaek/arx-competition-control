@@ -116,6 +116,22 @@ class BatteryExecutionToolsTests(unittest.TestCase):
         self.assertIsNone(self.store.state['mission']['plan'])
         self.assertEqual(self.step.calls,[])
 
+    def test_plan_f_accepts_d405_as_the_existing_head_observation(self):
+        first=self.observation('d405',time.time())
+        self.store.state['battery_task_settings']={'vision_mode':'plan_f'}
+        self.store.state['mission'].update(stage='IDLE',plan=None)
+        tools=BatteryExecutionTools(Config(motion_enabled=True),self.store,
+            observations=object(),backends=self.backend,allowed_tools=EXECUTION_TOOLS)
+        with patch('agent.grasp_tools.observe',return_value=first):
+            result=tools.execute('observe_battery',{'camera':'d405'},'plan-f-head')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(self.store.state['mission']['stage'],'HEAD_LOCALIZED')
+        proposal=dict(observation_id=first['observation_id'],executable=False,tcp=None)
+        with patch('agent.grasp_tools.plan_coarse',return_value=proposal):
+            result=tools.execute('plan_coarse_alignment',
+                {'observation_id':first['observation_id']},'plan-f-coarse')
+        self.assertTrue(result['ok'],result)
+
     def test_new_archive_with_pre_motion_camera_timestamp_is_rejected(self):
         before=time.time();self.assertTrue(self.run_coarse()['ok'])
         def stale(*args):return self.observation('d405',before)

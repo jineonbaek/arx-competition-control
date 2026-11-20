@@ -9,7 +9,7 @@
 <section class="panel"><h2>D405 · 实时画面</h2><img id="d405-live" alt="D405 实时彩色画面" hidden><p id="d405-live-status">正在连接相机…</p></section>
 </div>
 <div class="grasp-grid">
-<section class="panel"><h2>D435 · 本轮识别结果</h2><img id="head" alt="本轮 D435 电池识别与分割" hidden><p id="head-status">等待任务完成 D435 识别</p><p id="coarse-status">等待粗对位计划</p></section>
+<section class="panel"><h2>粗定位 · 本轮识别结果</h2><img id="head" alt="本轮电池粗定位识别与分割" hidden><p id="head-status">等待任务完成粗定位识别</p><p id="coarse-status">等待粗对位计划</p></section>
 <section class="panel"><h2>D405 · 本轮识别结果</h2><img id="recognition" alt="本轮 D405 电池识别与分割" hidden><p id="wrist-status">等待任务完成 D405 识别</p></section>
 </div>
 <section class="panel"><h2>FoundationPose · 本轮位姿结果</h2><img id="pose" class="pose-output" alt="本轮 FoundationPose CAD 与提手参考点叠加" hidden><p id="quality">等待位姿估计</p></section>
@@ -18,8 +18,8 @@
 <section class="panel"><h2>实机自动流程</h2><p>Plan A/B 走视觉定位；Plan C 直接复用已记录的预夹取点和夹取点。夹住后均复用底盘后退 200 mm 并停车，再返回运输姿态（J1～J5 为 0°，J6 为 -90°；保持夹持和升降）。</p>
 <div class="task-settings">
 <label>升降目标（rad）<input id="lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>达到向下取整值即成功，例如 6.6 → 6.0</small></label>
-<label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮 D435 引导</small></label>
-<label>抓取模式<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option><option value="fixed">Plan C 纯定点夹取</option><option value="plan_d">Plan D 深度电池面识别（预览）</option></select><small>手动选择；Plan D 当前提供识别预览，尚未生成自动抓取路径</small></label>
+<label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮粗定位引导</small></label>
+<label>抓取模式<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option><option value="plan_f">Plan F · D405 粗定位＋精定位</option><option value="fixed">Plan C 纯定点夹取</option><option value="plan_d">Plan D 深度电池面识别（预览）</option></select><small>手动选择；Plan F 复用原方案，仅将首轮 D435 粗定位替换为 D405</small></label>
 </div>
 <div class="task-settings">
 <label>Plan C 底盘升降目标（rad）<input id="plan-c-lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>完全复用现有判定：达到向下取整值即成功</small></label>

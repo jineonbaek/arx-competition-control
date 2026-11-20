@@ -102,8 +102,8 @@ class BatteryTask:
 
     @staticmethod
     def _vision_mode(value):
-        if value not in ('d405','d435','fixed'):
-            raise ValueError('抓取模式须为 D405、D435 Plan B 或 Plan C 固定点')
+        if value not in ('d405','d435','plan_f','fixed'):
+            raise ValueError('抓取模式须为 D405、D435 Plan B、Plan F 或 Plan C 固定点')
         return value
 
 
@@ -185,6 +185,9 @@ class BatteryTask:
         for camera,ident in state.get('latest_battery_observations',{}).items():
             value=read(state.get('battery_observations',{}).get(ident))
             if value:data['observations'][camera]=value
+        head=state.get('battery_flow',{}).get('head')
+        value=read(state.get('battery_observations',{}).get(head))
+        if value:data['observations']['head']=value
         data['coarse_alignment']=read(state.get('coarse_alignment'))
         data['pick_plan']=read(state.get('battery_pick_plan'))
         data['flow']=state.get('battery_flow',{})
@@ -285,7 +288,8 @@ class BatteryTask:
             if self.depth_control is not None:
                 cameras=self.depth_control.snapshot()['cameras']
                 mode=settings.get('vision_mode')
-                required_cameras=() if mode=='fixed' else ('d435',) if mode=='d435' else ('d435','d405')
+                required_cameras=(() if mode=='fixed' else ('d435',) if mode=='d435'
+                                  else ('d405',) if mode=='plan_f' else ('d435','d405'))
                 depth_previous={camera:cameras[camera]['requested'] for camera in required_cameras}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             if store is None:store=RunStore.create(self.root)

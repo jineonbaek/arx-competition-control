@@ -92,6 +92,16 @@ class BatteryPickPlanTests(unittest.TestCase):
         report=copy.deepcopy(self.report);report['camera_handoff']['head_observation_id']='other'
         self.preview(report,'identity');self.assertFalse(self.plan('identity_plan')['ok'])
 
+    def test_plan_f_reuses_first_d405_identity_without_cross_camera_handoff(self):
+        self.store.state.update(battery_task_settings={'vision_mode':'plan_f'},
+                                battery_flow={'head':'first-d405'})
+        self.tools=BatteryExecutionTools(Config(),self.store,observations=object(),pick_setup=self.setup)
+        report=copy.deepcopy(self.report);report.pop('camera_handoff')
+        self.preview(report,'plan_f_preview');result=self.plan('plan_f_plan')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(result['data']['head_observation_id'],'first-d405')
+        self.assertNotIn('handoff_advisory',result['data'])
+
     def test_real_ik_uses_frozen_actual_joints_and_full_calibrated_transform(self):
         self.tools=BatteryExecutionTools(Config(),self.store,observations=object(),pick_setup=self.setup)
         self.preview();result=self.plan();self.assertTrue(result['ok'],result)

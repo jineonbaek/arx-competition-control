@@ -38,7 +38,7 @@ function showPlanC(profile={}){
 }
 const toolNames={observe_battery:'电池识别与深度定位',plan_coarse_alignment:'升降与预观察计划',execute_coarse_alignment:'升降与预观察执行',preview_battery_grasp:'FoundationPose 与点云',plan_battery_pick:'抓取路径规划',execute_battery_approach:'张开夹爪与接近',execute_pick:'插入与夹取',verify_hold:'夹持确认',stow_for_carry:'底盘后退 200 mm 并停车',return_to_carry:'返回运输姿态'};
 function show(data){
- const head=data.observations?.d435,wrist=data.observations?.d405,coarse=data.coarse_alignment,plan=data.pick_plan,g=data.geometry;
+ const head=data.observations?.head||data.observations?.d435,wrist=data.observations?.d405,coarse=data.coarse_alignment,plan=data.pick_plan,g=data.geometry;
  el('run-label').textContent=data.run_id||'等待任务';
  el('status').textContent=data.run_id?'任务 '+data.run_id+' · '+(data.flow?.phase||'starting'):'从下方开始实机流程，工具结果会在这里依次出现。';
  const observation=o=>!o?'等待本轮工具输出':o.status==='localized'?'已定位：'+xyz(o.location.surface_base_mm):(o.message||o.status);

@@ -18,7 +18,7 @@ class BatteryFlow:
         if (not callable(review_plan) or type(clearance_mm) not in (int,float)
                 or not math.isfinite(clearance_mm) or not 1<=clearance_mm<=200
                 or type(receipt_timeout_s) not in (int,float) or not math.isfinite(receipt_timeout_s)
-                or not 0<receipt_timeout_s<=3600 or vision_mode not in ('d405','d435','fixed')):
+                or not 0<receipt_timeout_s<=3600 or vision_mode not in ('d405','d435','plan_f','fixed')):
             raise ValueError('Local reviewer, known vision mode and bounded flow settings required')
         self.tools=tools;self.store=tools.store;self.review_plan=review_plan
         self.receipt_timeout_s=receipt_timeout_s
@@ -111,10 +111,11 @@ class BatteryFlow:
                     self.store.state['mission'].update(stage='PICK_PLANNED',plan=copy.deepcopy(plan))
                     self.store.save();self._next('insert')
                 elif phase=='head':
-                    data=self._call('observe_battery',{'camera':'d435'})
+                    camera='d405' if self.vision_mode=='plan_f' else 'd435'
+                    data=self._call('observe_battery',{'camera':camera})
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
                     self.flow['head']=data['observation_id']
-                    self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera='d435',observation_id=data['observation_id'])
+                    self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera=camera,observation_id=data['observation_id'])
                     self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
                 elif phase=='coarse_plan':
                     self._call('plan_coarse_alignment',{'observation_id':self.flow['head']});self._next('coarse_execute')

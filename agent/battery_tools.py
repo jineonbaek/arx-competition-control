@@ -113,7 +113,8 @@ class BatteryExecutionTools(WorkflowTools):
             plan=mission.data.get('plan') or {}
             if arguments['plan_id']!=plan.get('plan_id'):
                 raise AgentError('plan_missing','粗对位计划不是本轮已保存的计划')
-            if plan.get('vision_mode')!='fixed' and plan.get('observation_id')!=self._localized('d435'):
+            coarse_camera='d405' if self.vision_mode=='plan_f' else 'd435'
+            if plan.get('vision_mode')!='fixed' and plan.get('observation_id')!=self._localized(coarse_camera):
                 raise AgentError('stale_observation','粗对位计划不再对应最新头部观察')
             if (plan.get('arm')!='right'
                     or any(plan.get(k) is not True for k in
@@ -176,8 +177,10 @@ class BatteryExecutionTools(WorkflowTools):
     def _dispatch(self,name,a,call_id):
         state=self.store.state;mission=Mission(state['mission'])
         plan_b=self.vision_mode=='d435'
-        head=name=='observe_battery' and a['camera']=='d435'
-        wrist=name=='observe_battery' and a['camera']=='d405'
+        plan_f=self.vision_mode=='plan_f'
+        head=(name=='observe_battery' and (a['camera']=='d435' or
+              (plan_f and a['camera']=='d405' and mission.stage in ('IDLE','HEAD_LOCALIZED','COARSE_PLANNED'))))
+        wrist=name=='observe_battery' and a['camera']=='d405' and not head
         if plan_b and name=='preview_battery_grasp':
             mission.require(('HEAD_LOCALIZED',))
             if a['observation_id']!=self._localized('d435'):

@@ -8,7 +8,7 @@ from agent.config import Config
 
 class Tools:
     def __init__(self,store):
-        self.store=store;self.config=Config();self.calls=[];self.fail=None;self.corrections=0
+        self.store=store;self.config=Config();self.calls=[];self.camera_calls=[];self.fail=None;self.corrections=0
         self.backends=self;self.cancelled_count=0;self.vision_mode='d405'
     def cancel_and_wait(self,timeout):self.cancelled_count+=1;return True
     def _save_pick_plan(self,plan):pass
@@ -22,6 +22,7 @@ class Tools:
         self.calls.append(name);m=self.store.state['mission'];data={}
         if self.fail==name:return dict(ok=False,error=dict(code='test_failure',message='test'),data=None)
         if name=='observe_battery':
+            self.camera_calls.append(args['camera'])
             data=dict(status='localized',observation_id='head' if args['camera']=='d435' else 'wrist'+str(len(self.calls)))
         elif name=='preview_battery_grasp':data=dict(status='preview_complete',observation_id=args['observation_id'])
         elif name in ('plan_coarse_alignment','plan_battery_pick'):
@@ -74,6 +75,15 @@ class FlowTests(unittest.TestCase):
             'verify_hold','stow_for_carry','return_to_carry'])
         self.assertEqual(self.store.state['mission']['target']['camera'],'d435')
         self.assertNotIn('execute_battery_approach',self.tools.calls)
+
+    def test_plan_f_reuses_full_chain_with_d405_for_both_stages(self):
+        self.tools.vision_mode='plan_f'
+        out=self.flow(vision_mode='plan_f').run()
+        self.assertEqual(out['status'],'completed')
+        self.assertEqual(self.store.state['mission']['target']['camera'],'d405')
+        self.assertEqual(self.tools.camera_calls,['d405','d405','d405'])
+        self.assertIn('execute_coarse_alignment',self.tools.calls)
+        self.assertIn('execute_battery_approach',self.tools.calls)
     def test_plan_c_uses_taught_points_then_reuses_existing_hold_retreat_and_carry(self):
         self.tools.vision_mode='fixed'
         out=self.flow(vision_mode='fixed').run()
