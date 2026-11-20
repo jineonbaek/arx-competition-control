@@ -306,14 +306,21 @@ class BatteryTaskTests(unittest.TestCase):
         task=BatteryTask(Path(self.temp.name)/'plan-f-depth',self.controller,
             lambda store,controller,token,environment_clear:_Flow(store,self.gate),depth_control=depth)
         self.addCleanup(task.close)
-        task.action('owner',{'action':'start','request_id':'plan-f-depth','expected_epoch':0,
-            'environment_clear':True,'lift_target_rad':12.52,'observer_z_mm':700.5,
-            'vision_mode':'plan_f'})
-        self.assertEqual(depth.calls,[{'camera':'d405','enabled':True}])
-        self.gate.set()
-        end=time.monotonic()+2
-        while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
-        self.assertEqual(depth.requested,{'d435':False,'d405':True})
+        self.controller.update_body(12.,[0.]*4,0.,0.,0.)
+        stop=threading.Event()
+        def feedback():
+            while not stop.wait(.02):self.controller.update_body(12.,[0.]*4,0.,0.,0.)
+        updater=threading.Thread(target=feedback,daemon=True);updater.start()
+        try:
+            task.action('owner',{'action':'start','request_id':'plan-f-depth','expected_epoch':0,
+                'environment_clear':True,'lift_target_rad':12.52,'observer_z_mm':700.5,
+                'vision_mode':'plan_f'})
+            self.assertEqual(depth.calls,[{'camera':'d405','enabled':True}])
+            self.gate.set()
+            end=time.monotonic()+2
+            while task.snapshot('owner')['status']=='running' and time.monotonic()<end:time.sleep(.01)
+            self.assertEqual(depth.requested,{'d435':False,'d405':True})
+        finally:stop.set();updater.join(1)
 
     def test_plan_f_reuses_floor_arrival_before_first_d405_without_recommanding_ready_lift(self):
         self.controller.update_body(12.,[0.]*4,0.,0.,0.)
