@@ -12,15 +12,15 @@
   "wrist_base_mm_deg": [
     293.5414127632717,
     -163.5802081262769,
-    498.48794002671457,
+    495.2783690882883,
     -90.0,
-    0.0,
-    0.0
+    1.2722218725854067e-14,
+    6.3611093629270335e-15
   ],
-  "lift_rad": 0.13332557678222656,
+  "lift_rad": 0.0,
   "gripper_command_target": 0,
   "captured_at": 1795099025.5643346,
-  "source": "offline_ik_at_stationary_low_lift_from_first_success_position_no_motion",
+  "source": "offline_fk_rebased_to_zero_lift_no_motion",
   "source_waypoint": "reports/manual-waypoints/right-return-20261119-154755.json",
   "source_feedback": {
     "right_joints_rad": [
@@ -31,7 +31,10 @@
       1.5951404571533203,
       -0.50640869140625
     ],
-    "sample_times": [1795099024.9598033, 1795099025.5643346],
+    "sample_times": [
+      1795099024.9598033,
+      1795099025.5643346
+    ],
     "max_joint_delta_deg": 0.0,
     "lift_delta_rad": 0.0,
     "motion_reserved": false,
@@ -39,19 +42,45 @@
     "chassis_active": false
   },
   "tool_base_matrix": [
-    [1.0, 0.0, 0.0, 0.44168345321239383],
-    [0.0, 1.0, 0.0, -0.16472277411812616],
-    [0.0, 0.0, 1.0, 0.4983067579125179],
-    [0.0, 0.0, 0.0, 1.0]
+    [
+      1.0,
+      -2.2204460492503126e-16,
+      2.2204460492503136e-16,
+      0.44168345321239383
+    ],
+    [
+      0.0,
+      1.0000000000000002,
+      -1.110223024625157e-16,
+      -0.16472277411812616
+    ],
+    [
+      -1.3177088785675698e-16,
+      1.2021227060720199e-16,
+      1.0000000000000002,
+      0.49509718697409155
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
   ],
-  "offline_checks": {
-    "tool_axis_error_deg": 0.0000008537736463,
+  "source_hashes": {
+    "config/right-grip-tcp.json": "0c6dcdb08f51b671343a19ecf5e5c62c973b021ef7769385765dfe5b8b9689b6",
+    "web/config/control.json": "0f6e1c8d03177cd88d5628fa0a31ca93e9a10b09264e522aa66835bb8dcdd7ce"
+  },
+  "source_lift_rad": 0.13332557678222656,
+  "source_offline_checks": {
+    "tool_axis_error_deg": 8.537736463e-07,
     "path_from_stationary_feedback_clear": true,
     "path_lower_clearance_mm": 132.1,
     "path_samples": 190
   },
-  "source_hashes": {
-    "config/right-grip-tcp.json": "0c6dcdb08f51b671343a19ecf5e5c62c973b021ef7769385765dfe5b8b9689b6",
-    "web/config/control.json": "0f6e1c8d03177cd88d5628fa0a31ca93e9a10b09264e522aa66835bb8dcdd7ce"
+  "offline_checks": {
+    "fk_rebased_at_lift_rad": 0.0,
+    "physical_validation": false,
+    "joint_targets_unchanged": true
   }
 }
