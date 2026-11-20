@@ -237,6 +237,10 @@ class CompetitionTask:
                 raise ValueError(result.get('reason') or '原任务状态无法核实，不能重复启动')
         else:
             if self.navigation and self.navigation.active:self.navigation.before_work(context,stage)
+            if stage=='navigate_place':
+                self.controller.submit_competition_lift({'type':'lift','target':0.},s['competition_token'])
+                s['lift_prepositioned']=True
+                self._save(s,'placement_lift_requested','0 rad; continue navigation without waiting')
             result = module.start(context)
             if stage=='pick':s['lift_prepositioned']=False
         while True:
