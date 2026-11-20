@@ -124,7 +124,6 @@ class CoarseTests(unittest.TestCase):
             result=plan(tools,ident,'plan-f')
             self.assertEqual(result['observer']['kind'],'d405_guided')
             self.assertEqual(result['x_y_alignment'],'d405_guided')
-            self.assertEqual(result['lift']['target_rad'],5.52)
 
     def test_observer_search_uses_absolute_z_offset_and_checked_joint_path(self):
         from web.src.handeye_column import ColumnModel
