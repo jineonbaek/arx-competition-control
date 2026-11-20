@@ -15,6 +15,8 @@ from battery_task import BatteryTask
 
 
 class Module:
+    stop_preposition_lift = GraspModule.stop_preposition_lift
+
     def __init__(self, trace, name, status='completed'):
         self.trace, self.name, self.status = trace, name, status
         self.recoveries = {}
@@ -58,6 +60,7 @@ class CompetitionTests(unittest.TestCase):
         self.adapter.arm = arm
         self.trace = []
         self.modules = {key:Module(self.trace, key) for key, _ in STAGES}
+        self.modules['navigate_place'].navigation = True
         self.recovery = Mock()
         self.recovery.decide.return_value = dict(name='stop', reason='不能确定恢复方式')
         self.task = CompetitionTask(self.controller, self.temp.name, modules=self.modules, recovery=self.recovery)
@@ -84,7 +87,9 @@ class CompetitionTests(unittest.TestCase):
         view = self.wait('completed')
         starts = [row for row in self.trace if row[0] == 'start']
         self.assertEqual([r[1] for r in starts], [k for k, _ in STAGES])
-        self.assertEqual(len({id(r[3]) for r in starts}), 1)
+        self.assertIs(starts[1][3], starts[2][3])
+        self.assertIsNone(starts[3][3])
+        self.assertIsNotNone(starts[4][3])
         self.assertTrue(all(t['status']=='completed' for t in view['tasks']))
         self.assertFalse(self.controller.snapshot()['motion_reserved'])
         self.assertFalse(view['control_owned'])
@@ -95,6 +100,35 @@ class CompetitionTests(unittest.TestCase):
         self.assertEqual(fixed[0][1][2], 0)
         self.assertEqual(fixed[1][1][1], [math.radians(value) for value in RIGHT_AVOIDANCE_JOINTS_DEG])
         self.assertEqual(fixed[1][1][2], -1.)
+
+    def test_lowering_starts_after_carry_and_does_not_wait_before_navigation(self):
+        self.modules['carry'].status='running'
+        self.modules['navigate_place'].status='running'
+        self.action('start')
+        deadline=time.monotonic()+2
+        while not any(row[:2]==('start','carry') for row in self.trace) and time.monotonic()<deadline:
+            time.sleep(.01)
+        self.assertNotIn(('lift',(0.,)),self.adapter.calls)
+        def check_navigation(context):
+            self.assertIn(('lift',(0.,)),self.adapter.calls)
+            self.assertEqual(self.controller.snapshot()['body']['height'],5.)
+        self.modules['navigate_place'].on_start=check_navigation
+        self.modules['carry'].status='completed'
+        deadline=time.monotonic()+2
+        while not any(row[:2]==('start','navigate_place') for row in self.trace) and time.monotonic()<deadline:
+            time.sleep(.01)
+        self.assertTrue(any(row[:2]==('start','navigate_place') for row in self.trace))
+        self.assertEqual(self.adapter.calls.count(('lift',(0.,))),1)
+        self.action('stop');self.wait('paused')
+        self.assertIn(('lift',(5.,)),self.adapter.calls)
+        self.action('continue');self.wait('completed')
+        self.assertEqual(self.adapter.calls.count(('lift',(0.,))),1)
+
+    def test_failed_carry_never_requests_lowering(self):
+        self.modules['carry'].status='failed'
+        self.action('start');self.wait('needs_attention')
+        self.assertNotIn(('lift',(0.,)),self.adapter.calls)
+        self.assertFalse(any(row[:2]==('start','navigate_place') for row in self.trace))
 
     def test_map_start_prewarms_grasp_while_navigation_is_running(self):
         battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}
@@ -162,7 +196,7 @@ class CompetitionTests(unittest.TestCase):
         resume = next(r for r in self.trace if r[0]=='resume')
         start = next(r for r in self.trace if r[:2]==('start','navigate_place'))
         self.assertEqual(resume[2], start[2])
-        self.assertIsNot(resume[3], start[3])
+        self.assertIsNone(resume[3])
         self.assertTrue(any(r[:2]==('inspect','navigate_place') for r in self.trace))
 
     def test_completed_receipt_racing_stop_is_preserved(self):
