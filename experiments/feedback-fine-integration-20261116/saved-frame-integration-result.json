@@ -1,0 +1,89 @@
+{
+  "stage": "outside_vertical_fine",
+  "source_time": 1794802795.9229274,
+  "target_base_from_tool": [
+    [
+      0.9999877582588471,
+      -0.00225052391821249,
+      -0.004406639824141164,
+      0.3995636099454547
+    ],
+    [
+      0.0022888218669547267,
+      0.9999594887431643,
+      0.008705295340841466,
+      -0.24977120553942914
+    ],
+    [
+      0.004386869830243795,
+      -0.008715274786458529,
+      0.9999523985462957,
+      0.6263435069979524
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "measurement": {
+    "status": "visual_guidance_only",
+    "camera": "d405",
+    "direction": "down",
+    "raw_error_mm": -1.3241379095934036,
+    "step_mm": -1.3241379095934036,
+    "rim_inner_px": [
+      252.0,
+      377.0
+    ],
+    "battery_front_px": [
+      256.0,
+      383.0
+    ],
+    "rim_height_mm": 78.76222057443528,
+    "tip_depth_m": 0.17639999091625214,
+    "visible_rim_rows": 77,
+    "visible_front_rows": 37,
+    "rim_clipped_top": true,
+    "executable": false,
+    "note": "Partial-edge perspective estimate; unverified physical accuracy, requires path validation"
+  },
+  "gripper_action": "retain",
+  "executable": false,
+  "reason": "Requires current path and clearance validation; no insertion included",
+  "native_plan": {
+    "interpolation": "segment_quintic_scalar",
+    "joint_waypoints_rad": [
+      [
+        -0.00057220458984375,
+        0.00171661376953125,
+        0.00782012939453125,
+        -0.00171661376953125,
+        -0.00286102294921875,
+        -1.5794992446899414
+      ],
+      [
+        -0.0005722045898451133,
+        -0.0007862697610178478,
+        0.005311899751611678,
+        -0.001711267657161501,
+        -0.0028610229492199695,
+        -1.57949924468994
+      ],
+      [
+        -0.0005722045898490777,
+        -0.0033161945875756103,
+        0.002805802999453936,
+        -0.0017350957315616837,
+        -0.0028610229492239485,
+        -1.5794992446899414
+      ]
+    ],
+    "time_from_start_s": [
+      0.0,
+      0.21469819736046875,
+      0.4303229222975888
+    ]
+  }
+}

@@ -18,6 +18,10 @@ class RosAdapter:
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.pending_lift = None
+        self.pending_lift_stop = None
+        self.lift_stop_lock=threading.RLock()
+        self._lift_fenced_goal=None
+        self._lift_stop_again=False
         self.lift_client = None
         self.feedback_sources = {}
         self.body_calibration = None
@@ -28,6 +32,8 @@ class RosAdapter:
         self.pending_arm_commands = {}
         self.trajectory_states = {}
         self.trajectory_lock = threading.Lock()
+        self.chassis_state = None
+        self.chassis_state_lock = threading.Lock()
 
     def start(self, controller):
         self.controller = controller
@@ -90,6 +96,15 @@ class RosAdapter:
             self.lift_client = self.node.create_client(SetParameters, self.config["body"]["lift_parameter_service"])
             if self.config["body"].get("lift_stop_service"):
                 self.stop_lift_client = self.node.create_client(Trigger, self.config["body"]["lift_stop_service"])
+            def chassis_status(msg):
+                try:
+                    if len(msg.data)>4096:return
+                    value=json.loads(msg.data)
+                    if (not isinstance(value,dict) or not isinstance(value.get('driver_instance'),str)
+                            or value.get('ordered_output') is not True):return
+                    with self.chassis_state_lock:self.chassis_state=(value,time.monotonic())
+                except (ValueError,TypeError):pass
+            self.node.create_subscription(String,'/web/chassis/output_status',chassis_status,1)
             self.controller.log("ROS 2 观察节点已连接；未启动硬件驱动")
             next_feedback_check = 0.0
             while not self.stop_event.is_set():
@@ -150,7 +165,8 @@ class RosAdapter:
     def has_subscriber(self, topic, kind):
         if not self.node or self.error:
             return False
-        expected = "arx5_arm_msg/msg/RobotCmd" if kind == "arm" else "arm_control/msg/PosCmd"
+        expected = ("std_msgs/msg/String" if topic=="/web/chassis/ordered_output" else
+                    "arx5_arm_msg/msg/RobotCmd" if kind == "arm" else "arm_control/msg/PosCmd")
         try:
             return any(x.topic_type == expected for x in self.node.get_subscriptions_info_by_topic(topic))
         except Exception:
@@ -188,17 +204,28 @@ class RosAdapter:
         return self.stop_lift_client is not None and self.stop_lift_client.service_is_ready()
 
     def lift_stop(self):
-        from control import Rejected
-        if self.pending_lift is not None and not self.pending_lift.done():
-            raise Rejected("上一条升降请求尚未返回")
-        self.pending_lift = self.stop_lift_client.call_async(self.Trigger.Request())
-        def completed(future):
-            try:
-                result = future.result()
-                self.controller.log("升降停止接口：" + result.message, "info" if result.success else "warning")
-            except Exception as error:
-                self.controller.log("升降停止接口异常：" + str(error), "warning")
-        self.pending_lift.add_done_callback(completed)
+        with self.lift_stop_lock:
+            goal=self.pending_lift
+            if goal is not None and not goal.done() and self._lift_fenced_goal is not goal:
+                self._lift_fenced_goal=goal
+                def fence(_):
+                    # A delayed accepted goal must not reactivate lift after stop.
+                    with self.lift_stop_lock:
+                        self._lift_stop_again=True
+                        if self.pending_lift_stop is None or self.pending_lift_stop.done():
+                            self._lift_stop_again=False;self.lift_stop()
+                goal.add_done_callback(fence)
+            if self.pending_lift_stop is not None and not self.pending_lift_stop.done():return
+            self.pending_lift_stop=self.stop_lift_client.call_async(self.Trigger.Request())
+            def completed(future):
+                try:
+                    result=future.result()
+                    self.controller.log("升降停止接口："+result.message,"info" if result.success else "warning")
+                except Exception as error:self.controller.log("升降停止接口异常："+str(error),"warning")
+                with self.lift_stop_lock:
+                    if self._lift_stop_again:
+                        self._lift_stop_again=False;self.lift_stop()
+            self.pending_lift_stop.add_done_callback(completed)
 
     def _publisher(self, topic, msg_type):
         if topic not in self.publishers:
@@ -244,8 +271,14 @@ class RosAdapter:
             and all(isinstance(state[k],str) and len(state[k])<=256 for k in ('driver_instance','request_id','status','reason'))
             and bool(state['driver_instance'])
             and state['status'] in ('idle','running','failed','reference_complete','disabled'))
+        optional={}
+        if valid and 'joint_reference_rad' in state:
+            q=state['joint_reference_rad'];g=state.get('gripper_target_raw');origin=state.get('reference_from_trajectory')
+            valid=(isinstance(q,list) and len(q)==6 and all(type(v) in (int,float) and math.isfinite(v) for v in q)
+                   and type(g) in (int,float) and math.isfinite(g) and type(origin) is bool)
+            if valid:optional={k:copy.deepcopy(state[k]) for k in ('joint_reference_rad','gripper_target_raw','reference_from_trajectory')}
         with self.trajectory_lock:
-            if valid:self.trajectory_states[side]=({k:state[k] for k in fields},time.monotonic())
+            if valid:self.trajectory_states[side]=({**{k:state[k] for k in fields},**optional},time.monotonic())
             else:self.trajectory_states.pop(side,None)
 
     def trajectory_status(self,side):
@@ -301,26 +334,31 @@ class RosAdapter:
             'driver_instance':state['driver_instance'],'request_id':state['request_id']})
         self._publisher('/web/'+side+'/trajectory',self.String).publish(msg)
 
-    def nav_chassis_sdk(self, x, y, yaw):
-        msg = self.PosCmd()
-        msg.chx, msg.chy, msg.chz = x, y, yaw
-        msg.mode1 = 1
-        self._publisher("/web/nav/sdk_command", self.PosCmd).publish(msg)
+    def chassis_ready(self):
+        with self.chassis_state_lock:
+            state=self.chassis_state
+            return bool(state and time.monotonic()-state[1]<.25
+                        and state[0].get('calibrated') is True
+                        and self.has_subscriber('/web/chassis/ordered_output','body'))
 
-    def chassis(self, x, y, yaw, body):
-        msg = self.PosCmd()
-        msg.height = body["height"]
-        msg.temp_float_data[0] = body["waist"]
-        msg.head_yaw, msg.head_pit = body["head_yaw"], -body["head_pitch"]
-        # Dedicated body input remaps the vendor VR callback; never use the shared left-arm topic.
-        scale = self.config["body"].get("chassis_input_scale", 2.5)
-        msg.chx, msg.chy, msg.chz = x * scale, -y * scale, yaw * scale
-        msg.mode1 = 2 if (x, y, yaw) == (0, 0, 0) else 1
-        self._publisher(self.config["body"]["command_topic"], self.PosCmd).publish(msg)
+    def chassis_output(self, output):
+        from control import Rejected
+        with self.chassis_state_lock:
+            state=self.chassis_state
+            if not state or time.monotonic()-state[1]>=.25:
+                raise Rejected('有序底盘驱动状态过期；未下发')
+            payload=dict(output,driver_instance=state[0]['driver_instance'])
+        msg=self.String();msg.data=json.dumps(payload,allow_nan=False)
+        self._publisher('/web/chassis/ordered_output',self.String).publish(msg)
 
     def lift(self, target):
+        with self.lift_stop_lock:return self._lift_goal(target)
+
+    def _lift_goal(self, target):
         from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
-        if self.pending_lift is not None and not self.pending_lift.done():
+        if (self.pending_lift is not None and not self.pending_lift.done()
+                or self.pending_lift_stop is not None and not self.pending_lift_stop.done()
+                or self._lift_stop_again):
             from control import Rejected
             raise Rejected("上一条升降请求尚未返回")
         request = self.SetParameters.Request()

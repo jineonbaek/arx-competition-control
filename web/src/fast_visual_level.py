@@ -42,6 +42,12 @@ def camera_ready(meta,now):
     stamp=meta.get('captured_at')
     return meta.get('state')=='online' and isinstance(stamp,(int,float)) and 0<=now-stamp<1.
 
+def required_cameras(mode):
+    return ('d435',) if mode=='d435_only' else ('d435','d405')
+
+def requires_three_rad(mode,height):
+    return mode!='d435_only' and not prepared_height(height)
+
 class ContinuousMonitor:
     def __init__(self,sample):
         self.stop=threading.Event();self.failed=threading.Event();self.error=None
@@ -155,6 +161,23 @@ def no_retreat_target(start,target,outward):
     if outward_delta>0:result[:3,3]-=outward_delta*normal
     return result
 
+def d435_incremental_target(T,error,window,*,max_step_mm=10.,standoff_range_mm=(55.,65.)):
+    result=np.array(T,dtype=float,copy=True);residual=np.asarray(error.get('residual_uv_mm'),float)
+    standoff=float(error.get('leading_standoff_mm',float('nan')));limits=np.asarray(standoff_range_mm,float)
+    left=np.asarray(window.get('left_axis_base'),float);up=np.asarray(window.get('up_axis_base'),float);out=np.asarray(window.get('outward_normal_base'),float)
+    values=np.r_[result.ravel(),residual,standoff,limits,left,up,out,max_step_mm]
+    if (result.shape!=(4,4) or residual.shape!=(2,) or limits.shape!=(2,) or left.shape!=(3,) or up.shape!=(3,) or out.shape!=(3,)
+            or not np.isfinite(values).all() or not 0<max_step_mm<=10. or not 0<=limits[0]<limits[1]
+            or min(np.linalg.norm(left),np.linalg.norm(up),np.linalg.norm(out))<.9):
+        raise ValueError('Invalid D435 incremental correction')
+    left/=np.linalg.norm(left);up/=np.linalg.norm(up);out/=np.linalg.norm(out)
+    depth=limits[0]-standoff if standoff<limits[0] else limits[1]-standoff if standoff>limits[1] else 0.
+    delta=residual[0]*left+residual[1]*up+depth*out
+    length=float(np.linalg.norm(delta))
+    if length>max_step_mm:delta*=max_step_mm/length
+    result[:3,3]+=delta/1000.
+    return result
+
 def preflight_outside(observe,sweep,guard,save,*,clock=time.time,attempts=3):
     """Retry changing/stale observations before dispatch, never a collision rejection."""
     last_error=None
@@ -235,15 +258,15 @@ class FastVisualLevel:
             self.cancel.set()
             if self.motion:self.motion.hold()
             return self.snapshot()
-        if data not in (dict(op='start'),dict(op='place'),dict(op='place_raised'),dict(op='place_rotate_no_table'),dict(op='place_no_table'),dict(op='place_recover_no_table'),dict(op='place_up_no_table'),dict(op='auto_full')):raise ValueError('Only fixed task operations accepted')
+        if data not in (dict(op='start'),dict(op='place'),dict(op='place_raised'),dict(op='place_rotate_no_table'),dict(op='place_no_table'),dict(op='place_recover_no_table'),dict(op='place_up_no_table'),dict(op='auto_full'),dict(op='d435_only')):raise ValueError('Only fixed task operations accepted')
         with self.lock:
             if self.thread and self.thread.is_alive():raise ValueError('Leveling already active')
             s=self.ctrl.snapshot()
             if s['motion_reserved'] or s['competition_reserved'] or s['chassis_active']:raise ValueError('Other control active')
             prefix='automatic-placement-' if data['op']=='auto_full' else 'fast-level-'
             self.cancel=threading.Event();self.run=WORK/'reports'/(prefix+time.strftime('%Y%m%d-%H%M%S'));self.run.mkdir()
-            self.mode=data['op'];self.auto_full=data['op']=='auto_full'
-            self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.small_up_before_place=data['op']=='place_up_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full');self.outside_margin_mm=.1 if self.small_up_before_place else .5;self.inserting=False
+            self.mode=data['op'];self.auto_full=data['op']=='auto_full';self.d435_only=data['op']=='d435_only'
+            self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.small_up_before_place=data['op']=='place_up_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table','place_up_no_table','auto_full','d435_only');self.outside_margin_mm=.1 if self.small_up_before_place else .5;self.inserting=False
             self.save(table_checked=not self.skip_table)
             self.save(status='running',phase='entry',reason='',released=False,insertion=False,mode=self.mode)
             self.thread=threading.Thread(target=self._run,daemon=True);self.thread.start()
@@ -259,11 +282,11 @@ class FastVisualLevel:
             require_stationary_pose(s,self.initial_q,self.height,driver['command_epoch'],self.initial_epoch)
         if not getattr(self,'released',False) and abs(s['arms']['right']['gripper']-self.raw)>.1:raise ValueError('Gripper feedback changed')
         if self.motion.active!='lift' and abs(s['body']['height']-self.height)>.05:raise ValueError('Unexpected lift change')
-        for camera in ('d435','d405'):
+        for camera in required_cameras(self.mode):
             m=json.loads((ROOT/'web/public/camera-live'/(camera+'.json')).read_text())
             if self.initializing and camera=='d435':continue
             if not camera_ready(m,time.time()):raise ValueError(camera+' camera stale')
-        if not getattr(self,'locked_inside',False) and not getattr(self,'released',False):
+        if not self.d435_only and not getattr(self,'locked_inside',False) and not getattr(self,'released',False):
             self.monitor.check();self.read_grip(s)
             with self.grip_lock:evidence=self.grip_evidence
             if not self.initializing:require_grip(evidence)
@@ -336,6 +359,7 @@ class FastVisualLevel:
         return guarded_read(lambda:json.load(opener.open(request,timeout=25)),self.guard,timeout_s=27.)
     def ensure_model(self):
         run=WORK/'reports/d435-visual-level-active';owner=run/'model-owner.json'
+        run.mkdir(parents=True,exist_ok=True)
         try:
             info=json.loads(owner.read_text());args=(Path('/proc')/str(info['pid'])/'cmdline').read_bytes().decode().split('\0')
             if 'agent.perception_worker' in args and str(run/'perception') in args:return
@@ -514,7 +538,7 @@ class FastVisualLevel:
             self.pose();window,table=self.cabinet();q=np.array(self.ctrl.snapshot()['arms']['right']['joints'])
             tcp=effective_tcp(self.tcp,self.attachment,self.contact);T=model.wrist_transform(q,self.height)@tcp
             fit=evaluate_shallow_fit(T,window,self.slot,self.battery,self.contact)
-            error=outer_alignment_error(fit,window,self.slot)
+            error=outer_alignment_error(fit,window,self.slot,standoff_range_mm=(55.,65.))
             self.save(d435_stage=label,d435_outer_error=error,aperture_fit=fit)
             return window,table,tcp,T,error
         window,table,tcp,T,error=self._timed('d435_initial_localize',lambda:observe('initial'),planned_duration_s=55.)
@@ -524,8 +548,7 @@ class FastVisualLevel:
             def move():
                 nonlocal window,table,tcp,T
                 q=np.array(self.ctrl.snapshot()['arms']['right']['joints'])
-                p=horizontal_plan(window,self.slot,self.battery,tip_point_object_mm=self.contact,preclearance_mm=100.,max_insertion_depth_mm=5.)
-                target=np.eye(4);target[:3,:3]=p['R_base_from_tool'];target[:3,3]=np.asarray(p['tcp_pre_base_mm'])/1000.
+                target=d435_incremental_target(T,error,window)
                 path=continuous_correction(plan_correction,model,q,self.height,tcp,target,limits,timing_limits=self.limits)
                 self.timeline.plan(float(path['timing']['time_from_start_s'][-1]));self.cabinet_path(path,tcp,window,table)
             self._timed('d435_outer_move_%d'%attempt,move)
@@ -676,15 +699,16 @@ class FastVisualLevel:
             self.motion=DockingMotion(self.ctrl,self.token,guard=self.guard,timeout_s=180.,lift_tolerance_rad=.35,require_lift_settle=False)
             self.body_fixed={k:s['body'][k] for k in ('waist','head_yaw','head_pitch')}
             self.grip=GripTracker();self.grip_stamp=-1.;self.grip_evidence=None;self.initializing=True
-            self.grip_lock=threading.RLock();self.monitor=monitor=ContinuousMonitor(self.read_grip)
+            self.grip_lock=threading.RLock()
+            if not self.d435_only:self.monitor=monitor=ContinuousMonitor(self.read_grip)
             self.initial_q=np.array(s['arms']['right']['joints']);self.initial_epoch=self.ctrl.adapter.trajectory_status('right')['command_epoch']
             previous_depth=self.depth.enabled('d435');self.depth.request(dict(camera='d435',enabled=True))
             deadline=time.monotonic()+8.;ready=False
             while time.monotonic()<deadline:
                 self.guard()
                 camera=json.loads((ROOT/'web/public/camera-live/d435.json').read_text())
-                ready=(self.grip_evidence and self.grip_evidence.get('stable') and camera_ready(camera,time.time())
-                       and self.depth.snapshot()['cameras']['d435']['active'])
+                held_ready=self.d435_only or (self.grip_evidence and self.grip_evidence.get('stable'))
+                ready=(held_ready and camera_ready(camera,time.time()) and self.depth.snapshot()['cameras']['d435']['active'])
                 if ready:break
                 time.sleep(.05)
             if not ready:raise ValueError('Depth/held-object startup readiness deadline')
@@ -707,7 +731,7 @@ class FastVisualLevel:
                     raise ValueError('Prepared placement requires observed near-horizontal battery and approximate 3rad height')
             else:
                 moving=True;self.arm_to(np.radians(entry_joints_deg()))
-                if not prepared_height(self.height):
+                if requires_three_rad(self.mode,self.height):
                     self.save(phase='lift',reason='Fixed lift target 3rad')
                     q=self.ctrl.snapshot()['arms']['right']['joints']
                     for h in np.linspace(self.height,3.,12):
@@ -715,7 +739,15 @@ class FastVisualLevel:
                     d=self.ctrl.adapter.trajectory_status('right')
                     self.motion.lift(3.,lambda:self.guard(),expected_start=dict(joints=q,height=self.height),
                         expected_driver=dict(driver_instance=self.driver,command_epoch=d['command_epoch']))
-            self.height=self.ctrl.snapshot()['body']['height'];self.save(phase='observe',height_rad=self.height)
+            self.height=self.ctrl.snapshot()['body']['height'];self.save(phase='observe',height_rad=self.height,
+                lift_policy='locked_current_height' if self.d435_only else 'three_rad_if_required')
+            if self.d435_only:
+                moving=True;self.timeline=PhaseTimeline();self.reached_route=[self.initial_q.tolist()]
+                self.battery=json.loads((ROOT/'config/battery-envelope.json').read_text())
+                self.slot=opening(json.loads((ROOT/'config/cabinet-profiles.json').read_text()),'demo')
+                self.d435_outer_align(self.ctrl.models['right'],self.ctrl.config['arms']['right']['joint_limits_deg'])
+                self.timeline.complete();self.save(status='complete_hold_outside',phase='hold',reason='D435 outside preposition complete; clamp retained',released=False,insertion=False,**self.timeline.snapshot())
+                atomic_json(self.run/'timeline.json',self.timeline.snapshot());return
             if self.prepared_only:
                 moving=True
                 if self.auto_full:self.auto_full_place();return

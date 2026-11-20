@@ -1,7 +1,17 @@
 import unittest,numpy as np,time,threading
-from fast_visual_level import FastVisualLevel,require_joint_arrival,require_stationary_pose,payload_in_tool,require_grip
+from fast_visual_level import FastVisualLevel,require_joint_arrival,require_stationary_pose,payload_in_tool,require_grip,required_cameras,d435_incremental_target,requires_three_rad
 
 class CabinetRetryTest(unittest.TestCase):
+    def test_d435_outer_error_becomes_bounded_cartesian_step(self):
+        T=np.eye(4);T[:3,3]=[.3,-.1,.6]
+        window=dict(left_axis_base=[0.,1.,0.],up_axis_base=[0.,0.,1.],outward_normal_base=[-1.,0.,0.])
+        target=d435_incremental_target(T,dict(residual_uv_mm=[30.,-40.],leading_standoff_mm=20.),window,max_step_mm=10.)
+        delta=(target[:3,3]-T[:3,3])*1000
+        self.assertAlmostEqual(np.linalg.norm(delta),10.)
+        self.assertLess(delta[0],0.);self.assertGreater(delta[1],0.);self.assertLess(delta[2],0.)
+        near=d435_incremental_target(T,dict(residual_uv_mm=[3.,4.],leading_standoff_mm=60.),window,max_step_mm=10.)
+        np.testing.assert_allclose((near[:3,3]-T[:3,3])*1000,[0.,3.,4.],atol=1e-10)
+
     def test_d405_target_uses_bounded_measured_step(self):
         from fast_visual_level import d405_correction_target
         T=np.eye(4);T[:3,3]=[.3,-.1,.6]
@@ -98,6 +108,46 @@ class CabinetRetryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'other'):
             retry_cabinet_observation(lambda: (_ for _ in ()).throw(ValueError('other')))
 class FastLevelTests(unittest.TestCase):
+    def test_d435_only_locks_current_low_lift(self):
+        self.assertFalse(requires_three_rad('d435_only',.44))
+        self.assertTrue(requires_three_rad('start',.44))
+        self.assertFalse(requires_three_rad('start',3.0))
+
+    def test_ensure_model_creates_fresh_report_directory(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        import fast_visual_level as module
+        class Session:
+            def __init__(self,run):
+                self.directory=run/'perception';self.child=type('Child',(),{'pid':123})()
+                self.asserted=run.is_dir()
+            def prewarm(self,_):
+                if not self.asserted:raise AssertionError('report directory missing')
+                return {'ready':True}
+        t=FastVisualLevel(None,None);t.cancel=threading.Event();t.guard=lambda:True
+        with tempfile.TemporaryDirectory() as directory,patch.object(module,'WORK',Path(directory)),patch('agent.perception_session.PerceptionSession',Session):
+            t.ensure_model()
+            self.assertTrue((Path(directory)/'reports/d435-visual-level-active/model-owner.json').is_file())
+
+    def test_d435_only_mode_never_requires_d405(self):
+        self.assertEqual(required_cameras('d435_only'),('d435',))
+        self.assertEqual(required_cameras('auto_full'),('d435','d405'))
+
+    def test_d435_only_is_an_outside_hold_operation(self):
+        import inspect
+        action=inspect.getsource(FastVisualLevel.action)
+        run=inspect.getsource(FastVisualLevel._run)
+        self.assertIn("dict(op='d435_only')",action)
+        self.assertIn('self.d435_only',run)
+        branch=run[run.index('if self.d435_only:'):]
+        branch=branch[:branch.index('if self.prepared_only:')]
+        self.assertIn('d435_outer_align',branch)
+        self.assertIn('complete_hold_outside',branch)
+        self.assertNotIn('auto_d405_trim',branch)
+        self.assertNotIn('execute_locked_axis',branch)
+        self.assertNotIn('release_and_return',branch)
+
     def test_auto_full_never_loads_saved_cabinet_pose(self):
         import inspect
         source=inspect.getsource(FastVisualLevel.cabinet)+inspect.getsource(FastVisualLevel.auto_full_place)

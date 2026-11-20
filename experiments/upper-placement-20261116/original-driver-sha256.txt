@@ -1,0 +1,2 @@
+aca8d6129b8f1190883bbb4a9e90d48a1858dce860362f319f381abbb00c7d8c  /home/arx/arx-competition-control/web/hardware/build/x5_controller_web
+6a109df5c0b8d645b6d23e6f074c799fc7c6403244b2118e2e06c7ed4c4ce3e6  /home/arx/arx-competition-control/web/hardware/start-arm.sh

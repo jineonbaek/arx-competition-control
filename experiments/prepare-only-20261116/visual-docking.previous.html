@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>视觉入仓实机流程</title><link rel="stylesheet" href="visual-docking.css">
+<main><h1>电池一键准备与浅入测试 · 全程夹紧</h1><p>固定运输姿态，J6 −90°，升降至约10 rad，由D435识别电池与仓口，对齐左侧后固定Z浅入5 mm，完成后夹紧保持。</p>
+<div class="flow">固定姿态与翻转 → 升降约10 rad → 视觉调平与对齐 → 固定Z浅入5 mm</div>
+<div class="actions"><select id="model"><option value="demo">当前演示仓</option><option value="competition">比赛上排中间仓</option></select><button id="start">一键准备并浅入</button><button id="place">从准备姿态继续放入</button><button id="cancel">停止本次流程</button></div>
+<h2 id="phase">正在连接</h2><p id="reason"></p><p id="metrics"></p>
+<div class="cameras"><figure><img id="d435"><figcaption>D435 · 仓口</figcaption></figure><figure><img id="d405"><figcaption>D405 · 夹持</figcaption></figure><figure><img id="astra"><figcaption>Astra · 环境</figcaption></figure></div>
+<p>当前采用仓库最新自动运动限速，固定动作使用连续轨迹；任意时刻均可停止本次流程。</p></main><script src="visual-docking.js"></script></html>

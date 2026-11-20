@@ -1,0 +1,26 @@
+{
+  "source": "d405_repeatable_axis_candidate",
+  "tilt_deg": 1.165895660844357,
+  "gripper_action": "retain",
+  "physical_accuracy_verified": false,
+  "executable": false,
+  "action": "correct",
+  "joint_delta_deg": [
+    0.0,
+    0.0,
+    0.0,
+    -1.1657494512034663,
+    0.0004027726583678231,
+    -0.015629547192390642
+  ],
+  "nominal_target_rad": [
+    -0.00133514404296875,
+    0.00095367431640625,
+    -0.00057220458984375,
+    -0.03083658365728621,
+    0.003249522384806779,
+    -1.5797720317490445
+  ],
+  "predicted_tilt_deg": 3.353967791827175e-06,
+  "wrist_shift_mm": 1.9674372407371719
+}

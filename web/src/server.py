@@ -34,6 +34,7 @@ from cabinet_preview import CabinetPreview
 from cabinet_rehearsal import CabinetRehearsal
 from cabinet_execution import CabinetExecutionTask
 from fast_visual_level import FastVisualLevel
+from d435_live_overlay import LiveOverlay
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from competition_modules import GraspModule, CarryReceiptModule, PlacementModule, QwenRecovery
@@ -51,7 +52,7 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control)
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, fast_level=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, fast_level=None, d435_overlay=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
@@ -61,6 +62,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     steps = Steps(controller, depth_control)
     grasps = GraspPreview(controller, depth_control)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
+    d435_overlay=d435_overlay or LiveOverlay(head_scene)
     vision = vision or VisionPreview()
     foundation = foundation or FoundationPosePreview(controller,depth_control)
     tcp_calibration = TcpCalibration(controller)
@@ -100,6 +102,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             if path == '/api/fast-level':
                 if not self.client():return self.json(403,{'message':'请先打开控制页面'})
                 return self.json(200,fast_level.snapshot())
+            if path == '/api/d435-overlay':
+                if not self.client():return self.json(403,{'message':'请先打开视觉放置页面'})
+                return self.json(200,d435_overlay.snapshot())
             if path == '/api/cabinet-execution':
                 if not self.client():return self.json(403,{'message':'请先打开控制页面'})
                 return self.json(200,cabinet_execution.snapshot())
@@ -245,7 +250,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
 
         def do_POST(self):
             path = urlsplit(self.path).path
-            if path not in ('/api/fast-level','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/d435-overlay','/api/fast-level','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -258,6 +263,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not 0 < length <= 8192:
                     raise Rejected("请求大小无效")
                 raw = self.rfile.read(length)
+                if path == '/api/d435-overlay':
+                    data=strict_json(raw)
+                    if data not in ({},{'op':'refresh'}):raise ValueError('仅支持刷新 D435 叠加画面')
+                    return self.json(202,d435_overlay.refresh())
                 if path == '/api/fast-level':
                     return self.json(200,fast_level.action(strict_json(raw)))
                 if path == '/api/cabinet-execution':
@@ -312,12 +321,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     data = strict_json(raw)
                     return self.json(202, arxgent.handle(self.client(), data))
                 data = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
-                if isinstance(data,dict) and data.get("type")=="chassis.nav_sdk" and self.client_address[0] not in ("127.0.0.1","::1"):
-                    raise Rejected("导航 SDK 入口仅接受本机执行器")
-                if isinstance(data,dict) and (data.get('type')=='chassis.nav_sdk' or
-                        data.get('type')=='chassis.stop' and self.client_address[0] in ('127.0.0.1','::1')
-                        and controller.is_navigation_client(self.client())):
-                    return self.json(200,steps.manual_submit(data,controller.navigation_client(data,self.client())))
+                if isinstance(data,dict) and str(data.get('type','')).startswith('chassis'):
+                    kind=data.get('type')
+                    if kind in ('chassis.nav_sdk','chassis.gamepad_sdk') and self.client_address[0] not in ('127.0.0.1','::1'):
+                        raise Rejected('SDK 原值入口仅接受本机适配器')
+                    if kind=='chassis.nav_sdk' or kind=='chassis.end_output' and str(data.get('source_id','')).startswith('navigation-'):
+                        return self.json(200,controller.submit_navigation(data,self.client()))
+                    return self.json(200,controller.submit(data,self.client()))
                 return self.json(200, steps.manual_submit(data, self.client()))
             except ChatError as error:
                 return self.json(error.status, {'ok': False, 'message': error.message})

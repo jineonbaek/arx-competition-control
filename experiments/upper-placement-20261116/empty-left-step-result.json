@@ -1,0 +1,298 @@
+{
+  "status": "arrived",
+  "error_deg": 0.10928302672020407,
+  "state": {
+    "time": 1794805446.4640121,
+    "ros": {
+      "connected": true,
+      "error": "",
+      "domain_id": "191",
+      "feedback_sources": {
+        "left": {
+          "topic": "/arm_l_status_full",
+          "expected_type": "arx5_arm_msg/msg/RobotStatus",
+          "publishers": 1,
+          "other_publishers": 0,
+          "status": "fresh",
+          "message": "左臂反馈：实时反馈有效（/arm_l_status_full；有效发布者 1）"
+        },
+        "right": {
+          "topic": "/arm_r_status_full",
+          "expected_type": "arx5_arm_msg/msg/RobotStatus",
+          "publishers": 1,
+          "other_publishers": 0,
+          "status": "fresh",
+          "message": "右臂反馈：实时反馈有效（/arm_r_status_full；有效发布者 1）"
+        },
+        "body": {
+          "topic": "/body_information",
+          "expected_type": "arm_control/msg/PosCmd",
+          "publishers": 1,
+          "other_publishers": 0,
+          "status": "fresh",
+          "message": "机体反馈：实时反馈有效（/body_information；有效发布者 1）"
+        }
+      }
+    },
+    "execution_enabled": true,
+    "arms": {
+      "left": {
+        "joints": [
+          -0.00057220458984375,
+          -0.00247955322265625,
+          0.01010894775390625,
+          0.00476837158203125,
+          -0.00057220458984375,
+          -0.01506805419921875
+        ],
+        "gripper": -0.048447608947753906,
+        "tcp": [
+          -0.0007371656075767924,
+          -3.774421850486387e-05,
+          0.004059997891147804,
+          -0.015092680781637745,
+          -0.01735686551216013,
+          1.95509538611891e-07
+        ],
+        "received": 6478.521458275,
+        "timestamp": 1794805446.4603024,
+        "fresh": true,
+        "age_s": 0.002647866999723192,
+        "base_wrist": [
+          251.02888502348247,
+          250.9677832829783,
+          629.1961581877338,
+          -0.8639050116792443,
+          -0.994475380332853,
+          4.939026390326282e-06
+        ]
+      },
+      "right": {
+        "joints": [
+          0.09746742248535156,
+          0.00133514404296875,
+          0.00972747802734375,
+          -0.00171661376953125,
+          -0.00324249267578125,
+          -1.554703712463379
+        ],
+        "gripper": -0.987640380859375,
+        "tcp": [
+          -0.0010364949581276595,
+          0.00930453055111229,
+          0.003035450046267041,
+          -1.5547400516598462,
+          -0.006675661299531978,
+          0.10071004626437452
+        ],
+        "received": 6478.518291009,
+        "timestamp": 1794805446.457135,
+        "fresh": true,
+        "age_s": 0.006015521000335866,
+        "base_wrist": [
+          250.81577920101006,
+          -239.43915342100414,
+          628.1449100587027,
+          -89.07920135667081,
+          -0.382488582785698,
+          5.77025723359205
+        ]
+      }
+    },
+    "body": {
+      "height": 9.744983673095703,
+      "wheels": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "waist": -0.0,
+      "head_yaw": 0.0,
+      "head_pitch": 0.0,
+      "received": 6478.521800504,
+      "timestamp": 1794805446.4606442,
+      "fresh": true,
+      "age_s": 0.0025938530006897054
+    },
+    "capabilities": {
+      "left:arm.joints": "",
+      "left:arm.tcp": "末端坐标、可达范围和执行行为待验证",
+      "left:gripper": "",
+      "left:arm.stop": "",
+      "left:arm.wrist": "",
+      "left:arm.mode.0": "",
+      "left:arm.mode.1": "",
+      "left:arm.mode.2": "",
+      "left:arm.mode.3": "",
+      "right:arm.joints": "",
+      "right:arm.tcp": "末端坐标、可达范围和执行行为待验证",
+      "right:gripper": "",
+      "right:arm.stop": "",
+      "right:arm.wrist": "",
+      "right:arm.mode.0": "",
+      "right:arm.mode.1": "",
+      "right:arm.mode.2": "",
+      "right:arm.mode.3": "",
+      "chassis": "",
+      "chassis.stop": "",
+      "lift": "",
+      "lift.stop": ""
+    },
+    "limits": {
+      "arms": {
+        "left": {
+          "joint_limits_deg": [
+            [
+              -89.9,
+              89.9
+            ],
+            [
+              -5.7,
+              206.2
+            ],
+            [
+              -5.7,
+              171.8
+            ],
+            [
+              -73.9,
+              73.9
+            ],
+            [
+              -84.7,
+              84.7
+            ],
+            [
+              -99.6,
+              99.6
+            ]
+          ],
+          "gripper_limits_raw": [
+            -3.14,
+            0
+          ],
+          "gripper_open_raw": -3.14,
+          "gripper_closed_raw": 0,
+          "tcp_limits_mm": null
+        },
+        "right": {
+          "joint_limits_deg": [
+            [
+              -89.9,
+              89.9
+            ],
+            [
+              -5.7,
+              206.2
+            ],
+            [
+              -5.7,
+              171.8
+            ],
+            [
+              -73.9,
+              73.9
+            ],
+            [
+              -84.7,
+              84.7
+            ],
+            [
+              -99.6,
+              99.6
+            ]
+          ],
+          "gripper_limits_raw": [
+            -3.14,
+            0
+          ],
+          "gripper_open_raw": -3.14,
+          "gripper_closed_raw": 0,
+          "tcp_limits_mm": null
+        }
+      },
+      "lift": [
+        0,
+        18.0
+      ],
+      "linear": 2.0,
+      "angular": 1.0
+    },
+    "chassis_active": false,
+    "chassis_scheduler": {
+      "policy": "last_valid_writer",
+      "active": null,
+      "output_seq": 6208678264681,
+      "maintenance": false
+    },
+    "motion_reserved": false,
+    "competition_reserved": false,
+    "motion_interrupted": false,
+    "command_epoch": 4,
+    "nav_sdk_ready": true,
+    "logs": [
+      {
+        "id": 1,
+        "time": 1794804532.3496962,
+        "level": "info",
+        "text": "ROS 2 观察节点已连接；未启动硬件驱动"
+      },
+      {
+        "id": 2,
+        "time": 1794804532.3982399,
+        "level": "warning",
+        "text": "左臂反馈：未发现反馈发布者（/arm_l_status_full；有效发布者 0）"
+      },
+      {
+        "id": 3,
+        "time": 1794804532.3982532,
+        "level": "warning",
+        "text": "右臂反馈：未发现反馈发布者（/arm_r_status_full；有效发布者 0）"
+      },
+      {
+        "id": 4,
+        "time": 1794804532.3983505,
+        "level": "info",
+        "text": "机体反馈：实时反馈有效（/body_information；有效发布者 1）"
+      },
+      {
+        "id": 5,
+        "time": 1794804534.4002943,
+        "level": "info",
+        "text": "左臂反馈：实时反馈有效（/arm_l_status_full；有效发布者 1）"
+      },
+      {
+        "id": 6,
+        "time": 1794804535.400531,
+        "level": "info",
+        "text": "右臂反馈：实时反馈有效（/arm_r_status_full；有效发布者 1）"
+      },
+      {
+        "id": 7,
+        "time": 1794804577.4674861,
+        "level": "warning",
+        "text": "右臂反馈：反馈已过期（/arm_r_status_full；有效发布者 1）"
+      },
+      {
+        "id": 8,
+        "time": 1794804578.4678116,
+        "level": "warning",
+        "text": "右臂反馈：未发现反馈发布者（/arm_r_status_full；有效发布者 0）"
+      },
+      {
+        "id": 9,
+        "time": 1794805154.2568605,
+        "level": "info",
+        "text": "右臂反馈：实时反馈有效（/arm_r_status_full；有效发布者 1）"
+      },
+      {
+        "id": 10,
+        "time": 1794805445.01714,
+        "level": "info",
+        "text": "已下发：{\"type\": \"arm.joints\", \"arm\": \"right\", \"joints\": [5.579788670607775, 0.07649811870414282, 0.44806040955283644, -0.09835472404818361, -0.16392454008030602, -89.12167432816038]}（未确认到位）"
+      }
+    ]
+  },
+  "gripper_command_sent": false
+}

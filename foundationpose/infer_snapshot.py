@@ -45,6 +45,26 @@ def input_mask(rgb, roi, supplied=None):
     return fg
 
 
+def prepare_estimator(source,mesh_scale,output,state):
+    """Load CAD and FoundationPose models without registering a scene."""
+    sys.path.insert(0,"/home/arx/arx-competition-control/vision/vendor-python")
+    from estimater import FoundationPose,ScorePredictor,PoseRefinePredictor,dr,trimesh,nvdiffrast_render
+    import torch
+    torch.manual_seed(0);np.random.seed(0)
+    mesh_key=(str(source.resolve()),hashlib.sha256(source.read_bytes()).hexdigest(),mesh_scale)
+    if state.get('mesh_key')!=mesh_key:
+        state.clear()
+        mesh=trimesh.load(source)
+        mesh.apply_scale(mesh_scale)
+        state.update(mesh_key=mesh_key,mesh=mesh)
+    mesh=state['mesh']
+    if 'est' not in state:
+        state['est']=FoundationPose(model_pts=mesh.vertices,model_normals=mesh.vertex_normals,mesh=mesh,
+            scorer=ScorePredictor(),refiner=PoseRefinePredictor(),glctx=dr.RasterizeCudaContext(),
+            debug_dir=str(output/"debug"),debug=0)
+    return mesh,state['est'],torch,nvdiffrast_render
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--frame",type=Path,required=True)
@@ -64,7 +84,14 @@ def main():
     infer(args)
 
 
+def tracking_seed(base_from_camera,previous_base_from_object,motion_seed=None):
+    source=np.asarray(previous_base_from_object if motion_seed is None else motion_seed,float)
+    if source.shape!=(4,4) or not np.isfinite(source).all():raise ValueError('Invalid visual tracking seed')
+    return np.linalg.inv(base_from_camera)@source
+
+
 def infer(args,state=None):
+    import trimesh
     state={} if state is None else state
     started=time.perf_counter()
     with np.load(args.frame,allow_pickle=False) as f:
@@ -83,30 +110,16 @@ def infer(args,state=None):
     from foundationpose.camera_geometry import rectify, cross_camera_fit
     color,z,fg,K,maps,intr=rectify(rgb,depth,mask,k,rs)
     h,w=depth.shape
-    from estimater import FoundationPose,ScorePredictor,PoseRefinePredictor,dr,trimesh,nvdiffrast_render
     from scipy.spatial.transform import Rotation
-    import torch
-    torch.manual_seed(0);np.random.seed(0)
     source=args.mesh
-    mesh_key=(str(source.resolve()),hashlib.sha256(source.read_bytes()).hexdigest(),args.mesh_scale)
-    if state.get('mesh_key')!=mesh_key:
-        state.clear()
-        mesh=trimesh.load(source)
-        mesh.apply_scale(args.mesh_scale)
-        state.update(mesh_key=mesh_key,mesh=mesh)
-    mesh=state['mesh']
-    torch.cuda.reset_peak_memory_stats()
     output=args.output.parent
-    if 'est' not in state:
-        state['est']=FoundationPose(model_pts=mesh.vertices,model_normals=mesh.vertex_normals,mesh=mesh,
-            scorer=ScorePredictor(),refiner=PoseRefinePredictor(),glctx=dr.RasterizeCudaContext(),
-            debug_dir=str(output/"debug"),debug=0)
-    est=state['est']
+    mesh,est,torch,nvdiffrast_render=prepare_estimator(source,args.mesh_scale,output,state)
+    torch.cuda.reset_peak_memory_stats()
     torch.cuda.synchronize();tick=time.perf_counter()
     tracking='base_from_object' in state
     if tracking:
         # The wrist camera moved: seed tracking in this frame, using the centered-mesh convention.
-        seed=np.linalg.inv(base)@state['base_from_object']
+        seed=tracking_seed(base,state['base_from_object'],getattr(args,'seed_base_from_object',None))
         est.pose_last=torch.as_tensor(seed,dtype=torch.float32,device='cuda')@torch.linalg.inv(est.get_tf_to_centered_mesh())
         pose=est.track_one(K=K,rgb=color,depth=z,iteration=2)
     else:

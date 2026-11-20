@@ -1,0 +1,5 @@
+# Held placement rehearsal
+User explicitly requires no gripper opening. Add align_held and test_held operations, independent of existing release_place behavior. align_held ends at100mm leading stand-off. test_held at most10mm insertion at3mm/s, followed by reverse checked insertion path; ends outside holding. Neither calls release or placement verification. Failure/cancel never opens grip. Release method contains an independent keep-grip guard. Keep normal start/competition behavior unchanged. Geometry/ownership checks remain; no fake physical-accuracy approval.
+Installed driver24f4a30 preserves gripper command through stop; PID7435 executable SHA matches build. Do not restart drivers, switch arm mode, or send any gripper target. Protected originals remain untouched.
+
+Outside held path additionally requires nominal loaded sweep against inferred padded tabletop, cabinet front stand-off, base/left/right meshes. Table inference remains explicitly nominal, never a claim of physically measured precision.

@@ -1,0 +1,131 @@
+{
+  "status": "repeatable_axis_candidate",
+  "camera": "d405",
+  "axis_base": [
+    0.9997655510217269,
+    0.007404715630298949,
+    0.020347313745476048
+  ],
+  "tilt_deg": 1.1658956608443567,
+  "max_deviation_deg": 0.5515503006212841,
+  "frame_count": 5,
+  "physical_accuracy_verified": false,
+  "executable": false,
+  "observations": [
+    {
+      "status": "axis_candidate",
+      "camera": "d405",
+      "axis_base": [
+        0.9998007751748259,
+        0.007404716536530289,
+        0.018535914674783077
+      ],
+      "side_normal_base": [
+        -0.007365256931712408,
+        0.9999704644510279,
+        -0.002196182124752477
+      ],
+      "tilt_deg": 1.0620905050674359,
+      "extent_mm": [
+        128.80424823696458,
+        63.80510796647312
+      ],
+      "support_points": 7059,
+      "residual_p90_mm": 0.934065808649217,
+      "executable": false,
+      "note": "Unverified side-face hypothesis; not a calibrated motion target"
+    },
+    {
+      "status": "axis_candidate",
+      "camera": "d405",
+      "axis_base": [
+        0.9997597549727134,
+        0.008149788887115691,
+        0.02034731623569638
+      ],
+      "side_normal_base": [
+        -0.008224368058604693,
+        0.9999597554001987,
+        0.0035843200207636983
+      ],
+      "tilt_deg": 1.1658958035530165,
+      "extent_mm": [
+        127.9897833217021,
+        63.9365392296061
+      ],
+      "support_points": 7382,
+      "residual_p90_mm": 0.825599227429793,
+      "executable": false,
+      "note": "Unverified side-face hypothesis; not a calibrated motion target"
+    },
+    {
+      "status": "axis_candidate",
+      "camera": "d405",
+      "axis_base": [
+        0.9997656733787385,
+        0.006189478825726442,
+        0.02074340100907749
+      ],
+      "side_normal_base": [
+        -0.006110925959804136,
+        0.9999739238779799,
+        -0.0038481356512032328
+      ],
+      "tilt_deg": 1.1885945807618163,
+      "extent_mm": [
+        127.31610175517919,
+        63.800795903456056
+      ],
+      "support_points": 7317,
+      "residual_p90_mm": 0.9345367942172325,
+      "executable": false,
+      "note": "Unverified side-face hypothesis; not a calibrated motion target"
+    },
+    {
+      "status": "axis_candidate",
+      "camera": "d405",
+      "axis_base": [
+        0.9995145247308429,
+        0.008932873630959334,
+        0.029848259928689207
+      ],
+      "side_normal_base": [
+        -0.008779546684255134,
+        0.9999476035754378,
+        -0.005263996937508064
+      ],
+      "tilt_deg": 1.7104333600181512,
+      "extent_mm": [
+        127.06304102048102,
+        65.20244381619001
+      ],
+      "support_points": 7092,
+      "residual_p90_mm": 0.8831974002350123,
+      "executable": false,
+      "note": "Unverified side-face hypothesis; not a calibrated motion target"
+    },
+    {
+      "status": "axis_candidate",
+      "camera": "d405",
+      "axis_base": [
+        0.9998052789370502,
+        0.00675760861000743,
+        0.018540197827457548
+      ],
+      "side_normal_base": [
+        -0.0067370254577534105,
+        0.999976618680472,
+        -0.0011724249874901504
+      ],
+      "tilt_deg": 1.0623359538177186,
+      "extent_mm": [
+        132.21185375121036,
+        63.28612674914867
+      ],
+      "support_points": 7663,
+      "residual_p90_mm": 0.8467818273960267,
+      "executable": false,
+      "note": "Unverified side-face hypothesis; not a calibrated motion target"
+    }
+  ]
+}

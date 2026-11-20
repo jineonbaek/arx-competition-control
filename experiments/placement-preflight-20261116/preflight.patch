@@ -1,0 +1,14 @@
+--- web/src/fast_visual_level.py
++++ web/src/fast_visual_level.py
+@@ -213,6 +213,11 @@
+             if self.thread and self.thread.is_alive():raise ValueError('Leveling already active')
+             s=self.ctrl.snapshot()
+             if s['motion_reserved'] or s['competition_reserved'] or s['chassis_active']:raise ValueError('Other control active')
++            for name, label in (('left','左臂'),('right','右臂')):
++                if not s.get('arms',{}).get(name,{}).get('fresh'):raise ValueError(label+'反馈缺失或已过期 (feedback stale)')
++            if not s.get('body',{}).get('fresh'):raise ValueError('机体反馈缺失或已过期 (feedback stale)')
++            driver=self.ctrl.adapter.trajectory_status('right')
++            if not driver or not driver.get('ready') or not driver.get('enabled') or not driver.get('driver_instance'):raise ValueError('右臂轨迹驱动未就绪 (driver not ready)')
+             self.cancel=threading.Event();self.run=WORK/'reports'/('fast-level-'+time.strftime('%Y%m%d-%H%M%S'));self.run.mkdir()
+             self.prepared_only=data['op'] in ('place','place_raised','place_rotate_no_table','place_no_table','place_recover_no_table');self.raise_before_place=data['op']=='place_raised';self.rotate_before_place=data['op']=='place_rotate_no_table';self.recover_before_place=data['op']=='place_recover_no_table';self.skip_table=data['op'] in ('place_rotate_no_table','place_no_table','place_recover_no_table');self.inserting=False
+             self.save(table_checked=not self.skip_table)

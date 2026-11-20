@@ -54,6 +54,10 @@ int main(int argc,char** argv) {
   std::ifstream file(std::string(ROOT)+"/web/config/control.json");
   auto config=nlohmann::json::parse(file).at("arms").at(side);
   ArmLimits limits{config.at("joint_limits_deg").get<decltype(ArmLimits::degrees)>(),config.at("gripper_limits_raw").get<decltype(ArmLimits::gripper)>(),config.at("max_delta_deg").get<double>()};
+  // Supported maintenance restart only: reject invalid restore values before
+  // constructing the SDK or taking ownership of a CAN interface.
+  const double restored_gripper=startup_gripper_target(limits,node->declare_parameter(
+      "startup_gripper_target_raw",std::numeric_limits<double>::quiet_NaN()));
   // No trajectory endpoint exists until a separately reviewed execution policy is installed.
   std::unique_ptr<ArmTrajectory> trajectory;
   if(config.contains("trajectory_policy")) {
@@ -85,10 +89,10 @@ int main(int argc,char** argv) {
   auto active_speed=automatic_speed;
   active_speed.fill(speed);
   bool initialized=false,healthy=false,was_fresh=false,seen_feedback=false,fault_latched=false;
-  bool joint_active=false;
+  bool joint_active=false,trajectory_reference=false;
   int current_mode=2;
   std::vector<double> reference(6,0),goal(6,0);
-  double gripper_target=std::numeric_limits<double>::quiet_NaN();
+  double gripper_target=restored_gripper;
   double held_gripper_feedback=gripper_target;
   double held_gripper_target=gripper_target;
   auto last_step=Clock::now();
@@ -101,27 +105,33 @@ int main(int argc,char** argv) {
     msg.data=nlohmann::json{{"driver_instance",driver_instance},{"command_epoch",command_epoch},
       {"enabled",bool(trajectory)},{"request_id",trajectory?trajectory->id():""},
       {"status",trajectory?trajectory->status():"disabled"},{"reason",trajectory?trajectory->reason():""},
-      {"ready",healthy},{"manual_joint_active",joint_active}}.dump();
+      {"ready",healthy},{"manual_joint_active",joint_active},
+      {"reference_from_trajectory",trajectory_reference},
+      {"joint_reference_rad",initialized&&current_mode==5?nlohmann::json(reference):nlohmann::json(nullptr)},
+      {"gripper_target_raw",std::isfinite(gripper_target)?nlohmann::json(gripper_target):nlohmann::json(nullptr)}}.dump();
     trajectory_pub->publish(msg);
   };
-  auto hold=[&](){
+  auto hold=[&](bool retain_completed=false){
     auto p=arm->getJointPositons();
     if(p.size()!=7 || !std::all_of(p.begin(),p.end(),[](double v){return std::isfinite(v);})) return false;
     held_gripper_feedback=p[6];
     held_gripper_target=gripper_hold_target(limits,p[6],gripper_target);
     gripper_target=held_gripper_target;
-    joint_active=false;reference.assign(p.begin(),p.begin()+6);goal=reference;
+    bool retained_issued=false;
+    joint_active=false;reference=arm_stop_target(limits,p,reference,retain_completed,&retained_issued);goal=reference;
+    trajectory_reference=retained_issued;
     arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;return true;
   };
   auto stop_reference=[&](const std::string& reason){
     ++command_epoch;
+    const bool retain_completed=trajectory && completed_hold_allowed(reason,trajectory->status(),current_mode,trajectory_reference);
     if(trajectory) trajectory->cancel(reason);
     joint_active=false;
-    bool held=healthy && monitor.fresh() && hold();
+    bool held=healthy && monitor.fresh() && hold(retain_completed);
     if(!held){arm->setArmStatus(2);current_mode=2;}
     else RCLCPP_INFO(node->get_logger(),
-      "%s stop hold (%s): gripper feedback %.6f, target %.6f",side.c_str(),reason.c_str(),
-      held_gripper_feedback,held_gripper_target);
+      "%s stop hold (%s): gripper feedback %.6f, target %.6f; completed reference eligible %d",side.c_str(),reason.c_str(),
+      held_gripper_feedback,held_gripper_target,int(retain_completed));
     publish_trajectory();return held;
   };
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr trajectory_sub;
@@ -148,7 +158,7 @@ int main(int argc,char** argv) {
           trajectory->start(request,actual,seconds());started=true;
           ++command_epoch;
           gripper_target=gripper_hold_target(limits,actual[6],gripper_target);
-          joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
+          joint_active=false;trajectory_reference=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;
           arm->setJointPositions(reference);arm->setCatch(gripper_target);arm->setArmStatus(5);current_mode=5;
         } else throw std::invalid_argument("Unsupported trajectory command");
       } catch(const std::exception& error){
@@ -185,14 +195,15 @@ int main(int argc,char** argv) {
         if(kind=="gripper") {
           // Gripper commands preserve the arm goal; 0 is a valid close target.
           gripper_target=msg->gripper;
-          if(current_mode!=5) {joint_active=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
+          if(current_mode!=5) {joint_active=false;trajectory_reference=false;reference.assign(actual.begin(),actual.begin()+6);goal=reference;arm->setJointPositions(reference);}
           arm->setCatch(msg->gripper);arm->setArmStatus(5);current_mode=5;
         } else if(kind=="arm.joints" || kind=="arm.joints.auto") {
           active_speed=automatic_speed;
           if(kind=="arm.joints")active_speed.fill(speed);
-          reference.assign(actual.begin(),actual.begin()+6);goal=target;joint_active=true;last_step=Clock::now();
+          trajectory_reference=false;reference.assign(actual.begin(),actual.begin()+6);goal=target;joint_active=true;last_step=Clock::now();
           arm->setJointPositions(reference);arm->setArmStatus(5);current_mode=5;
         } else {joint_active=false;
+          trajectory_reference=false;
           gripper_target=std::numeric_limits<double>::quiet_NaN();
           arm->setArmStatus(msg->mode);current_mode=msg->mode;}
       }
@@ -204,7 +215,7 @@ int main(int argc,char** argv) {
   auto stop=node->create_service<std_srvs::srv::Trigger>("/web/"+side+"/stop",
     [&](std_srvs::srv::Trigger::Request::SharedPtr,std_srvs::srv::Trigger::Response::SharedPtr response){
       response->success=stop_reference("manual_stop");
-      response->message=response->success?"Holding measured arm and gripper positions":"Feedback unavailable; requested damping";
+    response->message=response->success?"Holding bounded arm reference and retained gripper target":"Feedback unavailable; requested damping";
     });
   unsigned status_ticks=0;
   auto timer=node->create_wall_timer(std::chrono::milliseconds(10),[&](){
@@ -218,7 +229,7 @@ int main(int argc,char** argv) {
     healthy=fresh && valid && no_error && initialized && !fault_latched;
     if((!fresh && was_fresh) || ((!no_error || !valid) && seen_feedback)) {
       if(!fault_latched)++command_epoch;
-      arm->setArmStatus(2);current_mode=2;initialized=false;fault_latched=true;joint_active=false;healthy=false;
+      arm->setArmStatus(2);current_mode=2;initialized=false;fault_latched=true;joint_active=false;trajectory_reference=false;healthy=false;
     }
     if(fresh!=was_fresh) RCLCPP_INFO(node->get_logger(),"%s CAN feedback %s",side.c_str(),fresh?"fresh":"stale");
     was_fresh=fresh;seen_feedback|=fresh;
@@ -226,7 +237,7 @@ int main(int argc,char** argv) {
     if(trajectory && trajectory->active()) {
       auto next=trajectory->tick(seconds(),pos,healthy);
       if(trajectory->status()=="failed")stop_reference(trajectory->reason());
-      else if(!next.empty()){reference=next;goal=next;arm->setJointPositions(reference);}
+      else if(!next.empty()){reference=next;goal=next;trajectory_reference=true;arm->setJointPositions(reference);}
     }
     if(status_ticks++%10==0)publish_trajectory();
     if(!fresh || !valid) return;

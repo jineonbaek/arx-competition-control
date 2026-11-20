@@ -1,0 +1,13 @@
+# Visual docking framework
+
+User priority: one vision-driven task, reusable structure, rapid inspectable progress, fewer needless confirmations and precision gates. Keep battery clamped throughout. No raw API jogging. D435 is the primary full-aperture camera; D405 watches the held battery and need not see a complete cabinet. Align outside before any constant-Z insertion. Arm, lift and measured base positioning are interchangeable planning/execution capabilities; never move base and arm together without a combined checked model.
+
+Use the existing isolated worktree and existing RGB/CAD localizer, TCP, IK, timed trajectory controller, loaded sweep and motion ownership. Build a small reusable coordinator with a narrow backend interface, a geometry-based fit evaluator, a relative D405 visual monitor, and a concrete read-only live planner. Runtime driver remains running; no restart, zeroing, gain/torque or gripper command.
+
+Task phases: observe → outside alignment including leveling → reobserve/fit → bounded correction if needed → shallow fixed-Z insert → checked withdrawal → held outside. No release method exists in the coordinator. One run needs no per-step operator questions. Errors stop and retain recovery state, never automatically replay uncertain motion. Base/lift plans must have measured feedback and a checked full-payload path; a missing backend is reported explicitly, never replaced by timed blind velocity.
+
+Fit compares the entire battery envelope projected through the aperture, not per-joint 0.002rad arrival. Use actual CAD aperture polygon, current object/tool transform and uncertainty allowance. Report nominal vs uncertainty-qualified clearance separately. Current CAD aperture is 169.6×79mm and battery thickness75mm: only4mm total nominal vertical clearance. Neither relaxed joint thresholds nor chassis motion creates that clearance. An unqualified metric estimate may support preview but must not be labeled certified fit.
+
+D405 baseline is explicitly established once for this held object; temporal motion relative to camera checks visible presence, gross slip and rotation. It does not measure force or recover full 6D object pose. Do not silently rebaseline a suspected slipping grip. Support/fixation state is not inferred from pixels. No hardware execution this implementation pass while support is known installed and grip calibration/pose after SDK startup is unresolved.
+
+Deliverables: executable coordinator with deterministic backend contract, unit/replay tests including base/lift strategies, live SSH perception/IK plan and an inspectable report of the exact next path. Separate tests/replay/live planning/physical actuation evidence.

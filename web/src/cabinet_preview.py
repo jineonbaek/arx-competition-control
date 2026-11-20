@@ -51,21 +51,25 @@ class CabinetPreview:
         camera=data['camera']
         with self.cache_lock:self.latest.pop(camera,None)
         try:
-            frame=self.captures[camera].capture(token=token) if owned else self.captures[camera].capture()
-            result=self.analyze_frame(camera,data['model'],frame,include_arm_preview=include_arm_preview)
+            detection=None
+            if owned and not include_arm_preview:
+                detection,frame=self.captures[camera].capture_consensus(token=token)
+            else:frame=self.captures[camera].capture(token=token) if owned else self.captures[camera].capture()
+            result=self.analyze_frame(camera,data['model'],frame,include_arm_preview=include_arm_preview,detection=detection)
             # A task owns the motion token while planning; browser previews keep their idle binding.
             return result if owned else self.snapshot()[camera]
         finally:self.lock.release()
 
-    def analyze_frame(self,camera,mode,frame,*,now=None,include_arm_preview=True):
+    def analyze_frame(self,camera,mode,frame,*,now=None,include_arm_preview=True,detection=None):
         if camera not in ('d435','d405') or str(frame['camera_id'])!=camera:raise ValueError('相机身份与配对帧不一致')
         hashes=self._source_hashes(camera)
         self.profiles=json.loads((self.root/'config/cabinet-profiles.json').read_text())
         self.battery=json.loads((self.root/'config/battery-envelope.json').read_text())
         self.grip=json.loads((self.root/'web/public/cad/battery-grip.json').read_text())
-        detected=detect(frame['rgb']);image=frame['rgb'][:,:,::-1].copy()
+        detected=detect(frame['rgb']) if detection is None else dict(detection);image=frame['rgb'][:,:,::-1].copy()
         result={'camera':camera,'role':'primary' if camera=='d435' else 'auxiliary','model':mode,
-            'snapshot_id':str(frame['id']),'image_time':float(frame['image_time']),
+            'snapshot_id':str(frame['id']),'image_time':float(detected.get('consensus_time',frame['image_time'])),
+            'latest_exposure_time':float(frame['image_time']),
             'status':detected['status'],'executable':False,'reason':detected.get('reason',''),
             'environment_evidence':{'status':'unavailable','reason':'点云未配置，本链路不使用深度碰撞结论'},
             'readiness':{'execution_ready':False,'blockers':['尚未验收负载路径、入仓精度和松爪条件']}}
@@ -77,8 +81,14 @@ class CabinetPreview:
             cv2.polylines(image,[np.array(detected['outer_contour_px'],np.int32)],True,(0,200,255),1)
             slot=opening(self.profiles,mode)
             try:
-                window=localize_rgb(frame,slot,now=now)
+                window=localize_rgb(frame,slot,now=now,detection=detected)
                 result.update(status='localized',window=window,target_slot=slot['slot_id'])
+                try:
+                    from agent.cabinet_loaded_sweep import infer_table
+                    mesh=(self.root/'vision/models/cabinet'/(mode+'.stl')).read_bytes()
+                    result['table_estimate']=infer_table(frame,window,self.profiles[mode],slot,mesh)
+                except (ValueError,KeyError,OSError) as error:
+                    result['table_estimate']={'status':'unavailable','reason':str(error)}
                 result['readiness']['blockers'].append(window['scale_assumption'])
                 if window['pose_ambiguous']:result['readiness']['blockers'].append('平面PnP存在近似等价姿态，预览选最低像素误差候选')
                 cv2.polylines(image,[np.rint(window['inner_quad_px']).astype(np.int32)],True,(255,230,0),2)
@@ -116,7 +126,7 @@ class CabinetPreview:
     def _source_hashes(self,camera):
         paths=[CALIBRATIONS[camera],'config/right-grip-tcp.json','config/cabinet-profiles.json',
             'config/battery-envelope.json','web/public/cad/battery-grip.json',
-            'agent/cabinet_rgb_geometry.py','agent/cabinet_preview_geometry.py','agent/grasp_path.py',
+            'agent/cabinet_consensus.py','agent/cabinet_red_edges.py','agent/cabinet_loaded_sweep.py','vision/models/cabinet/demo.stl','agent/cabinet_rgb_geometry.py','agent/cabinet_preview_geometry.py','agent/grasp_path.py',
             'web/src/cabinet_preview.py','web/src/cabinet_capture.py','web/src/handeye_column.py','web/config/control.json']
         package=Path('web/public/models/lift2/diy-20261105');urdf=package/'urdf/lift2_with_sensors.urdf';paths.append(str(urdf))
         if (self.root/urdf).is_file():

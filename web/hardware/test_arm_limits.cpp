@@ -37,6 +37,46 @@ int main() {
   assert(gripper_hold_target(limits,-6.305,0)==0);
   assert(gripper_hold_target(limits,0,-3.14)==-3.14);
   assert(gripper_hold_target(limits,-6.305,NAN)==-3.14);
+  // Completed loaded reference must not be rebased to sagged measurements.
+  const std::vector<double> sagged{.1,.2,.3,.4,.5,.6,-.86};
+  const std::vector<double> issued{.1,.2,.31,.41,.51,.62};
+  const std::vector<double> measured{.1,.2,.3,.4,.5,.6};
+  assert(arm_stop_target(limits,sagged,issued,true)==issued);
+  assert(arm_stop_target(limits,sagged,issued,false)==measured);
+  auto bad=issued;bad[5]=.64;
+  assert(arm_stop_target(limits,sagged,bad,true)==measured);
+  bad=issued;bad[3]=NAN;
+  assert(arm_stop_target(limits,sagged,bad,true)==measured);
+  bad=issued;bad.pop_back();
+  assert(arm_stop_target(limits,sagged,bad,true)==measured);
+  bad=issued;bad[0]=2.;
+  assert(arm_stop_target(limits,sagged,bad,true)==measured);
+  bad=issued;bad[5]=.6+2.*M_PI/180.;
+  assert(arm_stop_target(limits,sagged,bad,true)==bad);
+  bad[5]+=1e-6;
+  assert(arm_stop_target(limits,sagged,bad,true)==measured);
+  assert(completed_hold_allowed("manual_stop","reference_complete",5,true));
+  assert(!completed_hold_allowed("manual_stop","running",5,true));
+  assert(!completed_hold_allowed("tracking_error","reference_complete",5,true));
+  assert(!completed_hold_allowed("manual_stop","reference_complete",2,true));
+  // An old completed trajectory must not qualify later manual references.
+  assert(!completed_hold_allowed("manual_stop","reference_complete",5,false));
+  auto near_limit=sagged;near_limit[0]=89.*M_PI/180.;
+  bad=measured;bad[0]=90.*M_PI/180.;
+  assert(arm_stop_target(limits,near_limit,bad,true)[0]==near_limit[0]);
+  bool kept=true;
+  auto fallback=arm_stop_target(limits,near_limit,bad,true,&kept);
+  assert(!kept);
+  auto drifted=near_limit;drifted[3]+=.005;
+  auto repeated=arm_stop_target(limits,drifted,fallback,
+      completed_hold_allowed("manual_stop","reference_complete",5,kept),&kept);
+  assert(!kept && repeated[3]==drifted[3]);
+  assert(std::isnan(startup_gripper_target(limits,NAN)));
+  assert(startup_gripper_target(limits,0.)==0.);
+  bool rejected=false;try{startup_gripper_target(limits,.1);}catch(const std::invalid_argument&){rejected=true;}
+  assert(rejected);
+  rejected=false;try{startup_gripper_target(limits,INFINITY);}catch(const std::invalid_argument&){rejected=true;}
+  assert(rejected);
   target.assign(6,0);
   for(int mode=0;mode<4;++mode) assert(limits.valid(target,-1,actual,mode));
   assert(!limits.valid(target,-1,actual,4));assert(!limits.valid(target,.1,actual,5));

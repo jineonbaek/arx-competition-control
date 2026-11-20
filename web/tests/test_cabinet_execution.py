@@ -95,6 +95,38 @@ class CabinetExecutionTests(unittest.TestCase):
         self.assertEqual(self.ctrl.calls,['reserve','trajectory','trajectory','gripper','trajectory','handoff'])
         self.assertEqual([l['phase'] for l in result['logs']],['outside_align','insert','release','retreat','verify','completed'])
 
+    def test_align_held_does_not_insert_release_or_verify(self):
+        self.task.action({'op':'align_held','model':'demo'});self.task._run();r=self.task.snapshot()
+        self.assertEqual(r['status'],'completed_hold_outside',r)
+        self.assertEqual(self.ctrl.calls,['reserve','trajectory','handoff'])
+        self.assertFalse(r['released']);self.assertFalse(r['release_requested']);self.assertFalse(r['battery_placed'])
+        self.assertEqual(self.ctrl.gripper,-.8)
+
+    def test_held_test_reverses_insertion_without_releasing(self):
+        self.task.action({'op':'test_held','model':'demo'});self.task._run();r=self.task.snapshot()
+        self.assertEqual(r['status'],'completed_hold_outside',r)
+        self.assertNotIn('gripper',self.ctrl.calls);self.assertEqual(self.ctrl.calls.count('trajectory'),3)
+        self.assertAlmostEqual(self.ctrl.q[0],.05)
+        self.assertFalse(r['battery_placed']);self.assertEqual(self.ctrl.gripper,-.8)
+
+    def test_keep_grip_release_guard_prevents_accidental_direct_call(self):
+        self.task.action({'op':'test_held','model':'demo'})
+        with self.assertRaisesRegex(ValueError,'Keep-grip'):self.task._release()
+        self.assertNotIn('gripper',self.ctrl.calls)
+        self.ctrl.release_motion(self.task.token)
+
+    def test_held_cancel_never_opens_gripper(self):
+        self.task.action({'op':'test_held','model':'demo'});self.task.cancel.set();self.task._run()
+        self.assertNotIn('gripper',self.ctrl.calls);self.assertEqual(self.ctrl.gripper,-.8)
+
+    def test_held_failure_after_motion_retains_owner_and_never_opens(self):
+        def failed(*args,**kwargs):raise ValueError('tracking failed')
+        self.ctrl.poll_trajectory=failed
+        self.task.action({'op':'test_held','model':'demo'});self.task._run();r=self.task.snapshot()
+        self.assertEqual(r['status'],'recovery_required');self.assertTrue(r['control_retained'])
+        self.assertIs(self.ctrl.owner,self.task.token);self.assertNotIn('gripper',self.ctrl.calls)
+        self.assertNotIn('handoff',self.ctrl.calls);self.assertEqual(self.ctrl.gripper,-.8)
+
     def test_unknown_release_never_retreats_or_replays(self):
         submit=self.ctrl.submit
         def unknown(data,*args,**kwargs):

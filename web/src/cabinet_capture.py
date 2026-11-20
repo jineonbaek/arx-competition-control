@@ -72,3 +72,13 @@ class CabinetColorCapture:
             except (ValueError,OSError,json.JSONDecodeError) as e:reason=str(e)
             time.sleep(.05)
         raise ValueError(reason)
+
+    def capture_consensus(self,*,token=None):
+        first=self.capture(token=token);frames=[first];deadline=time.monotonic()+1.2
+        while len(frames)<5 and time.monotonic()<deadline:
+            state=self.controller.snapshot();meta=json.loads((self.root/'web/public/camera-live'/(self.camera+'.json')).read_text())
+            if meta['captured_at']>frames[-1]['image_time']:
+                frames.append(self.build_frame(meta,state,token=token))
+            else:time.sleep(.01)
+        from agent.cabinet_consensus import fuse_cabinet_frames
+        return fuse_cabinet_frames(frames)
