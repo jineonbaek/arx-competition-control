@@ -1,0 +1,306 @@
+"""Read-only D435 overlay for the held battery and cabinet opening."""
+import json
+import os
+import threading
+import time
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from agent.cabinet_preview_geometry import detect
+from handeye_column import ColumnModel
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def project_base(point, base_from_color, intrinsics):
+    point = np.asarray(point, float)
+    color_from_base = np.linalg.inv(np.asarray(base_from_color, float))
+    camera = color_from_base[:3, :3] @ point + color_from_base[:3, 3]
+    if camera[2] <= .03 or not np.isfinite(camera).all():
+        return None
+    fx = float(intrinsics.get('fx', intrinsics.get('focal_length_x')))
+    fy = float(intrinsics.get('fy', intrinsics.get('focal_length_y')))
+    cx = float(intrinsics.get('cx', intrinsics.get('ppx', intrinsics.get('principal_point_x'))))
+    cy = float(intrinsics.get('cy', intrinsics.get('ppy', intrinsics.get('principal_point_y'))))
+    return int(round(fx * camera[0] / camera[2] + cx)), int(round(fy * camera[1] / camera[2] + cy))
+
+
+def tracked_object_pose(model, tcp, current_joints, current_lift,
+                        reference_object, reference_joints, reference_lift):
+    reference_tool = model.wrist_transform(reference_joints, reference_lift) @ tcp
+    attachment = np.linalg.inv(reference_tool) @ np.asarray(reference_object, float)
+    return model.wrist_transform(current_joints, current_lift) @ tcp @ attachment
+
+
+def cabinet_axis_from_quad(quad, intrinsics, size_mm=(169.6, 79.0)):
+    """Estimate the into-cabinet axis from the calibrated rectangular red rim."""
+    quad = np.asarray(quad, np.float32)
+    if quad.shape != (4, 2) or not np.isfinite(quad).all():
+        return None
+    width, height = np.asarray(size_mm, float) / 1000.
+    model = np.asarray([[-width/2, -height/2, 0], [width/2, -height/2, 0],
+                        [width/2, height/2, 0], [-width/2, height/2, 0]], np.float32)
+    k = np.asarray([[intrinsics['fx'], 0, intrinsics.get('cx', intrinsics.get('ppx'))],
+                    [0, intrinsics['fy'], intrinsics.get('cy', intrinsics.get('ppy'))], [0, 0, 1]], float)
+    ok, rotation, translation = cv2.solvePnP(model, quad, k, None, flags=cv2.SOLVEPNP_ITERATIVE)
+    if not ok or translation[2, 0] <= .03:
+        return None
+    normal = cv2.Rodrigues(rotation)[0][:, 2]
+    center = translation[:, 0]
+    if normal @ center < 0: normal = -normal
+    points, _ = cv2.projectPoints(np.asarray([center, center + normal * .12]), np.zeros(3), np.zeros(3), k, None)
+    points = np.rint(points[:, 0]).astype(int)
+    return tuple(map(tuple, points))
+
+
+def battery_box_pixels(transform, bounds, base_from_color, intrinsics):
+    bounds = np.asarray(bounds, float) / 1000.
+    corners_local = np.asarray([[bounds[x, 0], bounds[y, 1], bounds[z, 2]]
+                                for x in (0, 1) for y in (0, 1) for z in (0, 1)])
+    corners_base = corners_local @ transform[:3, :3].T + transform[:3, 3]
+    return [project_base(point, base_from_color, intrinsics) for point in corners_base]
+
+
+def edges_from_pixels(pixels):
+    pairs = []
+    for i in range(8):
+        for bit in (1, 2, 4):
+            j = i ^ bit
+            if i < j and pixels[i] is not None and pixels[j] is not None:
+                pairs.append((pixels[i], pixels[j]))
+    return pairs
+
+
+def battery_box_edges(transform, bounds, base_from_color, intrinsics):
+    return edges_from_pixels(battery_box_pixels(transform, bounds, base_from_color, intrinsics))
+
+
+def _ordered_quad(points):
+    points = np.asarray(points, np.float32)
+    center = points.mean(0)
+    points = points[np.argsort(np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0]))]
+    return np.roll(points, -int(np.argmin(points.sum(1))), axis=0)
+
+
+def battery_top_face(rgb, xyz, expected_px, expected_depth_m=None):
+    """Find the gray upper battery face and require paired depth on that face."""
+    rgb = np.asarray(rgb, np.uint8); xyz = np.asarray(xyz, float)
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    mask = ((hsv[:, :, 0] >= 85) & (hsv[:, :, 0] <= 115) & (hsv[:, :, 1] >= 12) &
+            (hsv[:, :, 1] <= 75) & (hsv[:, :, 2] >= 85) & (hsv[:, :, 2] <= 210)).astype(np.uint8)
+    x, y = map(int, expected_px); roi = np.zeros(mask.shape, np.uint8)
+    roi[max(0, y-180):min(mask.shape[0], y+180), max(0, x-140):min(mask.shape[1], x+140)] = 1
+    mask &= roi
+    if expected_depth_m is not None and np.isfinite(expected_depth_m):
+        mask &= (np.abs(xyz[:, :, 2] - float(expected_depth_m)) <= .16).astype(np.uint8)
+    count, labels, stats, centers = cv2.connectedComponentsWithStats(mask, 8)
+    choices = []
+    for index in range(1, count):
+        area = stats[index, cv2.CC_STAT_AREA]
+        if area < 500: continue
+        valid = (labels == index) & (xyz[:, :, 2] > .1) & (xyz[:, :, 2] < 2.)
+        ratio = valid.sum() / area
+        if ratio < .55: continue
+        choices.append((np.linalg.norm(centers[index] - [x, y]), -area, index))
+    if not choices: return None
+    index = min(choices)[2]
+    selected = (labels == index) & (xyz[:, :, 2] > .1) & (xyz[:, :, 2] < 2.)
+    ys, xs = np.nonzero(selected); points = xyz[ys, xs]
+    if len(points) < 500: return None
+    rng = np.random.default_rng(19); best = None
+    for _ in range(80):
+        a, b, c = points[rng.choice(len(points), 3, replace=False)]
+        normal = np.cross(b-a, c-a); length = np.linalg.norm(normal)
+        if length < 1e-8: continue
+        normal /= length; inliers = np.abs((points-a) @ normal) <= .005
+        if best is None or inliers.sum() > best.sum(): best = inliers
+    if best is None or best.sum() < 500: return None
+    component = np.zeros(mask.shape, np.uint8); component[ys[best], xs[best]] = 255
+    component = cv2.morphologyEx(component, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8))
+    contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours: return None
+    hull = cv2.convexHull(max(contours, key=cv2.contourArea))
+    quad = np.empty((0, 2), np.float32)
+    for epsilon in (.04, .05, .06, .07, .08, .09, .10):
+        quad = cv2.approxPolyDP(hull, epsilon * cv2.arcLength(hull, True), True)[:, 0, :]
+        if len(quad) == 4: break
+    return _ordered_quad(quad) if len(quad) == 4 else None
+
+
+def visible_face_overlay(quad):
+    if quad is None: return [], None
+    q = _ordered_quad(quad)
+    edges = [(tuple(np.rint(q[i]).astype(int)), tuple(np.rint(q[(i+1)%4]).astype(int))) for i in range(4)]
+    cabinet_end = tuple(np.rint((q[0] + q[1]) / 2).astype(int))
+    gripper_end = tuple(np.rint((q[2] + q[3]) / 2).astype(int))
+    return edges, (gripper_end, cabinet_end)
+
+
+def write_depth_map(xyz, path, near_m=.3, far_m=1.2):
+    depth = np.asarray(xyz, float)[:, :, 2]
+    valid = np.isfinite(depth) & (depth >= near_m) & (depth <= far_m)
+    scaled = np.zeros(depth.shape, np.uint8)
+    scaled[valid] = np.clip((far_m-depth[valid])/(far_m-near_m)*255, 0, 255).astype(np.uint8)
+    colored = cv2.applyColorMap(scaled, cv2.COLORMAP_TURBO); colored[~valid] = 0
+    cv2.putText(colored, f'NEAR {near_m:.2f}m', (14, 28), cv2.FONT_HERSHEY_SIMPLEX, .65, (255,255,255), 2, cv2.LINE_AA)
+    cv2.putText(colored, f'FAR {far_m:.2f}m', (14, 54), cv2.FONT_HERSHEY_SIMPLEX, .65, (255,255,255), 2, cv2.LINE_AA)
+    temporary = Path(path).with_name(Path(path).stem+'.tmp'+Path(path).suffix)
+    if not cv2.imwrite(str(temporary), colored, [cv2.IMWRITE_JPEG_QUALITY, 92]): raise OSError('D435 深度图写入失败')
+    os.replace(temporary, path)
+
+
+def snap_wireframe_to_top_face(pixels, axis, measured_quad, intrinsics=None, bounds_mm=None, expected_depth_m=None):
+    """Solve a 3D cuboid pose from its observed z-min face, then reproject all edges."""
+    if measured_quad is None or any(point is None for point in pixels) or intrinsics is None or bounds_mm is None:
+        return edges_from_pixels(pixels), axis, False
+    bounds = np.asarray(bounds_mm, float) / 1000.; quad = _ordered_quad(measured_quad)
+    face = np.asarray([[bounds[0,0],bounds[0,1],bounds[0,2]], [bounds[1,0],bounds[0,1],bounds[0,2]],
+                       [bounds[1,0],bounds[1,1],bounds[0,2]], [bounds[0,0],bounds[1,1],bounds[0,2]]], np.float32)
+    corners = np.asarray([[bounds[x,0],bounds[y,1],bounds[z,2]] for x in (0,1) for y in (0,1) for z in (0,1)], np.float32)
+    center = bounds.mean(0).astype(np.float32); front = center.copy(); front[2] = bounds[0,2]
+    k = np.asarray([[intrinsics['fx'],0,intrinsics.get('cx',intrinsics.get('ppx'))],
+                    [0,intrinsics['fy'],intrinsics.get('cy',intrinsics.get('ppy'))],[0,0,1]],float)
+    predicted = np.asarray(axis, float) if axis is not None else None
+    predicted_vector = None if predicted is None else predicted[1] - predicted[0]
+    best = None
+    for reverse in (False, True):
+        base = quad if not reverse else quad[[0,3,2,1]]
+        for shift in range(4):
+            image = np.roll(base, shift, axis=0)
+            ok, rotation, translation = cv2.solvePnP(face, image, k, None, flags=cv2.SOLVEPNP_ITERATIVE)
+            if not ok: continue
+            projected, _ = cv2.projectPoints(np.vstack((corners, center, front)), rotation, translation, k, None)
+            projected = projected[:,0,:]
+            vector = projected[-1] - projected[-2]; length = np.linalg.norm(vector)
+            if not 12 < length < 400 or translation[2,0] <= .05: continue
+            score = 0. if predicted_vector is None else float(vector @ predicted_vector / (length*np.linalg.norm(predicted_vector)+1e-9))
+            if expected_depth_m is not None: score -= abs(float(translation[2,0])-float(expected_depth_m))*2.
+            if best is None or score > best[0]: best = (score, projected)
+    if best is None: return edges_from_pixels(pixels), axis, False
+    projected = [tuple(np.rint(point).astype(int)) for point in best[1][:-2]]
+    projected_axis = tuple(tuple(np.rint(point).astype(int)) for point in best[1][-2:])
+    return edges_from_pixels(projected), projected_axis, True
+
+
+def _atomic_json(path, value):
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':')))
+    os.replace(temporary, path)
+
+
+class LiveOverlay:
+    def __init__(self, capture, root=ROOT, output=None):
+        self.capture = capture
+        self.root = Path(root)
+        self.output = Path(output or self.root / 'web/public/camera-overlay')
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.model = ColumnModel(side='right')
+        self.tcp = np.asarray(json.loads((self.root / 'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'], float)
+        self.bounds = np.asarray(json.loads((self.root / 'config/battery-envelope.json').read_text())['bounds_mm'], float)
+        self.lock = threading.Lock()
+        self.state = dict(status='idle', reason='等待 D435 叠加画面', running=False, updated_at=0.)
+
+    def snapshot(self):
+        with self.lock:
+            return dict(self.state)
+
+    def refresh(self):
+        with self.lock:
+            if self.state.get('running'):
+                return dict(self.state)
+            self.state = dict(self.state, status='capturing', reason='正在读取 D435 配对帧', running=True)
+        threading.Thread(target=self._run, daemon=True, name='d435-live-overlay').start()
+        return self.snapshot()
+
+    def _reference(self):
+        preferred = self.root / 'reports/d435-visual-level-active/estimate-1795067389284369934/pose.json'
+        candidates = [preferred] if preferred.is_file() else []
+        candidates = sorted((self.root / 'reports/d435-visual-level-active').glob('estimate-*/pose.json'),
+                            key=lambda path: path.stat().st_mtime, reverse=True)
+        if preferred.is_file(): candidates = [preferred] + [path for path in candidates if path != preferred]
+        for pose_path in candidates:
+            pose = json.loads(pose_path.read_text())
+            frame_path = pose_path.with_name('frame.npz')
+            if pose.get('quality', {}).get('status') != 'consistent' or not frame_path.is_file():
+                continue
+            with np.load(frame_path, allow_pickle=False) as frame:
+                return (np.asarray(pose['T_base_from_object'], float), np.asarray(frame['joints'], float),
+                        float(frame['lift_rad']), str(pose.get('id', '')))
+        raise ValueError('没有可用于跟踪当前夹持电池的已确认 D435 位姿')
+
+    @staticmethod
+    def _axis_points(transform, bounds):
+        center_local = bounds.mean(0) / 1000.
+        # The cabinet-facing leading face is object -Z (z-min); object +Z is the gripped end.
+        front_local = center_local.copy()
+        front_local[2] = bounds[0, 2] / 1000.
+        return (transform[:3, :3] @ center_local + transform[:3, 3],
+                transform[:3, :3] @ front_local + transform[:3, 3])
+
+    def _run(self):
+        try:
+            self.capture.handle_action({'op': 'capture'})
+            frame_path = self.root / 'web/hardware/runtime/grasp-head/frame.npz'
+            with np.load(frame_path, allow_pickle=False) as source:
+                frame = {key: source[key].copy() for key in source.files}
+            frame['id'] = str(frame['id']); frame['camera_id'] = str(frame['camera_id'])
+            frame['calibration_sha256'] = str(frame['calibration_sha256'])
+            reference_object, reference_joints, reference_lift, reference_id = self._reference()
+            object_pose = tracked_object_pose(self.model, self.tcp, frame['joints'], float(frame['lift_rad']),
+                                              reference_object, reference_joints, reference_lift)
+            intrinsics = json.loads(str(frame['intrinsics']))
+            center_base, front_base = self._axis_points(object_pose, self.bounds)
+            center_camera = np.linalg.inv(frame['base_from_color']) @ np.r_[center_base, 1.]
+            center_px = project_base(center_base, frame['base_from_color'], intrinsics)
+            front_px = project_base(front_base, frame['base_from_color'], intrinsics)
+            if center_px is None: raise ValueError('电池中心不在当前 D435 画面内')
+            pixels = battery_box_pixels(object_pose, self.bounds, frame['base_from_color'], intrinsics)
+            measured_top = battery_top_face(frame['rgb'], frame['xyz'], center_px, center_camera[2])
+            edges, battery_axis = visible_face_overlay(measured_top)
+            depth_aligned = measured_top is not None
+            detection = detect(frame['rgb']); cabinet_axis = None; cabinet_reason = detection.get('reason', '')
+            if detection.get('status') == 'complete':
+                cabinet_axis = cabinet_axis_from_quad(detection['inner_quad_px'], intrinsics)
+                if cabinet_axis is not None:
+                    cabinet_reason = ''
+            result = self.render(frame['rgb'], edges, detection, battery_axis,
+                                 cabinet_axis, frame['id'], cabinet_reason=cabinet_reason, reference_id=reference_id,
+                                 depth_aligned=depth_aligned, xyz=frame['xyz'])
+            with self.lock: self.state = dict(result, running=False, updated_at=time.time(), reason=result.get('reason', ''))
+        except Exception as error:
+            data = dict(sequence=str(time.time_ns()), updated_at=time.time(), stale=False, error=str(error),
+                        status='unavailable', battery_axis=dict(status='unavailable'), cabinet_axis=dict(status='unavailable'))
+            _atomic_json(self.output / 'd435.json', data)
+            with self.lock: self.state = dict(status='unavailable', running=False, updated_at=time.time(), reason=str(error))
+
+    def render(self, rgb, battery_edges, detection, battery_axis, cabinet_axis, sequence,
+               *, cabinet_reason='', reference_id='', depth_aligned=False, xyz=None):
+        self.output.mkdir(parents=True, exist_ok=True)
+        canvas = cv2.cvtColor(np.asarray(rgb, np.uint8), cv2.COLOR_RGB2BGR)
+        for start, end in battery_edges:
+            cv2.line(canvas, start, end, (255, 0, 255), 3, cv2.LINE_AA)
+        if detection.get('outer_contour_px'): cv2.polylines(canvas, [np.asarray(detection['outer_contour_px'], np.int32)], True, (0, 0, 255), 4, cv2.LINE_AA)
+        if detection.get('inner_contour_px'): cv2.polylines(canvas, [np.asarray(detection['inner_contour_px'], np.int32)], True, (0, 0, 255), 3, cv2.LINE_AA)
+        if battery_axis and all(point is not None for point in battery_axis):
+            cv2.arrowedLine(canvas, battery_axis[0], battery_axis[1], (0, 255, 255), 4, cv2.LINE_AA, tipLength=.18)
+            cv2.putText(canvas, 'BATTERY FRONT', (battery_axis[0][0] + 8, battery_axis[0][1] - 8), cv2.FONT_HERSHEY_SIMPLEX, .58, (0, 255, 255), 2, cv2.LINE_AA)
+        if cabinet_axis and all(point is not None for point in cabinet_axis):
+            cv2.arrowedLine(canvas, cabinet_axis[0], cabinet_axis[1], (255, 255, 0), 4, cv2.LINE_AA, tipLength=.18)
+            cv2.putText(canvas, 'CABINET IN', (cabinet_axis[0][0] + 8, cabinet_axis[0][1] - 8), cv2.FONT_HERSHEY_SIMPLEX, .58, (255, 255, 0), 2, cv2.LINE_AA)
+        temporary = self.output / 'd435.tmp.jpg'
+        if not cv2.imwrite(str(temporary), canvas, [cv2.IMWRITE_JPEG_QUALITY, 92]): raise OSError('D435 叠加画面写入失败')
+        os.replace(temporary, self.output / 'd435.jpg')
+        if xyz is not None: write_depth_map(xyz, self.output / 'd435-depth.jpg')
+        battery_status = 'visible' if battery_axis else 'unavailable'; cabinet_status = 'visible' if cabinet_axis else 'unavailable'
+        reason = '' if cabinet_status == 'visible' else (cabinet_reason or '仓口进入轴未识别')
+        metadata = dict(sequence=str(sequence), updated_at=time.time(), stale=False, error='', status='ready',
+                        battery_contour=dict(status='visible' if battery_edges else 'unavailable', color='magenta',
+                                             method='current depth-supported visible face only'),
+                        cabinet_rim=dict(status='visible' if detection.get('status') == 'complete' else detection.get('status', 'unavailable'), color='red'),
+                        battery_axis=dict(status=battery_status, color='yellow', direction='object -Z / cabinet-facing leading face'),
+                        cabinet_axis=dict(status=cabinet_status, color='cyan', direction='inside'),
+                        reference_pose_id=reference_id, depth_top_face_aligned=bool(depth_aligned), reason=reason)
+        _atomic_json(self.output / 'd435.json', metadata)
+        return dict(status='ready', sequence=str(sequence), reason=reason, battery_axis=metadata['battery_axis'], cabinet_axis=metadata['cabinet_axis'])
