@@ -23,6 +23,26 @@ int main(int argc,char** argv){
         assert(t.status()=="reference_complete");std::cout<<out.dump()<<"\n";return 0;
     }
     auto p=plan();
+    // A 0.7 degree servo deflection must not be removed at a loaded handoff.
+    {ArmTrajectory t(limits,policy);auto actual=std::vector<double>(7,0);
+     auto held=std::vector<double>(6,.7*M_PI/180);auto x=p;
+     for(auto& point:x["joint_waypoints_rad"])for(auto& value:point)value=value.get<double>()+held[0];
+     auto initial=t.start_held(x,actual,held,0.);
+     assert(initial==held);assert(t.tick(0.,actual,true)==held);
+     assert(t.keepalive("test-1",.01));auto next=t.tick(.01,actual,true);
+     assert(next.size()==6&&std::abs(next[0]-held[0])<1e-6);}
+    {ArmTrajectory t(limits,policy);auto actual=std::vector<double>(7,0);
+     auto held=std::vector<double>(6,NAN);bool rejected=false;
+     try{t.start_held(p,actual,held,0.);}catch(...){rejected=true;}
+     assert(rejected&&!t.active()); // Reject before consuming an ID or moving.
+     held.assign(6,0.);assert(t.start_held(p,actual,held,0.)==held);}
+    {ArmTrajectory t(limits,policy);auto actual=std::vector<double>(7,0);
+     auto held=std::vector<double>(6,.01);
+     assert(t.start_held(p,actual,held,0.)==held);assert(t.tick(0.,actual,true)==held);}
+    {ArmTrajectory t(limits,policy);auto x=p;auto held=std::vector<double>(6,.1);
+     x["joint_waypoints_rad"][0]=held;bool rejected=false;
+     try{t.start_held(x,std::vector<double>(7,0),held,0.);}catch(...){rejected=true;}
+     assert(rejected&&!t.active());}
     {auto manual=limits;manual.max_delta_deg=5.7;auto relaxed=policy;relaxed.tracking_tolerance_deg=10.;
      for(double degrees:{9.,11.}){ArmTrajectory t(manual,relaxed);t.start(p,std::vector<double>(7,0),0);
        auto actual=std::vector<double>(7,0);actual[0]=degrees*M_PI/180;

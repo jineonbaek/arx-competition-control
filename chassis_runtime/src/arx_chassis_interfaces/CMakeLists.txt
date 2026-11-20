@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(arx_chassis_interfaces)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+rosidl_generate_interfaces(${PROJECT_NAME} "msg/Command.msg" "msg/State.msg" "msg/Result.msg" "msg/Output.msg" "srv/Manage.srv")
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()

@@ -18,12 +18,13 @@ class BatteryFlow:
         if (not callable(review_plan) or type(clearance_mm) not in (int,float)
                 or not math.isfinite(clearance_mm) or not 1<=clearance_mm<=200
                 or type(receipt_timeout_s) not in (int,float) or not math.isfinite(receipt_timeout_s)
-                or not 0<receipt_timeout_s<=3600 or vision_mode not in ('d405','d435')):
+                or not 0<receipt_timeout_s<=3600 or vision_mode not in ('d405','d435','plan_f','fixed')):
             raise ValueError('Local reviewer, known vision mode and bounded flow settings required')
         self.tools=tools;self.store=tools.store;self.review_plan=review_plan
         self.receipt_timeout_s=receipt_timeout_s
         if not hasattr(self.store,"battery_flow_lock"):self.store.battery_flow_lock=Lock()
-        self.flow=self.store.state.setdefault('battery_flow',dict(status='running',phase='head',
+        self.flow=self.store.state.setdefault('battery_flow',dict(status='running',
+            phase='fixed_coarse_plan' if vision_mode=='fixed' else 'head',
             index=0,polls=0,clearance_mm=clearance_mm,vision_mode=vision_mode,grasp_confirmed=False))
         if self.flow['clearance_mm']!=clearance_mm:raise ValueError('Cannot change a persisted flow')
         if self.flow.get('vision_mode','d405')!=vision_mode:raise ValueError('Cannot change a persisted vision mode')
@@ -50,6 +51,12 @@ class BatteryFlow:
             self.flow.setdefault('pending_since',time.time());self.store.save()
             while self.store.state.get('pending'):
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled during execution')
+                last_receipt=(self.store.state.get('pending') or {}).get('last_receipt') or {}
+                last_data=last_receipt.get('data',{})
+                if (name=='stow_for_carry' and last_receipt.get('status')=='running'
+                        and last_data.get('extract_stage')=='backing_chassis'
+                        and last_data.get('waiting_for_pose') is True):
+                    self.flow['pending_since']=time.time()
                 if time.time()-self.flow['pending_since']>self.receipt_timeout_s:
                     raise AgentError('execution_timeout','Execution receipt deadline exceeded')
                 self.flow['polls']+=1;self.store.save()
@@ -99,12 +106,27 @@ class BatteryFlow:
                    or self.store.state['mission'].get('approach_plan')):
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled')
                 phase=self.flow['phase']
-                if phase=='head':
-                    data=self._call('observe_battery',{'camera':'d435'})
+                if phase=='fixed_coarse_plan':
+                    plan=self.tools.fixed_coarse_plan()
+                    self.store.state['mission'].update(stage='COARSE_PLANNED',plan=copy.deepcopy(plan),
+                        target={'target_id':'plan_c_fixed','camera':'none'})
+                    self.store.save();self._next('coarse_execute')
+                elif phase=='fixed_pick_plan':
+                    plan=self.tools.fixed_pick_plan()
+                    self.flow['plan_id']=plan['plan_id']
+                    self.store.state['mission'].update(stage='PICK_PLANNED',plan=copy.deepcopy(plan))
+                    self.store.save();self._next('insert')
+                elif phase=='head':
+                    camera='d405' if self.vision_mode=='plan_f' else 'd435'
+                    data=self._call('observe_battery',{'camera':camera})
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
                     self.flow['head']=data['observation_id']
-                    self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera='d435',observation_id=data['observation_id'])
-                    self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
+                    self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera=camera,observation_id=data['observation_id'])
+                    if self.vision_mode=='plan_f':
+                        self.flow['wrist']=data['observation_id']
+                        self.store.state['mission']['stage']='COARSE_ALIGNED'
+                        self.store.save();self._next('preview')
+                    else:self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
                 elif phase=='coarse_plan':
                     self._call('plan_coarse_alignment',{'observation_id':self.flow['head']});self._next('coarse_execute')
                 elif phase in ('coarse_execute','approach_execute','insert'):
@@ -114,6 +136,7 @@ class BatteryFlow:
                     plan=self.store.state['mission'].get('plan') or {}
                     self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
                     self._next('verify_hold' if phase=='insert' else
+                               'fixed_pick_plan' if self.vision_mode=='fixed' else
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
                 elif phase=='wrist':
                     data=self._call('observe_battery',{'camera':'d405'})

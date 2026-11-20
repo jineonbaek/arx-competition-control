@@ -37,8 +37,10 @@ class WristExtractionStep:
         if self.failure:return self._receipt(self.failure)
         try:
             self._snapshot()
-            status=self.retreat.poll()['status']
-            return self._receipt('chassis_stopped' if status=='chassis_stopped' else 'backing_chassis')
+            progress=self.retreat.poll();status=progress['status']
+            receipt=self._receipt('chassis_stopped' if status=='chassis_stopped' else 'backing_chassis')
+            if progress.get('waiting_for_pose') is True:receipt['waiting_for_pose']=True
+            return receipt
         except Exception as error:return self.cancel('extraction_feedback_failed',error)
 
     def cancel(self,reason='cancelled',error=None):

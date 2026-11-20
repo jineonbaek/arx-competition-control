@@ -12,3 +12,9 @@ export PYTHONPYCACHEPREFIX="$_arx_control_root/.pycache"
 export PYTHONPATH="$_arx_control_root/install-python/x5:$_arx_control_root/install-python/lift:$_arx_control_root/install-python/lift/lift_controller/api/arx_lift_python:$PYTHONPATH"
 export LD_LIBRARY_PATH="$_arx_control_root/install-python/x5/bimanual/api/arx_x5_src:$_arx_control_root/install-python/x5/bimanual/api:$_arx_control_root/install-python/lift/lift_controller/api/arx_lift_src:$LD_LIBRARY_PATH"
 unset _arx_control_root
+
+# Independent chassis ROS interfaces and clients; this does not start hardware.
+if [[ -f /home/arx/arx-competition-control/chassis_runtime/install/local_setup.bash ]]; then
+  source /home/arx/arx-competition-control/chassis_runtime/install/local_setup.bash
+fi
+export PYTHONPATH="/home/arx/arx-competition-control/chassis_runtime:$PYTHONPATH"

@@ -10,6 +10,8 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
  root=Path(__file__).resolve().parents[1];run=Path(os.environ['ARX_SINGLE_RUN']);run.mkdir(parents=True,exist_ok=True)
+ sys.path.insert(0,str(root/'polarbear_adapt'))
+ from map_resolution import COSTMAP_RESOLUTION
  sys.path.insert(0,str(root/'fixed_dual'))
  from geometry import enabled,configuration
  dual=enabled(root)
@@ -31,6 +33,6 @@ def generate_launch_description():
   nodes.append(ExecuteProcess(cmd=[str(root/'fixed_dual/build/frontend'),str(root),str(run)],output='screen'))
  required=list(nodes)
  lio=Node(package='fast_lio',executable='fastlio_mapping',name='bottom_upright_lio',namespace='single',parameters=[params],output='screen',remappings=[('/tf','/single/private_lio_tf'),('/cloud_registered','/single/cloud_registered'),('/cloud_registered_body','/single/cloud_body'),('/cloud_effected','/single/cloud_effected'),('/Laser_map','/single/map_raw'),('/Odometry','/single/odometry_raw'),('/path','/single/path_raw')])
- nodes.append(TimerAction(period=2.,actions=[lio]));nodes.append(ExecuteProcess(cmd=[sys.executable,str(root/'scripts/pointmap_grid.py'),'--cloud-topic','/mapping/cloud_map','--odom-topic','/localization/odometry','--map-topic','/mapping/grid','--frame','odom','--floor','0','0','0','--resolution','0.05','--output',str(run/'grid')],output='screen'))
+ nodes.append(TimerAction(period=2.,actions=[lio]));nodes.append(ExecuteProcess(cmd=[sys.executable,str(root/'scripts/pointmap_grid.py'),'--cloud-topic','/mapping/cloud_map','--odom-topic','/localization/odometry','--map-topic','/mapping/grid','--frame','odom','--floor','0','0','0','--resolution',str(COSTMAP_RESOLUTION),'--output',str(run/'grid')],output='screen'))
  for process in required+[lio]:nodes.append(RegisterEventHandler(OnProcessExit(target_action=process,on_exit=[EmitEvent(event=Shutdown(reason='Required single LIO process stopped; reinitialize stationary'))])))
  return LaunchDescription(nodes)

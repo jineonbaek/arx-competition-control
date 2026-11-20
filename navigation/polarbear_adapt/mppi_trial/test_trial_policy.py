@@ -17,7 +17,7 @@ class PolicyTests(unittest.TestCase):
   self.assertFalse(trial_progress((0.,.02,0.),(0.,-.22,0.)))
   self.assertTrue(trial_progress((0.,0.,.03),(0.,0.,.25)))
  def test_overspeed_reduces_effort_without_discarding_goal(self):
-  xy,yaw=speed_factors((.2,0.,.36));self.assertAlmostEqual(xy,.5);self.assertAlmostEqual(yaw,.5)
+  xy,yaw=speed_factors((.22*.8/.3*2,0.,1.6));self.assertAlmostEqual(xy,.5);self.assertAlmostEqual(yaw,.5)
   self.assertGreater(xy,0);self.assertGreater(yaw,0)
  def test_no_slowdown_below_limit(self):self.assertEqual(speed_factors((.02,.03,.01)),(1.,1.))
  def test_cancelled_or_near_distance_is_not_arrival(self):

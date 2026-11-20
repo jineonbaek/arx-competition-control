@@ -3,13 +3,9 @@ set -eo pipefail
 cd "$(dirname "$0")/.."
 source sensor_env.sh
 export ARX_DESKTOP_LAUNCHER="$PWD/desktop/start_navigation.sh"
-source staging/waypoint-rviz/install/local_setup.bash
-# New RViz overlay is separate; retain the previous package as fallback/rollback.
-arx_waypoint_prefix="$PWD/staging/effective-waypoint-rviz"
-if [[ -d "$arx_waypoint_prefix/share/ament_index" ]]; then
-    export AMENT_PREFIX_PATH="$arx_waypoint_prefix:${AMENT_PREFIX_PATH:-}"
-    export LD_LIBRARY_PATH="$arx_waypoint_prefix/lib:${LD_LIBRARY_PATH:-}"
-fi
+arx_waypoint_prefix=$(bash desktop/prepare_rviz.sh)
+export AMENT_PREFIX_PATH="$arx_waypoint_prefix:${AMENT_PREFIX_PATH:-}"
+export LD_LIBRARY_PATH="$arx_waypoint_prefix/lib:${LD_LIBRARY_PATH:-}"
 unset arx_waypoint_prefix
 config="$PWD/polarbear_adapt/polarbear.rviz"
 python3 "$PWD/polarbear_adapt/rviz_cloud_display.py" &

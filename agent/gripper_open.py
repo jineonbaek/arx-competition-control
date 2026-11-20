@@ -40,9 +40,10 @@ class OpenThenApproachStep:
         error=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
         return bool(np.all(np.abs(error)<=self.monitor.arm.tolerance))
 
-    def _abort(self,reason):
+    def _abort(self,reason,detail=None):
         if self.failure is None:
-            self.failure=dict(status=reason,stop_required=True,grasp_confirmed=False,close_permitted=False)
+            self.failure=dict(status=reason,stop_required=True,grasp_confirmed=False,close_permitted=False,
+                failure_detail=detail or f'夹爪张开阶段停止[{reason}]: 张开量(-夹爪反馈)={None if self.arrival.previous is None else self.arrival.previous.tolist()}, minimum={self.arrival.minimum.tolist()}, stall_s={self.arrival.stall}, timeout_s={self.arrival.timeout}')
             try:self.failure={**self.approach.cancel(),**self.failure}
             except Exception as error:
                 self.failure['stop_request']='failed'
@@ -62,7 +63,7 @@ class OpenThenApproachStep:
                 return dict(status='opening_gripper',stop_required=False,close_permitted=False,grasp_confirmed=False)
             except Exception as error:
                 self.controller.log('Gripper opening failed: '+str(error),'warning')
-                return self._abort('execution_unknown')
+                return self._abort('execution_unknown',str(error))
 
     def cancel(self):
         with self.lock:return self._abort('cancelled')
@@ -90,4 +91,4 @@ class OpenThenApproachStep:
                 return dict(status='opening_gripper',stop_required=False,close_permitted=False,grasp_confirmed=False)
             except Exception as error:
                 self.controller.log('Gripper opening feedback failed: '+str(error),'warning')
-                return self._abort('feedback_invalid')
+                return self._abort('feedback_invalid',str(error))

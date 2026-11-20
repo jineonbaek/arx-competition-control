@@ -1,9 +1,13 @@
 """Bound MPPI output and report stale inputs on a preview-only topic."""
 import math
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from chassis_pose_policy import MOTION_MAX_AGE_NS
 import time
 import rclpy
 from geometry_msgs.msg import TwistStamped
-from sdk_preview import convert
+from sdk_preview import convert, limit_velocity
 from nav_msgs.msg import Odometry, OccupancyGrid
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String, Bool
@@ -42,7 +46,7 @@ class PreviewGate(Node):
 
     def blocked(self, now, require_velocity=True):
         wall = time.monotonic()
-        for name, age, gap in (('velocity',.20,.15), ('odometry',.45,.25),
+        for name, age, gap in (('velocity',.20,.15), ('odometry',MOTION_MAX_AGE_NS/1e9,MOTION_MAX_AGE_NS/1e9),
                                ('front',.65,.25), ('rear',.65,.25), ('costmap',.50,.35)):
             if name == 'velocity' and not require_velocity:
                 continue
@@ -53,7 +57,7 @@ class PreviewGate(Node):
             pose = self.buf.lookup_transform('odom','base_link',Time())
         except TransformException:
             return 'tf_missing'
-        if not 0 <= (now-Time.from_msg(pose.header.stamp).nanoseconds)/1e9 <= .45:
+        if not 0 <= (now-Time.from_msg(pose.header.stamp).nanoseconds)/1e9 <= MOTION_MAX_AGE_NS/1e9:
             return 'tf_stale'
         return None
 
@@ -69,10 +73,8 @@ class PreviewGate(Node):
             twist = self.inputs['velocity'][2].twist
             x,y,w = twist.linear.x,twist.linear.y,twist.angular.z
             if all(math.isfinite(v) for v in (x,y,w)):
-                scale = min(1., .10/max(math.hypot(x,y),1e-9))
-                msg.twist.linear.x = x*scale
-                msg.twist.linear.y = y*scale
-                msg.twist.angular.z = max(-.18,min(w,.18))
+                (msg.twist.linear.x,msg.twist.linear.y,
+                 msg.twist.angular.z) = limit_velocity(x,y,w)
             else:
                 reason = 'velocity_invalid'
         self.output.publish(msg)

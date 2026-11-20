@@ -1,4 +1,5 @@
 """Map a visual held-body attachment into the existing cabinet planner."""
+import copy
 import numpy as np
 from .docking_fit import OBJECT_TO_TOOL
 from .placement_geometry import rigid
@@ -61,6 +62,29 @@ def retained_reference_path(nominal,held_reference,actual):
     offset=reference-actual
     if np.max(abs(offset))>np.radians(2.):raise ValueError('Measured loaded reference offset exceeds 2deg')
     return nominal+offset
+
+def loaded_trajectory_plan(plan,actual,driver,limits_deg):
+    """Anchor a checked joint curve at the reference already supporting the load.
+
+    A constant shift leaves joint velocities/accelerations unchanged. The caller
+    must recheck the shifted arm path before dispatch; this is not a mass estimate.
+    Already compensated paths receive no second holding offset.
+    """
+    points=np.asarray(plan['joint_waypoints_rad'],float)
+    actual=np.asarray(actual,float);held=np.asarray(driver.get('joint_reference_rad'),float)
+    limits=np.radians(np.asarray(limits_deg,float))
+    if (points.ndim!=2 or points.shape[1]!=6 or len(points)<2
+            or actual.shape!=(6,) or held.shape!=(6,) or limits.shape!=(6,2)
+            or not np.isfinite(np.r_[points.ravel(),actual,held,limits.ravel()]).all()):
+        raise ValueError('Loaded trajectory reference unavailable or invalid')
+    offset=held-points[0]
+    if max(np.max(abs(held-actual)),np.max(abs(offset)))>np.radians(2.)+1e-12:
+        raise ValueError('Loaded trajectory reference exceeds 2deg bound')
+    commands=points+offset;commands[0]=held
+    if np.any(commands<limits[:,0]) or np.any(commands>limits[:,1]):
+        raise ValueError('Loaded trajectory reference outside joint limits')
+    result=copy.deepcopy(plan);result['joint_waypoints_rad']=commands.tolist()
+    return result,offset
 
 def capture_motion_bound(captured_tool,current_tool,expected_epoch,current_epoch):
     if current_epoch!=expected_epoch:raise ValueError('Arm command changed during visual exposure processing')

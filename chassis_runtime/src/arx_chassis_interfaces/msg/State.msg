@@ -1,0 +1,15 @@
+string scheduler_instance
+bool ready
+string driver_instance
+bool active
+string client_id
+string source_id
+string task_id
+uint64 generation
+uint64 output_seq
+float64 expires_at
+float64[3] sdk
+bool maintenance
+float64[3] applied_sdk
+uint64 applied_seq
+string reason

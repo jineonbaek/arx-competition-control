@@ -38,7 +38,7 @@ def slew_effort(previous,target,dt):
     if not valid_effort(previous) or not valid_effort(target):raise ValueError('invalid effort before slew')
     delta=[b-a for a,b in zip(previous,target)]
     step=min(.085,max(.01,dt))
-    alpha=min(1.,.55*step/max(math.hypot(*delta[:2]),1e-9),.20*step/max(abs(delta[2]),1e-9))
+    alpha=min(1.,1.60*step/max(math.hypot(*delta[:2]),1e-9),1.60*step/max(abs(delta[2]),1e-9))
     return tuple(a+alpha*d for a,d in zip(previous,delta))
 
 def valid_effort(command):

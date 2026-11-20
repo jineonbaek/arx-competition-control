@@ -300,6 +300,11 @@ class CompetitionTask:
             missing = [label for key, label in STAGES if key not in self.modules]
             if missing:
                 raise ValueError(missing[0] + '：能力未接入')
+            prepare=getattr(self.navigation,'prepare',None)
+            preflight=getattr(self.navigation,'validate_start_route',None)
+            if s['index']==0:
+                if callable(prepare):prepare(self._context(s,'navigate_pick',dict(request_id=s['run_id']+':navigate_pick')))
+                elif callable(preflight):preflight()
             self._prepare_arm_presets(s)
             pick = self.modules.get('pick')
             if (s['index']==0 and callable(getattr(pick,'preposition_lift',None))):

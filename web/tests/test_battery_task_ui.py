@@ -8,8 +8,8 @@ PUBLIC=Path(__file__).resolve().parents[1]/'public'
 
 class BatteryTaskUITests(unittest.TestCase):
     def test_start_requires_one_clear_area_confirmation_and_current_epoch(self):
-        html=(PUBLIC/'grasp-integration.html').read_text()
-        script=(PUBLIC/'js/grasp-integration.js').read_text()
+        html=(PUBLIC/'grasp-integration.html').read_text(encoding='utf-8')
+        script=(PUBLIC/'js/grasp-integration.js').read_text(encoding='utf-8')
         self.assertEqual(html.count('id="environment-clear"'),1)
         self.assertIn("expected_epoch:execution.command_epoch",script)
         self.assertIn("environment_clear:true",script)
@@ -18,7 +18,7 @@ class BatteryTaskUITests(unittest.TestCase):
         self.assertIn('lift_target_rad:lift.valueAsNumber',script)
         self.assertIn('observer_z_mm:observer.valueAsNumber',script)
         self.assertEqual(html.count('id="vision-mode"'),1)
-        self.assertIn("vision_mode:el('vision-mode').value",script)
+        self.assertIn('vision_mode:mode',script)
         self.assertIn('<option value="d405" selected>',html)
         self.assertIn("action:'cancel'",script)
         self.assertEqual(html.count('id="execution-log"'),1)
@@ -30,6 +30,11 @@ class BatteryTaskUITests(unittest.TestCase):
         self.assertNotIn('TCP 未接入',html)
         self.assertIn('id="d435-live"',html)
         self.assertIn('id="d405-live"',html)
+        for identity in ('recognition-profile','recognition-profile-name','dino-prompt','qwen-task',
+                         'save-recognition-profile','save-as-recognition-profile','delete-recognition-profile'):
+            self.assertEqual(html.count('id="'+identity+'"'),1)
+        self.assertIn('recognition_profile:recognitionProfileFromForm()',script)
+        self.assertIn("manageRecognitionProfile('save_recognition_profile'",script)
 
 
 if __name__=='__main__':unittest.main()

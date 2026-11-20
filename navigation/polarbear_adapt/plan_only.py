@@ -19,6 +19,7 @@ from visualization_msgs.msg import Marker
 from nav2_msgs.action import ComputePathToPose, ComputePathThroughPoses
 from std_msgs.msg import String,Bool
 from mission_route import point,path_covers_vias
+from chassis_pose_policy import MOTION_MAX_AGE_NS
 from path_audit import AuditGrid, heading, planar
 
 ERRORS={205:'start_occupied',206:'goal_occupied',208:'no_valid_path'}
@@ -243,7 +244,7 @@ class Planner(Node):
         except TransformException:
             self.report('waiting_for_robot_tf');return
         now = self.get_clock().now().nanoseconds / 1e9
-        if not 0 <= now - seconds(pose.header.stamp) <= .4:
+        if not 0 <= now - seconds(pose.header.stamp) <= MOTION_MAX_AGE_NS/1e9:
             self.report('waiting_for_fresh_robot_tf');return
         tf = pose.transform
         o=m.info.origin.position

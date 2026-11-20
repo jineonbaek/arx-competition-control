@@ -41,7 +41,7 @@ slam_toolbox:
     mode: mapping
     occupancy_threshold: 0.1
     odom_frame: odom
-    resolution: 0.05
+    resolution: 0.02
     restamp_tf: false
     scan_buffer_maximum_scan_distance: 10.0
     scan_buffer_size: 10

@@ -74,6 +74,7 @@ logs/
 
 /agent/placement-runs/
 /config/placement.local.json
+/config/battery-plan-c.local.json
 /.superpowers/
 
 # Read-only site dependency references in isolated development trees
@@ -81,3 +82,6 @@ logs/
 /vision/vendor-openni
 /web/public/models/lift2
 /web/public/vendor/lift2-preview
+
+# Reproducible desktop RViz builds; source stays under polarbear_adapt/waypoint_rviz.
+/navigation/overlays/waypoint_rviz/

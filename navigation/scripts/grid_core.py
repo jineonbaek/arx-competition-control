@@ -1,8 +1,11 @@
 """Conservative projection of a gravity-aligned point map; no convex-hull fill."""
 import json
+import sys
 from pathlib import Path
 import numpy as np
 import yaml
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"polarbear_adapt"))
+from map_resolution import COSTMAP_RESOLUTION
 
 
 def read_pcd(path):
@@ -77,7 +80,7 @@ def line_cells(x0, y0, x1, y1):
             y0 += sy
 
 
-def project(points, floor, resolution=0.1, origins=None, min_height=0.10, max_height=2.0):
+def project(points, floor, resolution=COSTMAP_RESOLUTION, origins=None, min_height=0.10, max_height=2.0):
     pts = np.asarray(points)
     pts = pts[np.isfinite(pts).all(axis=1)]
     height = pts[:, 2] - (pts[:, 0]*floor[0] + pts[:, 1]*floor[1] + floor[2])
@@ -88,7 +91,9 @@ def project(points, floor, resolution=0.1, origins=None, min_height=0.10, max_he
         raise ValueError('No valid map points or invalid resolution')
     lo = np.floor((relevant[:, :2].min(axis=0)-0.5)/resolution)*resolution
     shape = np.ceil((relevant[:, :2].max(axis=0)+0.5-lo)/resolution).astype(int)+1
-    if shape.prod() > 4_000_000:
+    # Preserve the original 10cm helper physical-area bound at finer resolution;
+    # bound packed memory too, and never crop or discard map evidence.
+    if shape.prod() * resolution**2 > 40_000 or shape.prod() > 100_000_000:
         raise ValueError('Grid bounds exceed limit; refusing potentially divergent map')
     grid = np.full((shape[1], shape[0]), -1, dtype=np.int8)
     def cells(xy):
@@ -120,7 +125,9 @@ def project(points, floor, resolution=0.1, origins=None, min_height=0.10, max_he
 def save_grid(prefix, grid, origin, resolution, metadata):
     prefix = Path(prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
-    image = np.where(grid < 0, 205, np.where(grid >= 65, 0, 254)).astype(np.uint8)
+    image = np.full(grid.shape, 205, dtype=np.uint8)
+    image[grid >= 0] = 254
+    image[grid >= 65] = 0
     pgm = prefix.with_suffix('.pgm')
     tmp = pgm.with_suffix('.pgm.tmp')
     with tmp.open('wb') as f:

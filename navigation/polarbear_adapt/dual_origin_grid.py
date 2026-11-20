@@ -37,7 +37,8 @@ SOURCES = {
     'bottom': ('/fixed_dual/bottom/mapping_scan', 'bottom_livox'),
     'head': ('/fixed_dual/head/mapping_scan', 'rear_livox'),
 }
-RESOLUTION = .05
+from map_resolution import COSTMAP_RESOLUTION
+RESOLUTION = COSTMAP_RESOLUTION
 MAX_CELLS = 4_000_000
 
 
@@ -103,12 +104,20 @@ class DualOriginMapping(Node):
         self.create_service(SaveMap, '/pb/dual_origin/save_map', self.save)
         self.alignment = None
         self.resume_pose = None
+        self.heading_pose = None
         self.tf = Buffer(cache_time=Duration(seconds=10), node=self)
         self.listener = TransformListener(self.tf, self)
         self.grid = Grid()
         if checkpoint := os.getenv('ARX_DUAL_ORIGIN_RESUME'):
             with np.load(checkpoint, allow_pickle=False) as data:
                 low, passes, hits = (data[key] for key in ('low', 'passes', 'hits'))
+                if 'resolution' in data:
+                    source_resolution = float(data['resolution'])
+                else:
+                    config = yaml.safe_load(Path(checkpoint).with_suffix('').with_suffix('.yaml').read_text())
+                    source_resolution = float(config['resolution'])
+                if not math.isclose(source_resolution, RESOLUTION, abs_tol=1e-9):
+                    raise ValueError('Checkpoint resolution differs from 2cm; migrate before resuming')
             if (low.shape != (2,) or low.dtype != np.int32 or passes.ndim != 2
                     or not 0 < passes.size <= MAX_CELLS or hits.shape != passes.shape
                     or passes.dtype != np.uint32 or hits.dtype != np.uint32
@@ -120,6 +129,13 @@ class DualOriginMapping(Node):
             if not seed['acceptable'] or self.resume_pose.shape != (3,) or not np.isfinite(self.resume_pose).all():
                 raise ValueError('Invalid dual-origin map alignment')
 
+        if initial := os.getenv('ARX_MAP_INITIAL_HEADING'):
+            if os.getenv('ARX_DUAL_ORIGIN_RESUME'):
+                raise ValueError('New heading cannot reuse old map coordinates')
+            record = json.loads(Path(initial).read_text())
+            self.heading_pose = np.asarray(record['odom_pose'], dtype=float)
+            if not record.get('stationary') or self.heading_pose.shape != (3,) or not np.isfinite(self.heading_pose).all():
+                raise ValueError('Invalid initial mapping heading')
         self.queue = {s: deque(maxlen=14) for s in SOURCES}
         self.stats = {s: Counter() for s in SOURCES}
         self.lag = {s: deque(maxlen=2400) for s in SOURCES}
@@ -151,6 +167,12 @@ class DualOriginMapping(Node):
         odom_pose = planar(body.transform)
         yaw = self.resume_pose[2]-odom_pose[2] if self.resume_pose is not None else 0.
         shift = self.resume_pose[:2]-rotation(yaw)@odom_pose[:2] if self.resume_pose is not None else np.zeros(2)
+        if self.heading_pose is not None:
+            delta = odom_pose-self.heading_pose
+            if np.linalg.norm(delta[:2]) > .02 or abs(math.atan2(math.sin(delta[2]), math.cos(delta[2]))) > .02:
+                raise ValueError('Vehicle moved after setting map direction; retry while stationary')
+            yaw = -float(self.heading_pose[2])
+            shift = -rotation(yaw)@self.heading_pose[:2]
         self.alignment = (rotation(yaw), shift)
         transform = TransformStamped()
         transform.header.stamp = self.get_clock().now().to_msg()
@@ -186,7 +208,7 @@ class DualOriginMapping(Node):
             config = dict(image='room.pgm', mode='trinary', resolution=RESOLUTION, origin=origin,
                           negate=0, occupied_thresh=.65, free_thresh=.196)
             prefix.with_suffix('.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
-            np.savez_compressed(prefix.with_suffix('.dual-origin.npz'), low=low, passes=passes, hits=hits)
+            np.savez_compressed(prefix.with_suffix('.dual-origin.npz'), low=low, passes=passes, hits=hits, resolution=RESOLUTION)
         except (OSError, ValueError) as exc:
             self.get_logger().error(f'Map save failed: {exc}')
             return response
@@ -235,7 +257,7 @@ class DualOriginMapping(Node):
                     stats['empty_or_invalid'] += 1
                     continue
                 rot, shift = self.alignment
-                if self.resume_pose is not None:
+                if self.resume_pose is not None or self.heading_pose is not None:
                     origin, points = origin @ rot.T + shift, points @ rot.T + shift
                 if not self.grid.insert(origin, points):
                     stats['extent_reject'] += 1

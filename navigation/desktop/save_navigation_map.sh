@@ -34,13 +34,26 @@ else
 fi
 test -s "$prefix.yaml" && test -s "$prefix.pgm" || exit 1
 python3 desktop/save_pose_hint.py "$export_dir/pose_hint.json" || echo '未取得新鲜车位；地图仍可用，定位时请手动指定初始位姿。'
+if [[ -n "$run" && -f "$run/competition-map" ]]; then
+  python3 desktop/competition_route.py snapshot "$export_dir" "$run"
+fi
 (
  cd "$export_dir"
  files=(room.yaml room.pgm "${extra[@]}")
+ for metadata in coordinate-frame.json competition-route.json; do
+   if [[ -f "$metadata" ]]; then files+=("$metadata"); fi
+ done
  if [[ -f pose_hint.json ]]; then files+=(pose_hint.json); fi
  sha256sum "${files[@]}" > SHA256SUMS
  sha256sum -c SHA256SUMS
 )
 unlink "$export_dir/INCOMPLETE"
+if [[ -n "$run" && -f "$run/competition-map" ]]; then
+  python3 desktop/competition_map.py publish "$export_dir" >/dev/null
+  python3 desktop/competition_route.py link >/dev/null
+  archived=$(python3 desktop/competition_map.py resolve)
+  rm -rf -- "$export_dir"
+  prefix="${archived%.yaml}"
+fi
 if [[ -n "${1:-}" ]]; then printf '%s\n' "$prefix.yaml" >"$1"; fi
 echo "保存成功：$prefix.yaml"

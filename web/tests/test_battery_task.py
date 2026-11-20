@@ -1,10 +1,13 @@
 """Battery task session lifecycle with fake controller only."""
+import json
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock,patch
+
+import numpy as np
 
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
@@ -129,12 +132,61 @@ class BatteryTaskTests(unittest.TestCase):
                     'expected_epoch':0,'environment_clear':True,**values})
         result=self.task.action('owner',{'action':'start','request_id':'fixed-points',
             'expected_epoch':0,'environment_clear':True,
-            'lift_target_rad':6.6,'observer_z_mm':735.5,'vision_mode':'d435'})
+            'lift_target_rad':6.6,'observer_z_mm':735.5,'vision_mode':'d435',
+            'recognition_profile':{'id':'test','name':'测试方案','dino_prompt':'selected dino',
+                                   'qwen_task':'selected qwen'}})
         settings=self.created[0][0].state['battery_task_settings']
         self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.,
-                                   'observer_z_mm':735.5,'vision_mode':'d435'})
-        self.assertEqual(result['settings'],settings)
+                                   'observer_z_mm':735.5,'vision_mode':'d435',
+                                   'recognition_profile':{'id':'test','name':'测试方案',
+                                       'dino_prompt':'selected dino','qwen_task':'selected qwen'}})
+        self.assertEqual({key:result['settings'][key] for key in settings},settings)
+        self.assertIn('plan_c',result['settings'])
         self.gate.set();self.wait('needs_attention')
+
+    def test_recognition_profiles_preserve_builtins_and_persist_custom_selection(self):
+        path=Path(self.temp.name)/'recognition-profiles.json'
+        task=BatteryTask(Path(self.temp.name)/'profile-runs',self.controller,
+                         self.task.workflow_factory,recognition_profiles_path=path)
+        self.addCleanup(task.close)
+        initial=task.snapshot('owner')['settings']
+        self.assertEqual([p['id'] for p in initial['recognition_profiles']],['handle','battery'])
+        profile={'id':'custom-test','name':'现场方案','dino_prompt':'custom dino',
+                 'qwen_task':'custom qwen'}
+        saved=task.action('owner',{'action':'save_recognition_profile','request_id':'save-profile',
+                                   'profile':profile})
+        self.assertEqual(saved['settings']['selected_recognition_profile_id'],'custom-test')
+        self.assertEqual(task.task_settings['recognition_profile'],profile)
+        reloaded=BatteryTask(Path(self.temp.name)/'profile-reload',self.controller,
+                             self.task.workflow_factory,recognition_profiles_path=path)
+        self.addCleanup(reloaded.close)
+        view=reloaded.snapshot('owner')['settings']
+        self.assertEqual(view['selected_recognition_profile_id'],'custom-test')
+        self.assertEqual(view['recognition_profile'],profile)
+        self.assertEqual([p['id'] for p in view['recognition_profiles']],['handle','battery','custom-test'])
+
+    def test_plan_c_records_live_joint_feedback_and_persists_lift_with_existing_floor_rule(self):
+        profile=Path(self.temp.name)/'plan-c.json'
+        task=BatteryTask(Path(self.temp.name)/'plan-c-runs',self.controller,
+                         self.task.workflow_factory,plan_c_path=profile)
+        self.addCleanup(task.close)
+        self.controller.update_arm('right',[np.float64(v) for v in [.1,.2,.3,.4,.5,.6]],-1.,[0.]*6)
+        self.controller.update_body(5.52,[0.]*4,0.,0.,0.)
+        first=task.action('owner',{'action':'record_plan_c','request_id':'record-pre',
+            'point':'pregrasp','lift_target_rad':6.6})
+        self.controller.update_arm('right',[.2,.3,.4,.5,.6,.7],-1.,[0.]*6)
+        second=task.action('owner',{'action':'record_plan_c','request_id':'record-grasp',
+            'point':'grasp','lift_target_rad':6.6})
+        saved=json.loads(profile.read_text(encoding='utf-8'))
+        self.assertEqual((saved['lift_target_rad'],saved['lift_acceptance_rad']),(6.6,6.))
+        self.assertEqual(saved['pregrasp_joints_rad'],[.1,.2,.3,.4,.5,.6])
+        self.assertEqual(saved['grasp_joints_rad'],[.2,.3,.4,.5,.6,.7])
+        self.assertEqual(first['settings']['plan_c']['pregrasp_joints_rad'],saved['pregrasp_joints_rad'])
+        self.assertEqual(second['settings']['plan_c'],saved)
+        reloaded=BatteryTask(Path(self.temp.name)/'reload-runs',self.controller,
+                             self.task.workflow_factory,plan_c_path=profile)
+        self.addCleanup(reloaded.close)
+        self.assertEqual(reloaded.snapshot('owner')['settings']['plan_c'],saved)
 
     def test_cancel_is_idempotent_and_marks_run_without_motion(self):
         self.task.action('owner',{'action':'start','request_id':'req-1','expected_epoch':0,

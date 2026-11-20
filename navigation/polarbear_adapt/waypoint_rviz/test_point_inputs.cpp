@@ -5,9 +5,14 @@
 #include <iostream>
 void require(bool value){if(!value)throw std::runtime_error("Point input behavioral assertion failed");}
 int main(int argc,char**argv){
- QApplication app(argc,argv);QWidget owner;QVBoxLayout layout(&owner);QJsonObject received;int calls=0;QString dragKind,dragName;
- arx_waypoints::PointInputs inputs(&layout,[&](const QJsonObject&v){received=v;++calls;},[&](const QString&k,const QString&n){dragKind=k;dragName=n;});
+ QApplication app(argc,argv);QWidget owner;QVBoxLayout layout(&owner);QJsonObject received;int calls=0,replacements=0;QString dragKind,dragName;
+ arx_waypoints::PointInputs inputs(&layout,[&](const QJsonObject&v){received=v;++calls;},[&](const QString&k,const QString&n){dragKind=k;dragName=n;},[&]{++replacements;});
  require(owner.findChildren<QLineEdit*>().isEmpty());
+ owner.resize(340,110);owner.show();app.processEvents();
+ auto buttons=owner.findChildren<QPushButton*>();require(buttons.size()==3);
+ inputs.replace->click();require(replacements==0);inputs.replace->setEnabled(true);inputs.replace->click();require(replacements==1 && calls==0);
+ require(buttons[0]->text()=="添加当前点" && buttons[1]->text()=="拖箭头加点" && buttons[2]->text()=="替换");
+ require(buttons[0]->geometry().top()==buttons[1]->geometry().top() && buttons[1]->geometry().top()==buttons[2]->geometry().top());
  require(inputs.kind->currentData().toString()=="via");
  for(auto kind:{"via","special","point_1","point_2"}){
   inputs.kind->setCurrentIndex(inputs.kind->findData(kind));inputs.capture->click();

@@ -335,21 +335,13 @@ class RosAdapter:
         self._publisher('/web/'+side+'/trajectory',self.String).publish(msg)
 
     def chassis_ready(self):
-        with self.chassis_state_lock:
-            state=self.chassis_state
-            return bool(state and time.monotonic()-state[1]<.25
-                        and state[0].get('calibrated') is True
-                        and self.has_subscriber('/web/chassis/ordered_output','body'))
+        if self.config.get('chassis_backend') == 'ros':
+            return bool(self.controller and self.controller.chassis.snapshot().get('ready'))
+        return False
 
     def chassis_output(self, output):
         from control import Rejected
-        with self.chassis_state_lock:
-            state=self.chassis_state
-            if not state or time.monotonic()-state[1]>=.25:
-                raise Rejected('有序底盘驱动状态过期；未下发')
-            payload=dict(output,driver_instance=state[0]['driver_instance'])
-        msg=self.String();msg.data=json.dumps(payload,allow_nan=False)
-        self._publisher('/web/chassis/ordered_output',self.String).publish(msg)
+        raise Rejected('9983 direct chassis output disabled; use independent ROS scheduler')
 
     def lift(self, target):
         with self.lift_stop_lock:return self._lift_goal(target)

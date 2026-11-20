@@ -2,16 +2,47 @@
 import copy
 import json
 import math
+from numbers import Real
 import threading
+import time
 from pathlib import Path
 
-from agent.storage import RunStore
+from agent.motion_feedback import ArrivalMonitor
+from agent.storage import RunStore,atomic_json
 from agent.perception_session import PerceptionSession
 from control import Rejected
 
 
+DEFAULT_RECOGNITION_PROFILES={
+    'handle':{
+        'id':'handle','name':'把手方案（当前）',
+        'dino_prompt':'battery pull handle . recessed battery handle .',
+        'qwen_task':(
+            '找到安装在无人机电池槽中的可拆卸比赛电池。\n\n'
+            '当前D435视角通常只能看到电池外露端部和前端提手，长方体电池主体大部分被无人机机身遮挡。'
+            '因此不要要求看到完整电池外壳、侧面卡扣、电源连接器、标签或其他孔位。\n\n'
+            '主要依据电池前端提手判断：提手与电池外端面连成一体，具有宽横向、圆角矩形的提手开口或提手槽，'
+            '提手后方连接被无人机机身遮挡的长方体电池主体。目标位于无人机电池槽口处，而不是地面或无人机机架上。\n\n'
+            '优先选择同时包含提手和相连电池端面的候选。若候选只覆盖提手，但其位置明确位于电池槽口并与电池端面连接，也可以选择。\n\n'
+            '必须排除无人机起落架、机臂、螺旋桨、空电池槽、地面标定板、桌面，以及画面下方的机器人夹爪和机械臂。'
+            '忽略颜色、明暗、材质、标签、条码和打印纹理差异。\n\n'
+            '如果多个候选无法可靠区分，返回 ambiguous；如果画面中确实没有电池提手或电池外端部，返回 not_found。')},
+    'battery':{
+        'id':'battery','name':'完整电池方案（历史）',
+        'dino_prompt':'a rectangular drone battery pack with a protruding handle at one end, partially inserted into a drone.',
+        'qwen_task':(
+            '找到无人机上的可拆卸比赛电池。比赛起始区域通常只有无人机和电池。'
+            '按整块电池的可见外形判断：长方形或圆角矩形外壳、侧面卡扣、端部手柄和电源连接位置。'
+            '不要求看到长圆孔、四个小圆孔或其他孔位；这些细节可能被遮挡，定位和抓取由 D405 与 FoundationPose 完成。'
+            '左下角和右下角的固定夹爪是机器人自身，必须排除；仓口、金属筐、桌面和无人机其他结构属于背景。'
+            '忽略颜色、明暗、材质、胶带、条码和文字差异，打印件可以没有标签。'
+            '若当前视角只能看到电池壳体而看不到孔位，仍应按整体外形选择最接近的电池；只有确实没有电池候选时才返回 not_found。')},
+}
+
+
 class BatteryTask:
-    def __init__(self, root, controller, workflow_factory, *, depth_control=None, close_timeout_s=2.):
+    def __init__(self, root, controller, workflow_factory, *, depth_control=None, plan_c_path=None,
+                 recognition_profiles_path=None,close_timeout_s=2.):
         if not callable(workflow_factory) or close_timeout_s <= 0:
             raise ValueError('Workflow factory and bounded close timeout required')
         self.root=Path(root)
@@ -20,6 +51,13 @@ class BatteryTask:
         self.depth_control=depth_control
         self.close_timeout_s=float(close_timeout_s)
         self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
+        self.plan_c_path=None if plan_c_path is None else Path(plan_c_path)
+        self.plan_c=self._load_plan_c()
+        self.recognition_profiles_path=(None if recognition_profiles_path is None
+                                        else Path(recognition_profiles_path))
+        self.recognition_profiles,self.selected_recognition_profile_id=self._load_recognition_profiles()
+        self.task_settings['recognition_profile']=copy.deepcopy(
+            self.recognition_profiles[self.selected_recognition_profile_id])
         self.lock=threading.RLock()
         self.active=None
         self.prepared=None
@@ -52,19 +90,104 @@ class BatteryTask:
         return output
 
     @staticmethod
-    def _task_settings(data):
-        target=data.get('lift_target_rad');observer_z=data.get('observer_z_mm')
-        if (type(target) not in (int,float) or not math.isfinite(target) or not 1<=target<=18
-                or type(observer_z) not in (int,float) or not math.isfinite(observer_z)
+    def _lift_settings(target):
+        if type(target) not in (int,float) or not math.isfinite(target) or not 1<=target<=18:
+            raise ValueError('升降目标须为 1–18 rad')
+        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target))}
+
+    @classmethod
+    def _task_settings(cls,data):
+        observer_z=data.get('observer_z_mm')
+        if (type(observer_z) not in (int,float) or not math.isfinite(observer_z)
                 or not 0<=observer_z<=1500):
             raise ValueError('升降目标须为 1–18 rad，预观察 Z 须为 0–1500 mm')
-        return {'lift_target_rad':float(target),'lift_acceptance_rad':float(math.floor(target)),
-                'observer_z_mm':float(observer_z)}
+        return cls._lift_settings(data.get('lift_target_rad'))|{'observer_z_mm':float(observer_z)}
+
+    @staticmethod
+    def _plan_c_joints(value):
+        if (not isinstance(value,list) or len(value)!=6
+                or any(isinstance(v,bool) or not isinstance(v,Real) or not math.isfinite(v) for v in value)):
+            raise ValueError('Plan C 点位须为六轴有限关节反馈')
+        return [float(v) for v in value]
+
+    def _load_plan_c(self):
+        profile={'lift_target_rad':self.task_settings.get('lift_target_rad'),
+                 'lift_acceptance_rad':self.task_settings.get('lift_acceptance_rad'),
+                 'pregrasp_joints_rad':None,'grasp_joints_rad':None}
+        if self.plan_c_path is None or not self.plan_c_path.exists():return profile
+        try:
+            saved=json.loads(self.plan_c_path.read_text(encoding='utf-8'))
+            profile.update(self._lift_settings(saved.get('lift_target_rad')))
+            for key in ('pregrasp_joints_rad','grasp_joints_rad'):
+                if saved.get(key) is not None:profile[key]=self._plan_c_joints(saved[key])
+            return profile
+        except (OSError,ValueError,TypeError) as error:
+            raise ValueError('Plan C 已保存点位无效：'+str(error)) from error
+
+    def _save_plan_c(self):
+        if self.plan_c_path is not None:
+            self.plan_c_path.parent.mkdir(parents=True,exist_ok=True)
+            atomic_json(self.plan_c_path,self.plan_c)
+
+    @staticmethod
+    def _recognition_profile(value):
+        if not isinstance(value,dict) or set(value)!= {'id','name','dino_prompt','qwen_task'}:
+            raise ValueError('识别方案须包含 id、名称、DINO 提示词和 Qwen 任务')
+        limits={'id':80,'name':80,'dino_prompt':1000,'qwen_task':1800}
+        clean={}
+        for key,limit in limits.items():
+            text=value[key]
+            if not isinstance(text,str) or not text.strip() or len(text)>limit:
+                raise ValueError('识别方案字段为空或过长：'+key)
+            clean[key]=text.strip()
+        if any(not (c.isalnum() or c in '-_') for c in clean['id']):
+            raise ValueError('识别方案 id 仅允许字母、数字、横线和下划线')
+        return clean
+
+    def _load_recognition_profiles(self):
+        profiles=copy.deepcopy(DEFAULT_RECOGNITION_PROFILES);selected='handle'
+        if self.recognition_profiles_path is None or not self.recognition_profiles_path.exists():
+            return profiles,selected
+        try:
+            saved=json.loads(self.recognition_profiles_path.read_text(encoding='utf-8'))
+            if not isinstance(saved,dict) or not isinstance(saved.get('custom_profiles',[]),list):
+                raise ValueError('识别方案文件格式无效')
+            for value in saved.get('custom_profiles',[]):
+                profile=self._recognition_profile(value)
+                if not profile['id'].startswith('custom-'):
+                    raise ValueError('自定义识别方案 id 无效')
+                profiles[profile['id']]=profile
+            if saved.get('selected') in profiles:selected=saved['selected']
+            return profiles,selected
+        except (OSError,ValueError,TypeError) as error:
+            raise ValueError('已保存识别方案无效：'+str(error)) from error
+
+    def _save_recognition_profiles(self):
+        if self.recognition_profiles_path is None:return
+        self.recognition_profiles_path.parent.mkdir(parents=True,exist_ok=True)
+        atomic_json(self.recognition_profiles_path,{
+            'selected':self.selected_recognition_profile_id,
+            'custom_profiles':[copy.deepcopy(profile) for identity,profile in self.recognition_profiles.items()
+                               if identity not in DEFAULT_RECOGNITION_PROFILES]})
+
+    def _select_recognition_profile(self,identity):
+        if not isinstance(identity,str) or identity not in self.recognition_profiles:
+            raise ValueError('未知识别提示词方案')
+        self.selected_recognition_profile_id=identity
+        self.task_settings['recognition_profile']=copy.deepcopy(self.recognition_profiles[identity])
+        self._save_recognition_profiles()
+
+    def _settings_view(self,settings=None):
+        value=copy.deepcopy(self.task_settings if settings is None else settings)
+        value['plan_c']=copy.deepcopy(self.plan_c)
+        value['recognition_profiles']=[copy.deepcopy(profile) for profile in self.recognition_profiles.values()]
+        value['selected_recognition_profile_id']=self.selected_recognition_profile_id
+        return value
 
     @staticmethod
     def _vision_mode(value):
-        if value not in ('d405','d435'):
-            raise ValueError('视觉模式须为 D405 或 D435 Plan B')
+        if value not in ('d405','d435','plan_f','fixed'):
+            raise ValueError('抓取模式须为 D405、D435 Plan B、Plan F 或 Plan C 固定点')
         return value
 
 
@@ -74,7 +197,7 @@ class BatteryTask:
         if state is None:
             return {'status':'idle','available':True,'command_epoch':epoch,
                     'recovery_required':False,'phase':'idle','mission_stage':'IDLE','logs':[],
-                    'settings':copy.deepcopy(self.task_settings)}
+                    'settings':self._settings_view()}
         return {'status':state['status'],'available':state['status']!='running'
                     and not state['recovery_required'],
                 'command_epoch':epoch,'run_id':state['run_id'],
@@ -82,7 +205,7 @@ class BatteryTask:
                 'recovery_required':state['recovery_required'],
                 'phase':state['store'].state.get('battery_flow',{}).get('phase','starting'),
                 'mission_stage':state['store'].state.get('mission',{}).get('stage','IDLE'),
-                'settings':copy.deepcopy(state['store'].state.get('battery_task_settings',{})),
+                'settings':self._settings_view(state['store'].state.get('battery_task_settings',{})),
                 'logs':self._logs(state['store'])}
 
     def snapshot(self, client):
@@ -146,6 +269,9 @@ class BatteryTask:
         for camera,ident in state.get('latest_battery_observations',{}).items():
             value=read(state.get('battery_observations',{}).get(ident))
             if value:data['observations'][camera]=value
+        head=state.get('battery_flow',{}).get('head')
+        value=read(state.get('battery_observations',{}).get(head))
+        if value:data['observations']['head']=value
         data['coarse_alignment']=read(state.get('coarse_alignment'))
         data['pick_plan']=read(state.get('battery_pick_plan'))
         data['flow']=state.get('battery_flow',{})
@@ -185,7 +311,7 @@ class BatteryTask:
                     data=dict(data,observer_z_mm=self.task_settings['observer_z_mm'])
                 required={'action','request_id','expected_epoch','environment_clear'}
                 settings={'lift_target_rad','observer_z_mm'}
-                optional=settings|{'vision_mode'}
+                optional=settings|{'vision_mode','plan_c_lift_target_rad','recognition_profile'}
                 if (not required<=set(data) or not set(data)<=required|optional
                         or (bool(set(data)&settings) and not settings<=set(data))
                         or type(data['expected_epoch']) is not int
@@ -197,7 +323,59 @@ class BatteryTask:
                     values['vision_mode']=self._vision_mode(data['vision_mode'])
                 else:
                     values.setdefault('vision_mode','d405')
+                if 'recognition_profile' in data:
+                    values['recognition_profile']=self._recognition_profile(data['recognition_profile'])
+                if 'plan_c_lift_target_rad' in data:
+                    self.plan_c.update(self._lift_settings(data['plan_c_lift_target_rad']))
+                    self._save_plan_c()
+                if values['vision_mode']=='fixed':
+                    values['plan_c']=copy.deepcopy(self.plan_c)
+                if (values['vision_mode']=='fixed'
+                        and any(self.plan_c.get(key) is None
+                                for key in ('pregrasp_joints_rad','grasp_joints_rad'))):
+                    raise ValueError('Plan C 请先记录预夹取点和夹取点')
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
+            elif action=='select_recognition_profile':
+                if set(data)!= {'action','request_id','profile_id'}:
+                    raise ValueError('select_recognition_profile requires profile_id')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能切换识别方案')
+                self._select_recognition_profile(data['profile_id']);result=self._view(client)
+            elif action=='save_recognition_profile':
+                if set(data)!= {'action','request_id','profile'}:
+                    raise ValueError('save_recognition_profile requires profile')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能修改识别方案')
+                profile=self._recognition_profile(data['profile'])
+                if not profile['id'].startswith('custom-'):
+                    raise ValueError('内置识别方案不可覆盖，请另存为自定义方案')
+                self.recognition_profiles[profile['id']]=profile
+                self._select_recognition_profile(profile['id']);result=self._view(client)
+            elif action=='delete_recognition_profile':
+                if set(data)!= {'action','request_id','profile_id'}:
+                    raise ValueError('delete_recognition_profile requires profile_id')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能删除识别方案')
+                identity=data['profile_id']
+                if not isinstance(identity,str) or not identity.startswith('custom-') or identity not in self.recognition_profiles:
+                    raise ValueError('只能删除已保存的自定义识别方案')
+                del self.recognition_profiles[identity]
+                if self.selected_recognition_profile_id==identity:self.selected_recognition_profile_id='handle'
+                self.task_settings['recognition_profile']=copy.deepcopy(
+                    self.recognition_profiles[self.selected_recognition_profile_id])
+                self._save_recognition_profiles();result=self._view(client)
+            elif action=='record_plan_c':
+                if set(data)!={'action','request_id','point','lift_target_rad'} or data['point'] not in ('pregrasp','grasp'):
+                    raise ValueError('record_plan_c requires pregrasp/grasp and lift_target_rad')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能记录点位')
+                arm=self.controller.snapshot().get('arms',{}).get('right',{})
+                if arm.get('fresh') is not True:
+                    raise ValueError('记录 Plan C 点位需要新鲜右臂反馈')
+                self.plan_c.update(self._lift_settings(data['lift_target_rad']))
+                self.plan_c[data['point']+'_joints_rad']=self._plan_c_joints(arm.get('joints'))
+                self._save_plan_c()
+                result=self._view(client)
             elif action=='cancel':
                 if set(data)!= {'action','request_id'}:
                     raise ValueError('cancel accepts request_id only')
@@ -228,7 +406,9 @@ class BatteryTask:
         try:
             if self.depth_control is not None:
                 cameras=self.depth_control.snapshot()['cameras']
-                required_cameras=('d435',) if settings.get('vision_mode')=='d435' else ('d435','d405')
+                mode=settings.get('vision_mode')
+                required_cameras=(() if mode=='fixed' else ('d435',) if mode=='d435'
+                                  else ('d405',) if mode=='plan_f' else ('d435','d405'))
                 depth_previous={camera:cameras[camera]['requested'] for camera in required_cameras}
                 for camera in depth_previous:self.depth_control.request({'camera':camera,'enabled':True})
             if store is None:store=RunStore.create(self.root)
@@ -260,8 +440,42 @@ class BatteryTask:
         (self.active['store'].path/'cancel.flag').touch(mode=0o600)
         return self._view(client)
 
+    def _prepare_plan_f_lift(self, state, flow):
+        settings=state['store'].state.get('battery_task_settings',{})
+        if settings.get('vision_mode')!='plan_f':return
+        policy=copy.deepcopy(flow.tools.backends.policies['coarse']['lift_policy'])
+        policy['settle_s']=min(policy['settle_s'],.05)
+        target=settings['lift_target_rad'];acceptance=settings['lift_acceptance_rad']
+        monitor=ArrivalMonitor([acceptance],started_at=self.controller.clock(),
+            minimum=[acceptance],**policy)
+        snapshot=self.controller.snapshot();body=snapshot.get('body',{})
+        if body.get('fresh') is not True or body.get('height',-1)<acceptance:
+            prestarted=self.controller.take_prestarted_lift(state['token'],target)
+            if not prestarted:
+                result=self.controller.submit({'type':'lift','target':target},state['token'])
+                if result.get('ok') is not True:raise ValueError('Plan F lift submission not confirmed')
+            moving=True
+        else:moving=False
+        while True:
+            snapshot=self.controller.snapshot();body=snapshot.get('body',{});now=self.controller.clock()
+            ready=(self.controller.motion_valid(state['token'])
+                   and snapshot.get('chassis_active') is False
+                   and snapshot.get('capabilities',{}).get('lift')==''
+                   and body.get('fresh') is True)
+            result=monitor.update([body.get('height')],body.get('received'),now,
+                ready=ready,cancelled=state['store'].cancelled)
+            if result['arrived']:
+                if moving:self.controller.submit({'type':'lift.stop'},state['token'])
+                return
+            if result['stop_required']:
+                if moving and self.controller.motion_valid(state['token']):
+                    self.controller.submit({'type':'lift.stop'},state['token'])
+                raise ValueError('Plan F lift preparation failed: '+result['status'])
+            time.sleep(.02)
+
     def _run(self, state, flow):
         try:
+            self._prepare_plan_f_lift(state,flow)
             result=flow.run()
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:

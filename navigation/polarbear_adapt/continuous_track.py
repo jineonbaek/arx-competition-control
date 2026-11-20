@@ -134,13 +134,13 @@ def tracking_command(route, pose, target, previous, dt, stalled_for=0., limiter=
     return np.r_[cmd_xy, cmd_w], False
 
 
-def swept_poses(pose, command, measured):
+def swept_poses(pose, command, measured, xy_bound=XY_SWEEP_SPEED, yaw_bound=YAW_SWEEP_SPEED):
     """Cover a conservative .9 s horizon for both commanded and measured motion."""
     # Inspect both the commanded envelope and the actual measured motion.
     # Model uncertainty near stiction by sweeping the full bound in command direction.
     xy_norm = np.linalg.norm(command[:2])
-    commanded = np.r_[command[:2] * (XY_SWEEP_SPEED / max(xy_norm, .02)),
-                      YAW_SWEEP_SPEED * np.clip(command[2] / .02, -1., 1.)]
+    commanded = np.r_[command[:2] * (xy_bound / max(xy_norm, .02)),
+                      yaw_bound * np.clip(command[2] / .02, -1., 1.)]
     paths = []
     for velocity in (measured, commanded):
         p = pose.copy()

@@ -13,13 +13,14 @@ import rclpy
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from nav_msgs.msg import Path
 from nav2_msgs.action import FollowPath
+from nav2_msgs.msg import SpeedLimit
 from rclpy.action import ActionClient
 from std_msgs.msg import Bool, String
 from tf2_ros import TransformException
 
 from goal_drive import Driver
 from axis_trial import body_delta
-from continuous_track import swept_poses
+from mppi_trial.speed_profile import command_sweeps as swept_poses,cap_sdk,SpeedMode,scene_reason,NORMAL_PERCENT,SLOW_PERCENT,NORMAL_SDK,SLOW_SDK,command_audit
 from mppi_trial.session_policy import changed_route, valid_effort, slew_effort, CommandEpoch, OwnedGoals, waitable_startup
 from mppi_trial.trial_policy import ReadinessHold, speed_factors
 from mppi_trial.stationary import StopWindow
@@ -57,6 +58,9 @@ class MppiDriver(RetainedGoal,Driver):
         self.resume_pending=False
         self.escape=EscapeMode(self)
         self._special_execution=False
+        self.speed_mode=SpeedMode();self.speed_publish_at=0.;self.speed_last=None
+        self.speed_limit_pub=self.create_publisher(SpeedLimit,'/pb/mppi/speed_limit',1)
+        self.speed_status_pub=self.create_publisher(String,'/pb/mppi/speed_mode',1)
         self.mppi_requests=[]
         self.path_auditor=AsyncAuditor()
         self.audit_diagnostic_at=0.
@@ -175,7 +179,8 @@ class MppiDriver(RetainedGoal,Driver):
         if hasattr(self,'escape'):self.escape.clear()
         self.pending_audit_path=None
         if self.mppi_handle is not None and self.mppi_handle.status in (1,2,3):
-            self.mppi_handle.cancel_goal_async()
+            try:self.mppi_handle.cancel_goal_async()
+            except Exception as exc:self.get_logger().warning('Controller cancel pending: '+str(exc),throttle_duration_sec=3.)
         self.recovery=None
         self.resume_pending=False
         self.recovery_route=self.recovery_blocker=None
@@ -244,6 +249,7 @@ class MppiDriver(RetainedGoal,Driver):
 
     def current_intent(self,epoch):
         if self.seq!=epoch or self.target is None:raise ValueError('goal_changed')
+        if hasattr(self,'retry_output_ends') and not self.retry_output_ends():raise ValueError('previous_output_end_unconfirmed')
         require_execution_budget(self)
         if self.retention_pause:raise ValueError('retained_path_uncertain '+self.retention_pause)
         if self.ready_file is not None and not self.ready_file.is_file():
@@ -509,11 +515,20 @@ class MppiDriver(RetainedGoal,Driver):
             self.spin(.05)
         raise ValueError('not_stationary')
 
+    @paused_budget
     def pause_terminal_correction(self,epoch,reason):
-        # Keep the semantic mission and output identity parked. A persistent
-        # offset is neither arrival nor permission for unbounded motion retries.
-        return self.park_navigation(epoch,reason,'paused_terminal_correction',
-                                    '末端多次复核未通过，停车保留任务和目标')
+        if reason=='goal_timeout':return self.park_navigation(epoch,reason,'paused_terminal_correction','实际运动预算耗尽，保持制动并诊断')
+        self.soft_brake();self.escape.clear()
+        self.status('paused_terminal_correction '+reason)
+        self.waypoints.show('末端复核未通过：自动验证停稳和新定位，再继续原目标')
+        self.wait_controller_quiet(epoch)
+        from special_runtime import wait_special_ready
+        session=getattr(self,'special_session',None)
+        chain=session['chain'] if self._special_execution and session and session['epoch']==epoch else None
+        wait_special_ready(self,epoch,chain)
+        if not self._special_execution:self.wait_for_inputs(epoch,reason)
+        self.terminal_checks=0
+        self.status('terminal_recheck_complete')
 
     def run_goal(self):
         epoch=self.seen
@@ -521,20 +536,38 @@ class MppiDriver(RetainedGoal,Driver):
             while True:
                 try:
                     self.same_intent(epoch)
+                    contact=getattr(self,'t1_contact_session',None)
+                    if contact is not None and contact['epoch']==epoch:
+                        from t1_contact_runtime import resume_contact
+                        return resume_contact(self,epoch)
                     if self.pending_fault and not self.recover_pending_fault(epoch):continue
                     if self._special_execution:
                         from special_runtime import run_special
-                        return run_special(self)
+                        from t1_contact_runtime import finish_arrival
+                        return finish_arrival(self,epoch,run_special(self))
                     self.current_intent(epoch)
                     self.recovery_console()
                     if self.mppi_requests or self.mppi_handle is not None:self.wait_controller_quiet(epoch)
                     if not self.terminal_correction and self.escape.maybe_run(epoch):self.hold_for_replan('escape_completed')
                     if self.recovery is not None:self.wait_for_replan(epoch)
-                    return self.track_route()
+                    from t1_contact_runtime import finish_arrival
+                    return finish_arrival(self,epoch,self.track_route())
                 except Exception as exc:
                     self.same_intent(epoch)
                     if not rclpy.ok():raise
                     reason='tf_missing' if isinstance(exc,TransformException) else str(exc)
+                    from chassis_command import output_unavailable
+                    if output_unavailable(exc):
+                        from output_recovery import recover_output
+                        recover_output(self,epoch)
+                        continue
+                    contact=getattr(self,'t1_contact_session',None)
+                    if contact is not None and contact['epoch']==epoch:
+                        from special_runtime import transient_input,wait_special_ready
+                        if transient_input(exc) or reason=='special_localization_jump' or isinstance(exc,ConnectionError):
+                            self.soft_brake()
+                            wait_special_ready(self,epoch,contact['chain'])
+                            continue
                     if not self._special_execution and reason.split(' ',1)[0] in ('outside_arrival_tolerance','not_stationary'):
                         self.terminal_correction=True
                         self.terminal_checks+=1
@@ -543,16 +576,35 @@ class MppiDriver(RetainedGoal,Driver):
                     elif self.terminal_correction and reason=='goal_timeout':
                         self.pause_terminal_correction(epoch,reason)
                     else:kind='inputs' if isinstance(exc,TransformException) else recovery_kind(exc)
-                    if self._special_execution or kind=='park':self.park_navigation(epoch,reason)
+                    if self._special_execution:
+                        from special_runtime import transient_input,wait_special_ready
+                        session=getattr(self,'special_session',None)
+                        if transient_input(exc) or reason=='special_localization_jump':
+                            self.soft_brake()
+                            wait_special_ready(self,epoch,session['chain'] if session and session['epoch']==epoch else None)
+                            continue
+                        self.park_navigation(epoch,reason)
+                    if kind=='park':self.park_navigation(epoch,reason)
                     self.soft_brake()
                     self.pending_fault=(kind,reason);self.retry_after=time.monotonic()+.25
                     self.status('waiting_navigation_retry '+reason)
                     self.waypoints.show('停车保留目标，等待恢复：'+reason[:160])
         finally:self.escape.clear()
 
+    @paused_budget
+    def wait_controller_available(self,epoch):
+        reported=False
+        while rclpy.ok():
+            self.current_intent(epoch);self.soft_brake()
+            if self.mppi_client.wait_for_server(timeout_sec=.25):return
+            if not reported:
+                self.status('waiting_for_controller_server');self.waypoints.show('自动等待导航控制器恢复，保留目标与运动预算');reported=True
+            self.spin(.05)
+        raise ValueError('ros_shutdown')
+
     def track_route(self):
         if not self.transport.native_sdk:raise ValueError('native_sdk_required')
-        if not self.mppi_client.wait_for_server(timeout_sec=2.):raise ValueError('mppi_unavailable')
+        self.wait_controller_available(self.seen)
         pending=result=None
         pending_at=0.
         local_handle=None
@@ -675,6 +727,18 @@ class MppiDriver(RetainedGoal,Driver):
                 v=sdk.twist;command=np.array([v.linear.x,v.linear.y,v.angular.z])
                 command=self.escape.before_command(command)
                 if not valid_effort(command):raise ValueError('invalid_sdk_effort')
+                reason=scene_reason(pose,self.target,self.route,
+                    [(self.grids['map'][1],pose),(self.grids['odom'][1],odom)],command)
+                mode=self.speed_mode.update(reason,tick)
+                if tick-self.speed_publish_at>=.2 or mode!=self.speed_last:
+                    msg=SpeedLimit();msg.header.stamp=self.get_clock().now().to_msg()
+                    msg.percentage=True;msg.speed_limit=NORMAL_PERCENT if mode=='normal' else SLOW_PERCENT
+                    self.speed_limit_pub.publish(msg);self.speed_publish_at=tick
+                    value=dict(mode=mode,target_sdk_limit=NORMAL_SDK if mode=='normal' else SLOW_SDK,reason=reason,model='provisional')
+                    self.speed_status_pub.publish(String(data=json.dumps(value)))
+                    if mode!=self.speed_last:self.get_logger().info('speed_mode '+json.dumps(value))
+                    self.speed_last=mode
+                command=np.asarray(cap_sdk(command,mode))
                 xy,yaw=speed_factors(measured);command[:2]*=xy;command[2]*=yaw
                 if self.terminal_correction:
                     command[:2]*=min(1.,.10/max(np.linalg.norm(command[:2]),1e-9))
@@ -686,7 +750,7 @@ class MppiDriver(RetainedGoal,Driver):
                 if near:command[:2]=0.
                 for frame,current in [('map',pose),('odom',odom)]:
                     for sweep in swept_poses(current,command,measured):
-                        if issue:=self.grids[frame][1].along(sweep)['first']:
+                        if issue:=command_audit(self.grids[frame][1],sweep)['first']:
                             self.recovery_blocker=(frame,issue['first_cell'])
                             raise ValueError(f'{frame}_sweep_blocked {issue}')
                 if self.stale_inputs() or time.monotonic()-tick>.10:

@@ -4,6 +4,7 @@ import {ChassisOutput} from './chassis-output.js';
 
 const $ = id => document.getElementById(id);
 const armName = side => side === 'left' ? '左臂' : '右臂';
+const rightPlacePreobserveJoints = [0, 0, 25, -25, 0, -90];
 const fmt = (v, digits = 2) => Number.isFinite(v) ? v.toFixed(digits) : '—';
 let snapshot = null;
 let connected = false;
@@ -18,7 +19,12 @@ let heartbeat = null;
 let heartbeatBusy = false;
 let baseSequence = 0;
 const baseControlId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join('');
-const chassisOutput=new ChassisOutput('web-'+baseControlId);
+let serverClockSample=null;
+function chassisClock(){
+  if(!serverClockSample)throw Error('等待NUC时钟同步');
+  return serverClockSample.wall+(performance.now()-serverClockSample.mono)/1000;
+}
+const chassisOutput=new ChassisOutput('web-'+baseControlId,chassisClock);
 let lastLogKey = '';
 let localLogId = 0;
 let toastTimer;
@@ -173,9 +179,11 @@ function render(force=false) {
   $('left-fixed-hold-status').hidden=side!=='left';
   $('left-fixed-hold2-status').hidden=side!=='left';
   $('right-avoidance-preset-status').hidden=side!=='right';
+  $('right-place-preobserve-status').hidden=side!=='right';
   $('left-fixed-hold').hidden=side!=='left';
   $('left-fixed-hold2').hidden=side!=='left';
   $('right-avoidance-preset').hidden=side!=='right';
+  $('right-place-preobserve').hidden=side!=='right';
   $('left-fixed-hold-status').textContent=hold?.arrived
     ? '左臂固定点位：已到位 · 最大误差 '+fmt(hold.max_error_deg,2)+'° · 夹爪闭合目标保持'
     : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪闭合';
@@ -185,6 +193,12 @@ function render(force=false) {
   $('right-avoidance-preset-status').textContent=rightAvoidance?.arrived
     ? '右臂避障预设位：已到位 · 最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'° · 夹爪保持'
     : '右臂避障预设位：'+(Number.isFinite(rightAvoidance?.max_error_deg)?'最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪保持';
+  const rightPlaceError=snapshot.arms.right.fresh && snapshot.arms.right.joints?.length===6
+    ? Math.max(...snapshot.arms.right.joints.map((v,i)=>Math.abs(v*180/Math.PI-rightPlacePreobserveJoints[i]))) : NaN;
+  $('right-place-preobserve-status').textContent='右臂放置预观察点：'+
+    (Number.isFinite(rightPlaceError)
+      ? (rightPlaceError<=rightAvoidance.tolerance_deg?'已到位 · ':'')+'最大误差 '+fmt(rightPlaceError,2)+'°'
+      : '等待反馈')+' · 六轴容差 ±'+rightAvoidance.tolerance_deg+'° · 夹爪保持';
   $('tcp-mode').textContent=editor.dirty.tcp?'目标编辑':'mm / °';
   for(let i=0;i<6;i++) {
     const pair=limits.joint_limits_deg?.[i];
@@ -211,9 +225,11 @@ function render(force=false) {
   button('left-fixed-hold','left:arm.fixed_hold');
   button('left-fixed-hold2','left:arm.fixed_hold2');
   button('right-avoidance-preset','right:arm.avoidance_preset');
+  button('right-place-preobserve','right:arm.joints');
   $('left-fixed-hold').disabled ||= leftHoldBusy;
   $('left-fixed-hold2').disabled ||= leftHoldBusy;
   $('right-avoidance-preset').disabled ||= rightAvoidanceBusy;
+  $('right-place-preobserve').disabled ||= rightAvoidanceBusy;
   for(const [id,value] of [['gripper-open',limits.gripper_open_raw],['gripper-close',limits.gripper_closed_raw]]){
     button(id,side+':gripper'); $(id).disabled ||= !Number.isFinite(value);
   }
@@ -233,7 +249,7 @@ function render(force=false) {
   $('linear-speed').disabled=Boolean(held);$('angular-speed').disabled=Boolean(held);
   if(Number.isFinite(snapshot.limits.linear))$('linear-speed').max=snapshot.limits.linear;
   if(Number.isFinite(snapshot.limits.angular))$('angular-speed').max=snapshot.limits.angular;
-  $('chassis-speed-range').textContent=`平移：0 < 值 ≤ ${snapshot.limits.linear}；转向：0 < 值 ≤ ${snapshot.limits.angular}（SDK 原值）。编辑后重新开启运动模式生效。`;
+  $('chassis-speed-range').textContent=`前后上限 ${snapshot.limits.forward??snapshot.limits.linear}；左右上限 ${snapshot.limits.lateral??snapshot.limits.linear}；转向上限 ${snapshot.limits.angular}（SDK 原值）。编辑后重新开启运动模式生效。`;
   $('wheel-feedback').textContent=snapshot.body.fresh?snapshot.body.wheels.map(x=>fmt(x)).join(' / ')+' rad/s':'—';
   $('lift-actual').replaceChildren(document.createTextNode(fmt(snapshot.body.fresh?snapshot.body.height:NaN,3)+' '));
   const unit=document.createElement('small');unit.textContent='SDK rad';$('lift-actual').append(unit);
@@ -286,6 +302,12 @@ $('right-avoidance-preset').addEventListener('click',async()=>{
   if(rightAvoidanceBusy)return;
   rightAvoidanceBusy=true;render();
   try{await command({type:'arm.avoidance_preset',arm:'right'});}
+  finally{rightAvoidanceBusy=false;render();}
+});
+$('right-place-preobserve').addEventListener('click',async()=>{
+  if(rightAvoidanceBusy)return;
+  rightAvoidanceBusy=true;render();
+  try{await command({type:'arm.joints',arm:'right',joints:rightPlacePreobserveJoints});}
   finally{rightAvoidanceBusy=false;render();}
 });
 $('tcp-send').addEventListener('click',async()=>{
@@ -343,7 +365,7 @@ $('lift-stop').addEventListener('click',()=>command({type:'lift.stop'}));
 
 
 function chassisReady() {
-  return connected && snapshot?.execution_enabled===true &&
+  return snapshot?.execution_enabled===true &&
     snapshot.capabilities.chassis==='' && snapshot.capabilities['chassis.stop']==='';
 }
 function editable(target) {
@@ -353,12 +375,11 @@ async function driveTick() {
   if(!held || !motionMode || heartbeatBusy)return;
   heartbeatBusy=true;
   const generation=chassisOutput.generation;
-  const data=chassisOutput.move({x:held.x,y:held.y,omega:held.omega},generation);
+  const data=chassisOutput.move({x:held.x,y:held.y,omega:held.omega},generation,snapshot?.limits.chassis_input_to_sdk??1);
   const ok=await command(data,true);
   heartbeatBusy=false;
   if(!ok && chassisOutput.active && chassisOutput.generation===generation){
-    localLog('底盘请求失败，已退出运动模式；请查看反馈。','warning');
-    exitMotionMode();
+    localLog('底盘请求失败，保留运动模式；后续心跳继续发送。','warning');
   }
 }
 function startDrive(intent) {
@@ -368,7 +389,7 @@ function startDrive(intent) {
   if(!speed.valid || !turn.valid){toast('请检查底盘速度输入');exitMotionMode();return;}
   const linearScale=speed.value/Math.max(1,Math.hypot(intent.x,intent.y));
   chassisOutput.begin();
-  held={x:intent.x*linearScale,y:intent.y*linearScale,omega:intent.omega*turn.value,
+  held={x:Math.max(-(snapshot.limits.forward??snapshot.limits.linear),Math.min(snapshot.limits.forward??snapshot.limits.linear,intent.x*linearScale)),y:Math.max(-(snapshot.limits.lateral??snapshot.limits.linear),Math.min(snapshot.limits.lateral??snapshot.limits.linear,intent.y*linearScale)),omega:intent.omega*turn.value,
         keys:intent.codes.map(code=>code.slice(3)).join('+'),
         label:intent.codes.map(code=>CHASSIS_KEYS[code].label).join(' + ')};
   driveTick();heartbeat??=setInterval(driveTick,100);
@@ -424,6 +445,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)exitMotionM
 window.addEventListener('pagehide',exitMotionMode);
 function receive(data) {
   snapshot=data;
+  if(Number.isFinite(data.time))serverClockSample={wall:data.time,mono:performance.now()};
   if(motionMode && !chassisReady())exitMotionMode();
   followFeedback(editor,data.arms[editor.side]);
   if(!liftDirty && data.body.fresh)liftDraft=data.body.height;
@@ -434,6 +456,6 @@ const events=new EventSource('/events');
 events.onopen=()=>{connected=true;localLog('网页反馈连接已建立');render();};
 events.onmessage=event=>{try{receive(JSON.parse(event.data));}catch(error){localLog('反馈数据读取失败','warning');}};
 events.onerror=()=>{
-  if(connected)localLog('网页反馈连接中断，控制已停用','warning');
-  connected=false;exitMotionMode();
+  if(connected)localLog('网页反馈连接中断，正在重连；运动模式保持。','warning');
+  connected=false;render();
 };

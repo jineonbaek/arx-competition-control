@@ -16,7 +16,7 @@ def input_unavailable(reason):
             reason.split(' ',1)[0] in (
                 'sensor_or_costmap_stale','bottom_obstacles_stale',
                 'dual_origin_mapping_stale','tf_missing','motion_pose_stale_or_invalid','motion_pose_changed_during_proof',
-                'escape_inputs_stale','escape_reference_stale','escape_restore_stale'))
+                'escape_inputs_stale','escape_reference_stale','escape_restore_stale','previous_output_end_unconfirmed'))
 
 class InputRecoveryWindow:
     """Require a continuous fresh interval and advancing sources, never a timeout."""

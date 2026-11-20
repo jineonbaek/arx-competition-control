@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from .grasp_path import TimedJointPath
 
-def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wrist_from_tool, limits_deg, *, timing_limits=None,fixed_z_axis=None,max_step_mm=2.):
+def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wrist_from_tool, limits_deg, *, timing_limits=None,fixed_z_axis=None,fixed_height_up=None,max_step_mm=2.):
     if wrist_from_tool is None:
         return dict(status='tcp_pending',joint_waypoints_rad=None,wrist_pre_mm=None,wrist_end_mm=None,
                     executable=False,reason='TCP 待用户提供，未计算腕部轨迹')
@@ -23,9 +23,12 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
     axis=orientation[:3,0]
     if fixed_z_axis is not None:
         axis=np.asarray(fixed_z_axis,float)
+        up=np.asarray([0.,0.,1.] if fixed_height_up is None else fixed_height_up,float)
         if (axis.shape!=(3,) or not np.isfinite(axis).all() or abs(np.linalg.norm(axis)-1)>1e-6
-                or abs(axis[2])>1e-9 or axis@orientation[:3,0]<np.cos(np.radians(3.))):
+                or up.shape!=(3,) or not np.isfinite(up).all() or abs(np.linalg.norm(up)-1)>1e-6
+                or abs(axis@up)>1e-6 or axis@orientation[:3,0]<np.cos(np.radians(3.))):
             raise ValueError('Fixed-Z aperture axis must be horizontal and within 3deg of tool +X')
+    elif fixed_height_up is not None:raise ValueError('Explicit insertion axis required for fixed height basis')
     if not 0<distance<=200 or not np.allclose(direction,axis,atol=1e-6):
         raise ValueError('Insertion must follow tool +X and be at most 200 mm')
     if np.linalg.norm(tcp[:3,3])>1:raise ValueError('TCP uses metres; offset exceeds tool size bound')

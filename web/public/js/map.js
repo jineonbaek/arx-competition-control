@@ -15,7 +15,7 @@ function renderCompetition(task) {
   el('phase').textContent=(task.tasks || []).find(t=>t.id===task.phase)?.label || '—';
   el('mission').textContent=task.control_owned?'控制权：整场任务管理':
     task.manual_available===false?'控制权：其他任务正在使用':'控制权：9983 手动控制';
-  el('reason').textContent=task.reason || '';
+  el('reason').textContent=task.reason || task.placement_readiness?.reason || '';
   const nav=task.navigation, handoff=nav?.handoff;
   el('navigation-state').textContent=nav?`导航：${nav.route?.available?nav.route.status || '等待路线':nav.error || '导航执行端未就绪'}${nav.route?.drive_status?' · '+nav.route.drive_status:''}`:'';
   el('navigation-handoff').textContent=nav?`交接：${handoff?.task?handoff.task.point_id+' · '+handoff.task.status:nav.registered?'等待到点通知':'比赛开始时登记'}${handoff?.navigation_check?.reason?' · '+handoff.navigation_check.reason:''}`:'';

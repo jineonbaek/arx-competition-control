@@ -3,7 +3,7 @@ import math
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from pose_freshness import fresh
+from pose_freshness import fresh,motion_fresh,MAX_AGE_NS,MOTION_MAX_AGE_NS
 
 class PosePolicy:
     def __init__(self):
@@ -16,7 +16,7 @@ class PosePolicy:
     def accept(self,stamp,now,alignment):
         reversed_clock=self.now is not None and now<self.now
         self.now=now
-        if (reversed_clock or not fresh(stamp,now) or
+        if (reversed_clock or not motion_fresh(stamp,now) or
             not all(math.isfinite(v) for v in alignment)):
             return self.reject()
         if self.last is not None and stamp<self.last:return self.reject()
@@ -32,8 +32,8 @@ class PosePolicy:
 
 class SnapshotLease:
     """An expired/reset snapshot cannot revive without a newer measurement."""
-    def __init__(self):
-        self.stamp=None;self.floor=-1;self.now=None
+    def __init__(self,max_age_ns=MAX_AGE_NS):
+        self.stamp=None;self.floor=-1;self.now=None;self.max_age_ns=max_age_ns
     def withdraw(self,floor=None):
         if self.stamp is not None:self.floor=max(self.floor,self.stamp)
         if floor is not None:self.floor=max(self.floor,int(floor))
@@ -41,10 +41,10 @@ class SnapshotLease:
     def usable(self,now):
         if self.now is not None and now<self.now:self.withdraw()
         self.now=now
-        if self.stamp is not None and not fresh(self.stamp,now):self.withdraw()
+        if self.stamp is not None and not fresh(self.stamp,now,self.max_age_ns):self.withdraw()
         return self.stamp is not None
     def offer(self,stamp,now):
         self.usable(now)
-        if stamp<=self.floor or not fresh(stamp,now):self.withdraw();return False
+        if stamp<=self.floor or not fresh(stamp,now,self.max_age_ns):self.withdraw();return False
         self.stamp=int(stamp)
         return True

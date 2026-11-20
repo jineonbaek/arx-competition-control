@@ -30,10 +30,12 @@ displays.append({'Class':'rviz_default_plugins/Marker','Name':'First path issue 
 # Keep map controls first; hide the native help splitter by default.
 map_displays=[d for d in displays if d['Name'] in ('Map','Global costmap','Local costmap')]
 displays[:]=map_displays+[d for d in displays if d not in map_displays]
+displays.append({'Class':'arx_waypoints/StartupView','Name':'启动视角：车位居中／横向10米','Enabled':True})
 x={'Panels':[{'Class':'rviz_common/Displays','Name':'Displays','Tree Height':600,'Help Height':0}],'Visualization Manager':{'Class':'','Global Options':{'Fixed Frame':'map','Background Color':'45; 45; 45','Frame Rate':20},'Displays':displays,'Tools':[{'Class':'rviz_default_plugins/Interact'},{'Class':'rviz_default_plugins/MoveCamera'},{'Class':'rviz_default_plugins/Select'},{'Class':'rviz_default_plugins/SetGoal','Topic':'/pb/plan_goal'},{'Class':'rviz_default_plugins/PublishPoint','Topic':'/clicked_point','Single click':True}],'Views':{'Current':{'Class':'rviz_default_plugins/TopDownOrtho','Scale':65,'X':0.,'Y':0.,'Angle':-1.5707963267948966}}},'Window Geometry':{'Width':1400,'Height':900}}
-# MappingPanel remains available via Panels/Add New Panel, but is not opened by default.
-if os.getenv('ARX_DESKTOP_MODE')!='mapping':
+x['Panels'].append({'Class':'arx_waypoints/MappingPanel','Name':'比赛地图操作'})
+if os.getenv('ARX_DESKTOP_MODE')!='mapping' or (os.getenv('ARX_ADAPT_RUN') and (Path(os.environ['ARX_ADAPT_RUN'])/'competition-map').exists()):
  x['Panels'].append({'Class':'arx_waypoints/Panel','Name':'多点导航'})
  x['Visualization Manager']['Tools'].append({'Class':'arx_waypoints/Add'})
+ x['Visualization Manager']['Tools'].append({'Class':'arx_waypoints/EndNavigation'})
  displays.append({'Class':'rviz_default_plugins/MarkerArray','Name':'有序航点','Enabled':True,'Topic':topic('/pb/waypoints/markers',True)})
 (p/'polarbear.rviz').write_text(yaml.safe_dump(x,sort_keys=False))

@@ -12,7 +12,8 @@ from std_msgs.msg import Bool, Empty, String
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PoseStamped,PoseArray,PoseWithCovarianceStamped
 from rclpy.qos import QoSProfile,DurabilityPolicy
-from chassis_pose_policy import SnapshotLease
+from chassis_pose_policy import SnapshotLease,MOTION_MAX_AGE_NS
+from recovery_budget import paused_budget
 from chassis_pose import valid_pose,planar as authority_planar
 from visualization_msgs.msg import Marker
 from waypoint_controls import Waypoints
@@ -43,17 +44,22 @@ class Driver(AxisTrial):
         if self.require_dual_origin:
             self.create_subscription(Bool, '/pb/dual_origin/ready', self.receive_dual_origin_health, 1)
         self.previous_alignment = None
-        self.pose_snapshot=None;self.pose_lease=SnapshotLease()
+        self.pose_snapshot=None;self.pose_lease=SnapshotLease(max_age_ns=MOTION_MAX_AGE_NS)
         self.create_subscription(PoseArray,'/pb/chassis_pose',self.receive_chassis_snapshot,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(PoseWithCovarianceStamped,'/initialpose',self.relocalizing,10)
         self.boot=self.now()
         self.target=self.route=None
         self.seq=self.seen=0
+        self.pending_output_ends=set()
+        self.pending_route_finish=None
+        self.pending_output_task=None
+        self._retrying_output_ends=False
         self.state=self.create_publisher(String,'/pb/drive_status',10)
         self.finished=self.create_publisher(PoseStamped,"/pb/drive_finished",5)
         self.mark=self.create_publisher(Marker,'/pb/path_issue',5)
         self.waypoints=Waypoints(self)
         self.create_subscription(Empty,'/pb/drive_cancel',lambda _:self.cancel('cancelled'),5)
+        self.output_end_timer=self.create_timer(.1,self.retry_output_ends)
 
     def brake(self):
         # Temporary input/replan hold. Remain in the same task generation.
@@ -63,9 +69,42 @@ class Driver(AxisTrial):
 
     def end_output(self,handle=None):
         handle=self.transport.current if handle is None else handle
-        self.transport.end_output(handle)
+        self.pending_output_ends.add(handle)
+        try:self.transport.end_output(handle)
+        except Exception as exc:
+            self.get_logger().warning('Waiting for scoped output end confirmation: '+str(exc),throttle_duration_sec=3.)
+            return False
+        self.pending_output_ends.discard(handle)
         if handle==self.transport.current:
             self.active=False;self.intent.publish(Bool(data=False))
+        return True
+
+    def retry_output_ends(self):
+        if self._retrying_output_ends:return not (self.pending_output_ends or self.pending_output_task)
+        self._retrying_output_ends=True
+        try:
+            for handle in tuple(self.pending_output_ends):self.end_output(handle)
+            if self.pending_output_ends:return False
+            task=self.pending_output_task
+            if task is not None:
+                if task[0]==self.seq and self.target is not None:
+                    if not self.end_output():return False
+                    self.transport.begin_task(task_id=task[1])
+                self.pending_output_task=None
+            pending=self.pending_route_finish
+            self.pending_route_finish=None
+            if pending is not None and pending[0]==self.seq:
+                self.waypoints.finish(pending[1])
+            return not (self.pending_output_ends or self.pending_output_task)
+        finally:self._retrying_output_ends=False
+
+    @paused_budget
+    def wait_output_ends(self,epoch):
+        while rclpy.ok():
+            if self.seq!=epoch or self.target is None:return False
+            if self.retry_output_ends():return self.seq==epoch and self.target is not None
+            self.spin(.1)
+        return False
 
     def status(self,value):
         msg=String(data=value);self.state.publish(msg);self.get_logger().info(value)
@@ -75,21 +114,43 @@ class Driver(AxisTrial):
         self.mark.publish(m)
 
     def cancel(self,why):
-        self.end_output()
-        if self.target is not None:self.finished.publish(self.arrow)
+        arrow=self.arrow if self.target is not None else None
+        # Revoke intent before any transport operation. A failed stop must not
+        # leave an executable old epoch that can revive when ROS reconnects.
         self.seq+=1;self.target=self.route=None
+        self.pending_route_finish=None
+        self.pending_output_task=None
+        ended=self.end_output()
+        if arrow is not None:self.finished.publish(arrow)
         self.status(why)
-        self.waypoints.finish(why)
+        if why=='arrived_stopped' and not ended:
+            self.pending_route_finish=(self.seq,why)
+        else:self.waypoints.finish(why)
 
     def changed(self,_):
         if self.target is not None:self.cancel('cancelled_by_preview_point')
 
     def plan_changed(self,m):
         if self.waypoints.from_self(m):return
+        if self.goal_candidate(m) is None:
+            self.status('ignored_invalid_or_old_goal');return
         self.waypoints.override()
         self.accept_goal(m)
 
+    def goal_candidate(self,m):
+        try:
+            t=stamp(m.header.stamp);p=m.pose.position;q=m.pose.orientation
+            if (m.header.frame_id!='map' or t<self.boot or not 0<=self.now()-t<=2 or
+                    not all(math.isfinite(v) for v in (p.x,p.y,p.z,q.x,q.y,q.z,q.w)) or
+                    not abs(math.hypot(q.x,q.y,q.z,q.w)-1)<.002):return None
+            goal=planar(m.pose)
+            return (t,goal) if np.isfinite(goal).all() else None
+        except (AttributeError,TypeError,ValueError,OverflowError):return None
+
     def accept_goal(self,m):
+        candidate=self.goal_candidate(m)
+        if candidate is None:
+            self.status('ignored_invalid_or_old_goal');return
         if self.ready_file is not None and not self.ready_file.is_file():
             self.status('waiting_for_localization')
             return
@@ -99,13 +160,10 @@ class Driver(AxisTrial):
             self.seq+=1
             self.route=None
             self.status('waiting_for_plan')
-        self.transport.begin_task(task_id='goal-'+str(self.seq))
-        t=stamp(m.header.stamp);q=m.pose.orientation
-        goal=planar(m.pose)
-        if (m.header.frame_id!='map' or t<self.boot or not 0<=self.now()-t<=2 or
-            not np.isfinite(goal).all() or not abs(math.hypot(q.x,q.y,q.z,q.w)-1)<.002):
-            self.status('ignored_invalid_or_old_goal');return
+        t,goal=candidate
         self.target=goal;self.arrow=m;self.request=t;self.started=time.monotonic()
+        self.pending_output_task=(self.seq,'goal-'+str(self.seq))
+        if not self.retry_output_ends():self.status('previous_output_end_unconfirmed')
 
     def receive(self,m):
         if self.target is None:return
@@ -162,18 +220,18 @@ class Driver(AxisTrial):
         return poses['map']
 
     def motion_poses(self):
-        # Use one source-stamped map/odom batch. Keep the stricter existing
-        # motion deadline, independent of the body-free visualization lease.
+        # One source-stamped map/odom batch, with the shared 1s motion budget.
+        # Temporary body-free map projection retains its independent 650ms lease.
         m=self.pose_snapshot;now=self.get_clock().now().nanoseconds
         if (m is None or not self.pose_lease.usable(now) or len(m.poses)!=2
                 or not all(valid_pose(p) for p in m.poses)
-                or not 0<=now*1e-9-stamp(m.header.stamp)<=.4):
+                or not 0<=now-Time.from_msg(m.header.stamp).nanoseconds<=MOTION_MAX_AGE_NS):
             raise ValueError('motion_pose_stale_or_invalid')
         return np.array(authority_planar(m.poses[0])),np.array(authority_planar(m.poses[1])),stamp(m.header.stamp)
 
     def validate_motion_proof(self,source):
         # The batch used for all geometric proofs must still be authoritative
-        # and within the unchanged400ms bound at the actual send boundary.
+        # and within the shared1s motion bound at the actual send boundary.
         _,_,current=self.motion_poses()
         if current!=source:raise ValueError('motion_pose_changed_during_proof')
 
@@ -206,11 +264,15 @@ class Driver(AxisTrial):
         return np.array(authority_planar(m.poses[0])),np.array(authority_planar(m.poses[1])),stamp(m.header.stamp)
 
     def accept_special_goal(self,m):
+        candidate=self.goal_candidate(m)
+        if candidate is None:raise ValueError('ignored_invalid_or_old_goal')
         if self.target is not None or self.waypoints.blocking():raise ValueError('special_control_busy')
         if self.ready_file is not None and not self.ready_file.is_file():raise ValueError('execution_gate_closed')
-        self.seq+=1;self.transport.begin_task(task_id='special-'+str(self.seq))
-        self.target=planar(m.pose);self.arrow=m;self.request=stamp(m.header.stamp);self.started=time.monotonic();self.route=None
+        self.seq+=1
+        self.request,self.target=candidate;self.arrow=m;self.started=time.monotonic();self.route=None
         self._special_execution=True;self.status('special_straight_selected')
+        self.pending_output_task=(self.seq,'special-'+str(self.seq))
+        if not self.retry_output_ends():self.status('previous_output_end_unconfirmed')
 
     def verify_arrival(self):
         self.brake()
@@ -347,6 +409,7 @@ class Driver(AxisTrial):
         while rclpy.ok():
             self.spin(.08)
             if self.target is None:continue
+            if not self.wait_output_ends(self.seq):continue
             self.seen=self.seq
             output_handle=self.transport.current
             try:
@@ -354,7 +417,9 @@ class Driver(AxisTrial):
                 self.status("following_new_arrow")
                 with self.transport.task_scope(output_handle):result=self.run_goal()
             except Exception as e:result='stopped: '+str(e)
-            finally:self.end_output(output_handle)
+            finally:
+                self.end_output(output_handle)
+                if self.seen==self.seq and self.transport.current!=output_handle:self.end_output()
             if self.seen==self.seq:self.cancel(result)
 
 

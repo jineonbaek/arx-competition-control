@@ -32,7 +32,7 @@ class NavigationSession:
             except ImportError:self.error='导航同学的 task_client 尚未安装，导航接入不可用'
         self.latest={};self.visit=None;self.mission=None;self.events={}
         self.stop_event=threading.Event();self.worker=None;self.start_requested=False
-        self.clear_requested=False
+        self.clear_requested=False;self.prepared=False
 
     def stage(self,point):return NavigationStage(self,point)
 
@@ -45,17 +45,34 @@ class NavigationSession:
             except Exception as exc:error=str(exc)
         return dict(route=view,handoff=state,registered=active,error=error)
 
-    def begin(self,context):
-        if self.active:raise ValueError('原导航任务尚未清理，不能重启路线')
+    def validate_start_route(self):
+        if self.active and not self.prepared:raise ValueError('原导航任务尚未清理，不能重启路线')
         if self.client is None:raise ValueError(self.error)
         view=self.route.snapshot().get('route') or {};definition=view.get('definition') or {}
         if not view.get('available') or not view.get('status','').startswith('待开始'):
             raise ValueError('请先在导航端准备待开始的比赛路线；不会接管已运行的路线')
+        if any(p.get('test_task_id') for p in definition.get('points',[])):
+            raise ValueError('当前为测试模式，请在RViz开始路线；不启动真实抓取或放置')
         points=[p for p in definition.get('points',[]) if p.get('type')=='task']
         if [p.get('point_id') for p in points]!=['point_1','point_2']:
-            raise ValueError('本场固定取物、放置流程需要按顺序设置地点1和地点2')
-        state=self.client.state();previous=state.get('task')
+            raise ValueError('比赛路线必须按顺序包含T1任务点和T2任务点，请核对点类型；不会自动补造坐标')
+        try:state=self.client.state()
+        except Exception as exc:raise ValueError('导航交接服务未就绪，未开始机构准备：'+str(exc)) from exc
+        live=state.get('route')
+        if live is None:raise ValueError('导航交接服务尚无可核对的路线状态')
+        if (live.get('route_id')!=definition.get('route_id') or live.get('map_id')!=definition.get('map_id')
+                or live.get('running') or not live.get('competition_startable_draft')):
+            raise ValueError('导航交接服务的当前路线身份或可启动状态不一致，未准备机构')
+        if state.get('worker_ready') and not (self.active and self.prepared):
+            try:self.client.heartbeat()  # Reuse our own still-valid two-second lease only.
+            except Exception as exc:raise ValueError('已有有效worker且无法确认本实例登记，未准备机构') from exc
+        previous=state.get('task')
         if previous and previous['status']!='acknowledged':raise ValueError('导航上一次到访尚未确认结束')
+        return definition,points,state
+
+    def prepare(self,context):
+        if self.active:raise ValueError('原导航任务尚未清理')
+        definition,points,state=self.validate_start_route();previous=state.get('task')
         registration=self.client.register(['point_1','point_2'])
         self.lease_seconds=registration['lease_seconds']
         self.context=context;self.route_id=definition['route_id'];self.map_id=definition['map_id']
@@ -64,9 +81,17 @@ class NavigationSession:
         self.start_id=context['run_id']+':route-start';self.clear_id=context['run_id']+':route-clear'
         self.events={};self.visit=None;self.mission=None;self.latest=state;self.error=''
         self.stop_event=threading.Event();self.active=True;self.clear_requested=False
-        self.start_requested=False
+        self.start_requested=False;self.prepared=True;self.prepared_definition=copy.deepcopy(definition)
         self.worker=threading.Thread(target=self._heartbeat,args=(self.stop_event,),daemon=True,name='competition-navigation')
         self.worker.start()
+    def begin(self,context):
+        if not self.active:self.prepare(context)
+        if not self.prepared or self.context['run_id']!=context['run_id']:raise ValueError('准备中的导航任务身份不一致')
+        # Prove that our registration remains valid after any arm preparation.
+        self.client.heartbeat()
+        definition,points,state=self.validate_start_route()
+        if definition!=self.prepared_definition:raise ValueError('机构准备期间路线已改变，请重新检查')
+        self.prepared=False
         self.route.command('start',self.start_id,self.route_id)
         self.start_requested=True;self.command_started=time.monotonic()
 
@@ -165,7 +190,8 @@ class NavigationSession:
     def complete_visit(self,context):
         while True:
             self.await_channel(context)
-            if not self.controller.snapshot()['chassis_active']:break
+            robot=self.controller.snapshot()
+            if not robot['chassis_active'] and not robot.get('motion_reserved',False):break
             if context['cancelled'].wait(.1):raise ValueError('整场停止，不自动恢复交接')
         self._event('complete',control_released=True,navigation_ready=True)
 
@@ -182,6 +208,7 @@ class NavigationSession:
 
     def stop(self,context):
         if not self.active:return dict(stopped=True)
+        if self.prepared and not self.start_requested:self.close();return dict(stopped=True)
         self.controller.stop_competition_navigation(context['competition_token'])
         if not self.start_requested:self.close();return dict(stopped=True)
         self.clear_requested=True
@@ -202,4 +229,4 @@ class NavigationSession:
     def close(self):
         self.stop_event.set()
         if self.worker and self.worker is not threading.current_thread():self.worker.join(1)
-        self.active=False
+        self.active=False;self.prepared=False

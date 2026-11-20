@@ -2,7 +2,7 @@
 
 /pb/chassis_pose PoseArray: frame map, [map<-base, odom<-base]. Empty = invalid.
 No extrapolation, command publishers, free-space caching or independent TF tests
-in consumers. A dead authority/source expires at the same 650ms source deadline.
+in consumers. A dead authority/source expires at the 1s motion-source deadline.
 """
 import math
 import copy

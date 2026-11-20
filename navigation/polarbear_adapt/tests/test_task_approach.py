@@ -23,7 +23,7 @@ class OrientedTask(unittest.TestCase):
  def test_jump_and_stale_authority_still_stop_the_direct_controller(self):
   c=TaskApproach([0,0,0],[0,0,0],[point()]);c.step([0,0,0],[0,0,0],10,10,.1,[0,0,0])
   with self.assertRaisesRegex(ValueError,'jump'):c.step([.25,0,0],[0,0,0],10.1,10.1,.1,[0,0,0])
-  with self.assertRaisesRegex(ValueError,'stale'):c.step([0,0,0],[0,0,0],10,11,.1,[0,0,0])
+  with self.assertRaisesRegex(ValueError,'stale'):c.step([0,0,0],[0,0,0],10,11.001,.1,[0,0,0])
  def test_only_task_points_can_use_this_controller(self):
   with self.assertRaises(ValueError):TaskApproach([0,0,0],[0,0,0],[dict(type='via',pose=[.2,0,0])])
 class StopReview(unittest.TestCase):
