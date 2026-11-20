@@ -245,7 +245,7 @@ class BatteryExecutionTools(WorkflowTools):
             ident=hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
             result=dict(result,plan_id='coarse_'+ident,arm='right')
             mission.data.update(stage='COARSE_PLANNED',plan=copy.deepcopy(result))
-        elif wrist:
+        elif wrist and not (self.vision_mode=='plan_f' and self._wrist_stage()=='COARSE_ALIGNED'):
             try:self._post_stage_observation(result['observation_id'],self._wrist_stage(),'d405')
             except AgentError:
                 state.get('latest_battery_observations',{}).pop('d405',None)
