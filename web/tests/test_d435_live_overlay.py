@@ -6,6 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import d435_live_overlay as overlay_module
 from d435_live_overlay import LiveOverlay, battery_box_edges, battery_top_face, cabinet_axis_from_quad, project_base, snap_wireframe_to_top_face, tracked_object_pose, visible_face_overlay, write_depth_map
 
 
@@ -17,6 +18,22 @@ class Model:
 
 
 class OverlayTests(unittest.TestCase):
+    @staticmethod
+    def depth_plane(box, *, shape=(100, 120), depth=.7):
+        x1, y1, x2, y2 = box
+        rgb = np.zeros((*shape, 3), np.uint8)
+        xyz = np.zeros((*shape, 3), np.float32)
+        yy, xx = np.mgrid[y1:y2, x1:x2]
+        xyz[y1:y2, x1:x2, 0] = (xx - shape[1] / 2) * .001
+        xyz[y1:y2, x1:x2, 1] = (yy - shape[0] / 2) * .001
+        xyz[y1:y2, x1:x2, 2] = depth + (xx - x1) * .0001
+        return rgb, xyz
+
+    def depth_detector(self):
+        detector = getattr(overlay_module, 'battery_depth_face', None)
+        self.assertIsNotNone(detector, 'battery_depth_face must be implemented')
+        return detector
+
     def test_object_pose_tracks_tool_without_rerunning_foundationpose(self):
         model = Model()
         tcp = np.eye(4)
@@ -62,6 +79,36 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNotNone(quad)
         self.assertEqual(quad.shape, (4, 2))
         self.assertGreaterEqual(float(np.max(quad[:, 0])), 638.)
+
+    def test_depth_face_accepts_right_edge_crop(self):
+        rgb, xyz = self.depth_plane((68, 15, 120, 90))
+        observation = self.depth_detector()(rgb, xyz, (100, 50), .705)
+        self.assertIsNotNone(observation)
+        self.assertIn('right', observation['boundary_contacts'])
+        self.assertEqual(observation['method'], 'depth_partial_plane')
+
+    def test_depth_face_accepts_top_right_crop(self):
+        rgb, xyz = self.depth_plane((62, 0, 120, 78))
+        observation = self.depth_detector()(rgb, xyz, (96, 35), .705)
+        self.assertIsNotNone(observation)
+        self.assertEqual(set(observation['boundary_contacts']), {'top', 'right'})
+
+    def test_depth_face_rejects_plane_at_wrong_depth(self):
+        rgb, xyz = self.depth_plane((35, 20, 105, 85), depth=.25)
+        self.assertIsNone(self.depth_detector()(rgb, xyz, (70, 50), .7))
+
+    def test_depth_face_rejects_thin_arm_like_plane(self):
+        rgb, xyz = self.depth_plane((8, 45, 115, 55))
+        self.assertIsNone(self.depth_detector()(rgb, xyz, (65, 50), .705))
+
+    def test_depth_face_rejects_insufficient_area(self):
+        rgb, xyz = self.depth_plane((55, 42, 70, 57))
+        self.assertIsNone(self.depth_detector()(rgb, xyz, (62, 50), .705))
+
+    def test_depth_face_rejects_missing_depth(self):
+        rgb = np.zeros((100, 120, 3), np.uint8)
+        xyz = np.zeros((100, 120, 3), np.float32)
+        self.assertIsNone(self.depth_detector()(rgb, xyz, (60, 50), .7))
 
     def test_observed_top_face_warps_all_twelve_cad_edges(self):
         pixels = [(10, 10), (10, 50), (30, 10), (30, 50), (50, 10), (50, 50), (70, 10), (70, 50)]

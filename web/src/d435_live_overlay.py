@@ -84,7 +84,7 @@ def _ordered_quad(points):
     return np.roll(points, -int(np.argmin(points.sum(1))), axis=0)
 
 
-def battery_top_face(rgb, xyz, expected_px, expected_depth_m=None):
+def _gray_battery_top_face(rgb, xyz, expected_px, expected_depth_m=None):
     """Find the gray upper battery face and require paired depth on that face."""
     rgb = np.asarray(rgb, np.uint8); xyz = np.asarray(xyz, float)
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
@@ -127,6 +127,123 @@ def battery_top_face(rgb, xyz, expected_px, expected_depth_m=None):
         quad = cv2.approxPolyDP(hull, epsilon * cv2.arcLength(hull, True), True)[:, 0, :]
         if len(quad) == 4: break
     return _ordered_quad(quad) if len(quad) == 4 else None
+
+
+def battery_depth_face(rgb, xyz, expected_px, expected_depth_m=None, projected_pixels=None):
+    """Return a bounded depth-plane observation for a partly clipped battery face."""
+    rgb = np.asarray(rgb, np.uint8); xyz = np.asarray(xyz, float)
+    if (rgb.ndim != 3 or rgb.shape[2] != 3 or xyz.shape != (*rgb.shape[:2], 3)
+            or expected_px is None or len(expected_px) != 2):
+        return None
+    height, width = rgb.shape[:2]
+    x, y = np.rint(expected_px).astype(int)
+    if not (np.isfinite([x, y]).all() and -width <= x < width * 2 and -height <= y < height * 2):
+        return None
+
+    roi = np.zeros((height, width), np.uint8)
+    projected = [] if projected_pixels is None else [point for point in projected_pixels
+                                                      if point is not None and np.isfinite(point).all()]
+    if len(projected) >= 3:
+        hull = cv2.convexHull(np.rint(projected).astype(np.int32))
+        cv2.fillConvexPoly(roi, hull, 1)
+        roi = cv2.dilate(roi, np.ones((31, 31), np.uint8))
+    else:
+        # Keep the fallback tighter than the projected-cuboid path so the table
+        # plane below a boundary-clipped battery cannot dominate RANSAC.
+        roi[max(0, y-120):min(height, y+120), max(0, x-130):min(width, x+130)] = 1
+
+    depth = xyz[:, :, 2]
+    valid = (roi > 0) & np.isfinite(depth) & (depth > .1) & (depth < 2.)
+    if expected_depth_m is not None and np.isfinite(expected_depth_m):
+        # The tracked reference supplies a strong 2-D prior. Its absolute depth can
+        # drift when the taught grasp is reloaded, so retain a bounded 30 cm window.
+        valid &= np.abs(depth - float(expected_depth_m)) <= .30
+    ys, xs = np.nonzero(valid)
+    if len(xs) < 500:
+        return None
+    points = xyz[ys, xs]
+    if not np.isfinite(points).all():
+        return None
+
+    rng = np.random.default_rng(19)
+    sample_indices = np.arange(len(points))
+    if len(sample_indices) > 14000:
+        sample_indices = rng.choice(sample_indices, 14000, replace=False)
+    sample = points[sample_indices]
+    best = None
+    for _ in range(180):
+        a, b, c = sample[rng.choice(len(sample), 3, replace=False)]
+        normal = np.cross(b-a, c-a); length = np.linalg.norm(normal)
+        if length < 1e-8:
+            continue
+        normal /= length
+        inliers = np.abs((points-a) @ normal) <= .006
+        count = int(inliers.sum())
+        if best is None or count > best[0]:
+            best = count, normal, a, inliers
+    if best is None or best[0] < 500:
+        return None
+
+    count, normal, anchor, inliers = best
+    plane_mask = np.zeros((height, width), np.uint8)
+    plane_mask[ys[inliers], xs[inliers]] = 1
+    plane_mask = cv2.morphologyEx(plane_mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    components, labels, stats, centers = cv2.connectedComponentsWithStats(plane_mask, 8)
+    choices = []
+    for index in range(1, components):
+        area = int(stats[index, cv2.CC_STAT_AREA])
+        left, top, box_width, box_height = map(int, stats[index, :4])
+        if area < 500 or box_width < 28 or box_height < 28:
+            continue
+        aspect = box_width / float(box_height)
+        fill = area / float(box_width * box_height)
+        if not .25 <= aspect <= 4.0 or fill < .12:
+            continue
+        distance = float(np.linalg.norm(centers[index] - [x, y]))
+        if distance > max(90., .45*np.hypot(box_width, box_height)):
+            continue
+        choices.append((area / (1. + distance / 80.), area, -distance, index, fill))
+    if not choices:
+        return None
+    _, area, neg_distance, index, fill = max(choices)
+    component = (labels == index).astype(np.uint8) * 255
+    contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    hull = cv2.convexHull(contour)
+    if cv2.contourArea(hull) < 450:
+        return None
+    quad = cv2.boxPoints(cv2.minAreaRect(hull))
+    quad[:, 0] = np.clip(quad[:, 0], 0, width-1)
+    quad[:, 1] = np.clip(quad[:, 1], 0, height-1)
+    quad = _ordered_quad(quad)
+
+    left, top, box_width, box_height = map(int, stats[index, :4])
+    right = left + box_width - 1; bottom = top + box_height - 1
+    contacts = []
+    if top <= 1: contacts.append('top')
+    if right >= width-2: contacts.append('right')
+    if bottom >= height-2: contacts.append('bottom')
+    if left <= 1: contacts.append('left')
+    selected_depth = depth[labels == index]
+    delta = None if expected_depth_m is None or not np.isfinite(expected_depth_m) else float(np.median(selected_depth)-expected_depth_m)
+    visible_fraction = float(np.clip(area / max(1., box_width*box_height), 0., 1.))
+    confidence = float(np.clip(.35*(count/len(points)) + .35*visible_fraction
+                               + .30*(1.-min(1., -neg_distance/90.)), 0., 1.))
+    return dict(quad=quad, contour=hull[:, 0, :].astype(float), method='depth_partial_plane',
+                visible_fraction=visible_fraction, boundary_contacts=contacts, confidence=confidence,
+                plane_normal=np.asarray(normal, float), plane_anchor=np.asarray(anchor, float),
+                median_depth_m=float(np.median(selected_depth)), expected_depth_delta_m=delta)
+
+
+def battery_top_face(rgb, xyz, expected_px, expected_depth_m=None):
+    """Keep the calibrated gray-face path, then accept a bounded depth-only partial face."""
+    quad = _gray_battery_top_face(rgb, xyz, expected_px, expected_depth_m)
+    if quad is not None:
+        return quad
+    observation = battery_depth_face(rgb, xyz, expected_px, expected_depth_m)
+    return None if observation is None else observation['quad']
 
 
 def visible_face_overlay(quad):
