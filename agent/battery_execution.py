@@ -116,6 +116,8 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if not low<=p['gripper_target']<=high:raise ValueError('Gripper target outside configured limits')
     monitor=PickMonitor(model,tcp,target,expected_lift_rad=plan['lift_rad'],
                         started_at=controller.clock(),**p)
+    if approach and correction is None:
+        monitor.arm_policy['tolerance']=[10.,10.,10.,3.,3.,3.]
     if stationary:
         step=StationaryApproachStep(controller,token,monitor,preflight=guard)
     else:
