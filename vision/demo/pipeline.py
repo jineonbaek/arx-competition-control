@@ -240,10 +240,10 @@ class QwenJudge:
                          "reason":{"type":"string"}},["status","reason"])
 
 def run_frame(models,judge,image,reference,task,output,depth=None,metadata=None,
-              threshold=.20,force_fallback=False,camera=None,*,review_mask=True):
+              threshold=.20,force_fallback=False,camera=None,*,review_mask=True,dino_prompt=DINO_PROMPT):
     shape=shape_view(image)
     reference=shape_view(reference)
-    detected=models.detect(shape,DINO_PROMPT,threshold)
+    detected=models.detect(shape,dino_prompt,threshold)
     candidates,excluded=filter_fixed_gripper_candidates(detected,image.size,camera)
     (output/"candidates.png").write_bytes(_png(overlay_candidates(image,candidates)))
     report={"observation_id":output.parent.name+"-"+output.name,"image_size_px":list(image.size),

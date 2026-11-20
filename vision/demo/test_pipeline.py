@@ -63,6 +63,16 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result["status"],"needs_new_observation")
         judge.review.assert_not_called()
 
+    def test_selected_prompt_reaches_candidate_detection_and_qwen(self):
+        from unittest.mock import Mock
+        models=Mock(wraps=Models(self.candidates))
+        judge=Mock(wraps=Judge({'status':'selected','candidate_id':1}))
+        result=run_frame(models,judge,self.image,self.image,'selected battery task',self.output,
+                         review_mask=False,dino_prompt='selected battery prompt')
+        self.assertEqual(result['status'],'perception_accepted')
+        self.assertEqual(models.detect.call_args.args[1],'selected battery prompt')
+        self.assertEqual(judge.select.call_args.args[3],'selected battery task')
+
     def test_shape_evidence_keeps_color_only_in_display_overlay(self):
         from unittest.mock import Mock
         from target import TASK, DINO_PROMPT, load_reference, shape_view
