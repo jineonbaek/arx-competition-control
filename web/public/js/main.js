@@ -178,13 +178,13 @@ function render(force=false) {
   $('right-avoidance-preset').hidden=side!=='right';
   $('left-fixed-hold-status').textContent=hold?.arrived
     ? '左臂固定点位：已到位 · 最大误差 '+fmt(hold.max_error_deg,2)+'° · 夹爪闭合目标保持'
-    : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪闭合';
+    : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪闭合';
   $('left-fixed-hold2-status').textContent=hold2?.arrived
     ? '左臂固定点位2：已到位 · 最大误差 '+fmt(hold2.max_error_deg,2)+'° · 夹爪闭合目标保持'
-    : '左臂固定点位2：'+(Number.isFinite(hold2?.max_error_deg)?'最大误差 '+fmt(hold2.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪闭合';
+    : '左臂固定点位2：'+(Number.isFinite(hold2?.max_error_deg)?'最大误差 '+fmt(hold2.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪闭合';
   $('right-avoidance-preset-status').textContent=rightAvoidance?.arrived
     ? '右臂避障预设位：已到位 · 最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'° · 夹爪保持'
-    : '右臂避障预设位：'+(Number.isFinite(rightAvoidance?.max_error_deg)?'最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±1° · 夹爪保持';
+    : '右臂避障预设位：'+(Number.isFinite(rightAvoidance?.max_error_deg)?'最大误差 '+fmt(rightAvoidance.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪保持';
   $('tcp-mode').textContent=editor.dirty.tcp?'目标编辑':'mm / °';
   for(let i=0;i<6;i++) {
     const pair=limits.joint_limits_deg?.[i];
