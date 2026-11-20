@@ -3,7 +3,10 @@ import os
 import json
 from pathlib import Path
 import sys
+import uuid
 import numpy as np
+from navigation.pose_freshness import MOTION_MAX_AGE_NS
+from .pose_wait import PoseWait,pose_unavailable
 from navigation.polarbear_adapt.chassis_command import WebChassis
 from navigation.polarbear_adapt.continuous_track import tracking_command, swept_poses, PERIOD
 from navigation.polarbear_adapt.mppi_trial.stationary import StopWindow
@@ -43,7 +46,7 @@ class _PoseReader:
         self.ros=rclpy;self.context=Context()
         rclpy.init(context=self.context,domain_id=int(os.getenv('NAV_ROS_DOMAIN_ID','192')))
         self.node=Receiver('grasp_retreat_pose',context=self.context)
-        self.node.pose_snapshot=None;self.node.pose_lease=SnapshotLease();self.node.received_pose=False
+        self.node.pose_snapshot=None;self.node.pose_lease=SnapshotLease(max_age_ns=MOTION_MAX_AGE_NS);self.node.received_pose=False
         self.body_delta=body_delta;self.previous_pose=None;self.measured=np.zeros(3)
         config=json.loads((directory/'footprint.json').read_text());poly=np.asarray(config['polygon_m'])
         self.node.poly=poly+np.sign(poly)*config['padding_m']
@@ -102,19 +105,35 @@ class ChassisRetreatStep:
         self.controller=controller;self.token=token
         self.reader=None;self.transport=None;self.target=None;self.route=None
         self.previous=np.zeros(3);self.last=None;self.stop=None;self.done=False
+        self.pose_wait=None;self.moved=False
 
     def start(self):
-        # Finish ROS discovery before WebChassis timestamps its first 300 ms command.
+        # Finish ROS discovery before WebChassis timestamps its first source-stamped command.
         if getattr(self.controller,'config',{}).get('chassis_backend')=='ros':
             self.controller.chassis.session(self.token,'navigation').ensure()
-        self.transport=WebChassis(submit=lambda command:self.controller.submit(command,self.token))
+        self.transport=WebChassis(source_id='navigation-'+uuid.uuid4().hex,
+            submit=lambda command:self.controller.submit(command,self.token))
         self.transport.sdk_units=True;self.transport.native_sdk=True
-        self.reader=_PoseReader()
+        self.reader=_PoseReader();self.pose_wait=PoseWait(self.transport)
 
     def poll(self):
+        try:return self._poll()
+        except Exception as exc:
+            if not pose_unavailable(exc):raise
+            self.pose_wait.begin(self.moved);self.pose_wait.hold()
+            return dict(status='backing_chassis',waiting_for_pose=True)
+
+    def _poll(self):
         if self.done:return dict(status='chassis_stopped')
         sample=self.reader.read()
-        if sample is None:return dict(status='backing_chassis')
+        if sample is None:
+            self.pose_wait.begin(self.moved);self.pose_wait.hold()
+            return dict(status='backing_chassis',waiting_for_pose=True)
+        if self.pose_wait.waiting:
+            if not self.pose_wait.ready(sample,self.reader.now(),allow_motion=self.stop is None):
+                return dict(status='backing_chassis',waiting_for_pose=True)
+            if self.stop is not None and self.pose_wait.window is not None:self.stop=self.pose_wait.window
+            self.previous=np.zeros(3);self.last=self.controller.clock()-PERIOD
         _,odom,source=sample;tick=self.controller.clock()
         if self.target is None:
             self.target=odom.copy()
@@ -139,7 +158,7 @@ class ChassisRetreatStep:
         command,arrived=tracking_command(self.route,odom,self.target,self.previous,dt)
         if arrived:command=self.previous
         self.reader.check_motion(command,source)
-        self.transport.send(command);self.previous=command
+        self.transport.send(command);self.previous=command;self.moved=True
         return dict(status='backing_chassis')
 
     def close(self):
