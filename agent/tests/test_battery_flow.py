@@ -81,8 +81,9 @@ class FlowTests(unittest.TestCase):
         out=self.flow(vision_mode='plan_f').run()
         self.assertEqual(out['status'],'completed')
         self.assertEqual(self.store.state['mission']['target']['camera'],'d405')
-        self.assertEqual(self.tools.camera_calls,['d405','d405','d405'])
-        self.assertIn('execute_coarse_alignment',self.tools.calls)
+        self.assertEqual(self.tools.camera_calls,['d405','d405'])
+        self.assertNotIn('plan_coarse_alignment',self.tools.calls)
+        self.assertNotIn('execute_coarse_alignment',self.tools.calls)
         self.assertIn('execute_battery_approach',self.tools.calls)
     def test_plan_c_uses_taught_points_then_reuses_existing_hold_retreat_and_carry(self):
         self.tools.vision_mode='fixed'

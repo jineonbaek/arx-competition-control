@@ -116,7 +116,11 @@ class BatteryFlow:
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
                     self.flow['head']=data['observation_id']
                     self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera=camera,observation_id=data['observation_id'])
-                    self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
+                    if self.vision_mode=='plan_f':
+                        self.flow['wrist']=data['observation_id']
+                        self.store.state['mission']['stage']='COARSE_ALIGNED'
+                        self.store.save();self._next('preview')
+                    else:self._next('preview' if self.vision_mode=='d435' else 'coarse_plan')
                 elif phase=='coarse_plan':
                     self._call('plan_coarse_alignment',{'observation_id':self.flow['head']});self._next('coarse_execute')
                 elif phase in ('coarse_execute','approach_execute','insert'):

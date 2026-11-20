@@ -63,13 +63,13 @@ function show(data){
 }
 function executionButtons(){
  const running=execution?.status==='running';
- const planD=el('vision-mode').value==='plan_d';
+ const mode=el('vision-mode').value,planD=mode==='plan_d',planF=mode==='plan_f';
  el('plan-d-panel').hidden=!planD;
  el('execute').disabled=planD||running||!execution?.available||!el('environment-clear').checked;
  el('plan-d-capture').disabled=running||planDBusy;
  el('stop-task').disabled=!running;
  el('vision-mode').disabled=running;
- el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running;
+ el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running||planF;
  el('plan-c-lift-target-rad').disabled=running;
  el('record-plan-c-pregrasp').disabled=running;el('record-plan-c-grasp').disabled=running;
 }

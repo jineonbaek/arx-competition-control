@@ -18,8 +18,8 @@
 <section class="panel"><h2>实机自动流程</h2><p>Plan A/B 走视觉定位；Plan C 直接复用已记录的预夹取点和夹取点。夹住后均复用底盘后退 200 mm 并停车，再返回运输姿态（J1～J5 为 0°，J6 为 -90°；保持夹持和升降）。</p>
 <div class="task-settings">
 <label>升降目标（rad）<input id="lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>达到向下取整值即成功，例如 6.6 → 6.0</small></label>
-<label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮粗定位引导</small></label>
-<label>抓取模式<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option><option value="plan_f">Plan F · D405 粗定位＋精定位</option><option value="fixed">Plan C 纯定点夹取</option><option value="plan_d">Plan D 深度电池面识别（预览）</option></select><small>手动选择；Plan F 先按现有取整规则到达升降目标，再用 D405 替换首轮 D435 粗定位</small></label>
+<label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>Plan A使用；Plan F从当前避障预设位直接观察并忽略此值</small></label>
+<label>抓取模式<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option><option value="plan_f">Plan F · D405 粗定位＋精定位</option><option value="fixed">Plan C 纯定点夹取</option><option value="plan_d">Plan D 深度电池面识别（预览）</option></select><small>手动选择；Plan F在避障预设位首拍D405，不执行固定预观察Z移动</small></label>
 </div>
 <div class="task-settings">
 <label>Plan C 底盘升降目标（rad）<input id="plan-c-lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>完全复用现有判定：达到向下取整值即成功</small></label>
