@@ -34,6 +34,11 @@ class OverlayTests(unittest.TestCase):
         self.assertIsNotNone(detector, 'battery_depth_face must be implemented')
         return detector
 
+    def face_evidence(self):
+        selector = getattr(overlay_module, 'battery_face_evidence', None)
+        self.assertIsNotNone(selector, 'battery_face_evidence must be implemented')
+        return selector
+
     def test_object_pose_tracks_tool_without_rerunning_foundationpose(self):
         model = Model()
         tcp = np.eye(4)
@@ -109,6 +114,61 @@ class OverlayTests(unittest.TestCase):
         rgb = np.zeros((100, 120, 3), np.uint8)
         xyz = np.zeros((100, 120, 3), np.float32)
         self.assertIsNone(self.depth_detector()(rgb, xyz, (60, 50), .7))
+
+    def test_depth_face_prefers_expected_battery_over_larger_rear_plane(self):
+        rgb = np.zeros((120, 160, 3), np.uint8)
+        xyz = np.zeros((120, 160, 3), np.float32)
+        _, battery = self.depth_plane((80, 18, 125, 68), shape=(120, 160), depth=.70)
+        _, distractor = self.depth_plane((8, 72, 80, 118), shape=(120, 160), depth=.91)
+        xyz += battery + distractor
+        observation = self.depth_detector()(rgb, xyz, (103, 43), .70)
+        self.assertIsNotNone(observation)
+        self.assertAlmostEqual(observation['median_depth_m'], .702, delta=.02)
+
+    def test_depth_face_rejects_larger_rear_plane_when_battery_absent(self):
+        rgb, xyz = self.depth_plane((8, 72, 80, 118), shape=(120, 160), depth=.91)
+        self.assertIsNone(self.depth_detector()(rgb, xyz, (103, 43), .70))
+
+    def test_public_top_face_rejects_missing_depth_without_exception(self):
+        rgb = np.zeros((100, 120, 3), np.uint8)
+        self.assertIsNone(battery_top_face(rgb, None, (60, 50), .7))
+        self.assertIsNone(battery_top_face(rgb, np.zeros((100, 120, 3), np.float32), (60, 50), .7))
+        self.assertIsNone(battery_top_face(rgb, np.full((100, 120, 3), np.nan), (60, 50), .7))
+
+    def test_complete_gray_face_keeps_legacy_four_edge_evidence(self):
+        rgb = np.zeros((100, 120, 3), np.uint8); rgb[20:70, 40:90] = [125, 140, 150]
+        xyz = np.zeros((100, 120, 3), np.float32)
+        yy,xx=np.mgrid[20:70,40:90];xyz[20:70,40:90,0]=(xx-65)*.001;xyz[20:70,40:90,1]=(yy-45)*.001;xyz[20:70,40:90,2]=.7
+        evidence = self.face_evidence()(rgb, xyz, (65, 45), .7,
+                                        [(40,20),(90,20),(90,70),(40,70)])
+        self.assertEqual(evidence['method'], 'legacy_gray_face')
+        self.assertEqual(len(evidence['battery_edges']), 4)
+        self.assertIsNone(evidence['measured_contour'])
+        self.assertEqual(evidence['inferred_edges'], [])
+
+    def test_large_depth_offset_suppresses_unaligned_model_completion(self):
+        fixture = Path(__file__).parent / 'fixtures/d435-partial-black-battery-frame.npz'
+        pixels = [(597,210),(655,332),(536,211),(579,332),(616,154),(684,274),(549,155),(600,274)]
+        with np.load(fixture, allow_pickle=False) as frame:
+            evidence = self.face_evidence()(frame['rgb'], frame['xyz'], tuple(frame['expected_px']),
+                                            float(frame['expected_depth_m']), pixels)
+        self.assertEqual(evidence['method'], 'depth_partial_plane')
+        self.assertFalse(evidence['model_completion_aligned'])
+        self.assertEqual(evidence['inferred_edges'], [])
+        self.assertIsNotNone(evidence['measured_contour'])
+
+    def test_depth_contour_preserves_supported_concavity_and_uses_projected_area(self):
+        rgb = np.zeros((100, 120, 3), np.uint8)
+        xyz = np.zeros((100, 120, 3), np.float32)
+        yy,xx=np.mgrid[10:90,20:100]
+        support = ((xx < 55) | (yy > 55))
+        block = xyz[10:90,20:100]
+        block[support,0]=(xx[support]-60)*.001;block[support,1]=(yy[support]-50)*.001;block[support,2]=.7
+        observation = self.depth_detector()(rgb, xyz, (48, 60), .7,
+                                            [(10,5),(110,5),(110,95),(10,95)])
+        self.assertIsNotNone(observation)
+        self.assertLess(cv2.contourArea(observation['contour'].astype(np.float32)), 4500.)
+        self.assertLess(observation['visible_fraction'], .65)
 
     def test_observed_top_face_warps_all_twelve_cad_edges(self):
         pixels = [(10, 10), (10, 50), (30, 10), (30, 50), (50, 10), (50, 50), (70, 10), (70, 50)]
