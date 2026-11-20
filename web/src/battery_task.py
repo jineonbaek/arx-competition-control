@@ -2,6 +2,7 @@
 import copy
 import json
 import math
+from numbers import Real
 import threading
 from pathlib import Path
 
@@ -71,7 +72,7 @@ class BatteryTask:
     @staticmethod
     def _plan_c_joints(value):
         if (not isinstance(value,list) or len(value)!=6
-                or any(type(v) not in (int,float) or not math.isfinite(v) for v in value)):
+                or any(isinstance(v,bool) or not isinstance(v,Real) or not math.isfinite(v) for v in value)):
             raise ValueError('Plan C 点位须为六轴有限关节反馈')
         return [float(v) for v in value]
 

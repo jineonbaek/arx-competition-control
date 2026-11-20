@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock,patch
 
+import numpy as np
+
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
@@ -119,7 +121,7 @@ class BatteryTaskTests(unittest.TestCase):
         task=BatteryTask(Path(self.temp.name)/'plan-c-runs',self.controller,
                          self.task.workflow_factory,plan_c_path=profile)
         self.addCleanup(task.close)
-        self.controller.update_arm('right',[.1,.2,.3,.4,.5,.6],-1.,[0.]*6)
+        self.controller.update_arm('right',[np.float64(v) for v in [.1,.2,.3,.4,.5,.6]],-1.,[0.]*6)
         self.controller.update_body(5.52,[0.]*4,0.,0.,0.)
         first=task.action('owner',{'action':'record_plan_c','request_id':'record-pre',
             'point':'pregrasp','lift_target_rad':6.6})
