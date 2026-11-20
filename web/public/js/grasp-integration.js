@@ -3,6 +3,7 @@ import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 import {frameFresh,cameraImagePath} from './camera-freshness.js';
 const el=id=>document.getElementById(id);
 let execution=null,revision='',geometry=null,geometryKey='',settingsLoaded=false;
+let recognitionProfiles=[];
 const requestId=()=>crypto.randomUUID?.()||([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
 async function request(path,body){
  const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)}:{cache:'no-store',signal:AbortSignal.timeout(10000)});
@@ -35,6 +36,35 @@ const joints=q=>q?.length===6?q.map(v=>(v*180/Math.PI).toFixed(1)+'°').join(' /
 function showPlanC(profile={}){
  el('plan-c-pregrasp-status').textContent=joints(profile.pregrasp_joints_rad);
  el('plan-c-grasp-status').textContent=joints(profile.grasp_joints_rad);
+}
+const selectedRecognitionProfile=()=>recognitionProfiles.find(p=>p.id===el('recognition-profile').value);
+function recognitionProfileFromForm(identity=el('recognition-profile').value){
+ return {id:identity,name:el('recognition-profile-name').value.trim(),dino_prompt:el('dino-prompt').value.trim(),qwen_task:el('qwen-task').value.trim()};
+}
+function showRecognitionProfile(profile){
+ if(!profile)return;
+ el('recognition-profile').value=profile.id;el('recognition-profile-name').value=profile.name;
+ el('dino-prompt').value=profile.dino_prompt;el('qwen-task').value=profile.qwen_task;
+ el('delete-recognition-profile').disabled=!profile.id.startsWith('custom-');
+ el('recognition-profile-status').textContent='当前加载：'+profile.name;
+}
+function showRecognitionProfiles(settings={},preferred){
+ recognitionProfiles=settings.recognition_profiles||recognitionProfiles;
+ const select=el('recognition-profile'),identity=preferred||settings.selected_recognition_profile_id||select.value||'handle';
+ select.replaceChildren(...recognitionProfiles.map(profile=>Object.assign(document.createElement('option'),{value:profile.id,textContent:profile.name})));
+ showRecognitionProfile(recognitionProfiles.find(profile=>profile.id===identity)||recognitionProfiles[0]);
+}
+async function manageRecognitionProfile(action,profile){
+ try{
+  execution=await request('/api/battery-task',{action,request_id:requestId(),...(profile?{profile}:{profile_id:el('recognition-profile').value})});
+  showRecognitionProfiles(execution.settings,profile?.id);el('recognition-profile-status').textContent='已保存并加载：'+el('recognition-profile-name').value;
+ }catch(e){el('recognition-profile-status').textContent=e.message;}executionButtons();
+}
+function saveRecognitionProfile(forceNew){
+ for(const id of ['recognition-profile-name','dino-prompt','qwen-task'])if(!el(id).reportValidity())return;
+ const selected=selectedRecognitionProfile();let identity=selected?.id;
+ if(forceNew||!identity?.startsWith('custom-'))identity='custom-'+requestId();
+ manageRecognitionProfile('save_recognition_profile',recognitionProfileFromForm(identity));
 }
 const toolNames={observe_battery:'电池识别与深度定位',plan_coarse_alignment:'升降与预观察计划',execute_coarse_alignment:'升降与预观察执行',preview_battery_grasp:'FoundationPose 与点云',plan_battery_pick:'抓取路径规划',execute_battery_approach:'张开夹爪与接近',execute_pick:'插入与夹取',verify_hold:'夹持确认',stow_for_carry:'底盘后退 200 mm 并停车',return_to_carry:'返回运输姿态'};
 function show(data){
@@ -72,6 +102,8 @@ function executionButtons(){
  el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running;
  el('plan-c-lift-target-rad').disabled=running;
  el('record-plan-c-pregrasp').disabled=running;el('record-plan-c-grasp').disabled=running;
+ for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
+ el('delete-recognition-profile').disabled=running||!el('recognition-profile').value.startsWith('custom-');
 }
 const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
 function executionLog(){
@@ -84,12 +116,20 @@ function executionLog(){
 }
 el('environment-clear').onchange=executionButtons;
 el('vision-mode').onchange=executionButtons;
+el('recognition-profile').onchange=async()=>{
+ const profile=selectedRecognitionProfile();showRecognitionProfile(profile);
+ if(profile)await manageRecognitionProfile('select_recognition_profile');
+};
+el('save-recognition-profile').onclick=()=>saveRecognitionProfile(false);
+el('save-as-recognition-profile').onclick=()=>saveRecognitionProfile(true);
+el('delete-recognition-profile').onclick=()=>manageRecognitionProfile('delete_recognition_profile');
 el('execute').onclick=async()=>{
  try{
   if(el('vision-mode').value==='plan_d')return;
   const lift=el('lift-target-rad'),observer=el('observer-z-mm'),planCLift=el('plan-c-lift-target-rad');
   if(!lift.reportValidity()||!observer.reportValidity()||!planCLift.reportValidity())return;
-  const mode=el('vision-mode').value,payload={action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:mode};
+  for(const id of ['recognition-profile-name','dino-prompt','qwen-task'])if(!el(id).reportValidity())return;
+  const mode=el('vision-mode').value,payload={action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:mode,recognition_profile:recognitionProfileFromForm()};
   if(mode==='fixed')payload.plan_c_lift_target_rad=planCLift.valueAsNumber;
   execution=await request('/api/battery-task',payload);
   revision='';show({run_id:execution.run_id});
@@ -115,7 +155,7 @@ async function pollExecution(){
   if(!settingsLoaded&&execution.settings?.lift_target_rad!=null&&execution.settings?.observer_z_mm!=null){
    el('lift-target-rad').value=execution.settings.lift_target_rad;el('observer-z-mm').value=execution.settings.observer_z_mm;el('vision-mode').value=execution.settings.vision_mode||'d405';
    if(execution.settings.plan_c?.lift_target_rad!=null)el('plan-c-lift-target-rad').value=execution.settings.plan_c.lift_target_rad;
-   showPlanC(execution.settings.plan_c);settingsLoaded=true;
+    showPlanC(execution.settings.plan_c);showRecognitionProfiles(execution.settings,execution.settings.recognition_profile?.id);settingsLoaded=true;
   }
   executionButtons();
   const labels={idle:'等待现场确认。',running:'自动任务执行中。',completed:'本轮完成。',needs_attention:'本轮停止，需要检查。',cancelled:'本轮已停止。'};

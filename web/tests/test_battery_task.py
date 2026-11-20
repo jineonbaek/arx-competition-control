@@ -115,13 +115,38 @@ class BatteryTaskTests(unittest.TestCase):
                     'expected_epoch':0,'environment_clear':True,**values})
         result=self.task.action('owner',{'action':'start','request_id':'fixed-points',
             'expected_epoch':0,'environment_clear':True,
-            'lift_target_rad':6.6,'observer_z_mm':735.5,'vision_mode':'d435'})
+            'lift_target_rad':6.6,'observer_z_mm':735.5,'vision_mode':'d435',
+            'recognition_profile':{'id':'test','name':'测试方案','dino_prompt':'selected dino',
+                                   'qwen_task':'selected qwen'}})
         settings=self.created[0][0].state['battery_task_settings']
         self.assertEqual(settings,{'lift_target_rad':6.6,'lift_acceptance_rad':6.,
-                                   'observer_z_mm':735.5,'vision_mode':'d435'})
+                                   'observer_z_mm':735.5,'vision_mode':'d435',
+                                   'recognition_profile':{'id':'test','name':'测试方案',
+                                       'dino_prompt':'selected dino','qwen_task':'selected qwen'}})
         self.assertEqual({key:result['settings'][key] for key in settings},settings)
         self.assertIn('plan_c',result['settings'])
         self.gate.set();self.wait('needs_attention')
+
+    def test_recognition_profiles_preserve_builtins_and_persist_custom_selection(self):
+        path=Path(self.temp.name)/'recognition-profiles.json'
+        task=BatteryTask(Path(self.temp.name)/'profile-runs',self.controller,
+                         self.task.workflow_factory,recognition_profiles_path=path)
+        self.addCleanup(task.close)
+        initial=task.snapshot('owner')['settings']
+        self.assertEqual([p['id'] for p in initial['recognition_profiles']],['handle','battery'])
+        profile={'id':'custom-test','name':'现场方案','dino_prompt':'custom dino',
+                 'qwen_task':'custom qwen'}
+        saved=task.action('owner',{'action':'save_recognition_profile','request_id':'save-profile',
+                                   'profile':profile})
+        self.assertEqual(saved['settings']['selected_recognition_profile_id'],'custom-test')
+        self.assertEqual(task.task_settings['recognition_profile'],profile)
+        reloaded=BatteryTask(Path(self.temp.name)/'profile-reload',self.controller,
+                             self.task.workflow_factory,recognition_profiles_path=path)
+        self.addCleanup(reloaded.close)
+        view=reloaded.snapshot('owner')['settings']
+        self.assertEqual(view['selected_recognition_profile_id'],'custom-test')
+        self.assertEqual(view['recognition_profile'],profile)
+        self.assertEqual([p['id'] for p in view['recognition_profiles']],['handle','battery','custom-test'])
 
     def test_plan_c_records_live_joint_feedback_and_persists_lift_with_existing_floor_rule(self):
         profile=Path(self.temp.name)/'plan-c.json'

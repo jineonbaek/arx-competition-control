@@ -21,6 +21,15 @@
 <label>右臂预观察 Z（mm）<input id="observer-z-mm" type="number" min="0" max="1500" step="0.1" value="700.5"><small>优先观察高度，位置由本轮粗定位引导</small></label>
 <label>抓取模式<select id="vision-mode"><option value="d405" selected>D405 精定位（原方案）</option><option value="d435">D435 单帧 Plan B</option><option value="plan_f">Plan F · D405 粗定位＋精定位</option><option value="fixed">Plan C 纯定点夹取</option><option value="plan_d">Plan D 深度电池面识别（预览）</option></select><small>手动选择；Plan F 先按现有取整规则到达升降目标，再用 D405 替换首轮 D435 粗定位</small></label>
 </div>
+<details class="recognition-manager" open><summary>识别提示词与 Qwen 任务管理</summary>
+<div class="recognition-fields">
+<label>提示词方案<select id="recognition-profile"></select><small>选择后，本轮 DINO 和有歧义时的 Qwen 都使用此方案</small></label>
+<label>方案名称<input id="recognition-profile-name" maxlength="80" required></label>
+<label class="wide">DINO 提示词<textarea id="dino-prompt" maxlength="1000" rows="3" required></textarea></label>
+<label class="wide">Qwen 任务描述<textarea id="qwen-task" maxlength="1800" rows="8" required></textarea></label>
+</div>
+<div class="grasp-actions"><button id="save-recognition-profile" type="button" class="button secondary">保存方案</button><button id="save-as-recognition-profile" type="button" class="button secondary">另存为新方案</button><button id="delete-recognition-profile" type="button" class="button danger">删除自定义方案</button><span id="recognition-profile-status" role="status">正在读取方案…</span></div>
+</details>
 <div class="task-settings">
 <label>Plan C 底盘升降目标（rad）<input id="plan-c-lift-target-rad" type="number" min="1" max="18" step="0.01" value="5.52"><small>完全复用现有判定：达到向下取整值即成功</small></label>
 <label>Plan C 预夹取点<button id="record-plan-c-pregrasp" type="button" class="button secondary">记录当前位置</button><small id="plan-c-pregrasp-status">尚未记录</small></label>

@@ -1,5 +1,5 @@
 import json, tempfile, unittest, sys
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 from agent.grasp_scene import save_frame, frame_path
 from agent.grasp_pipeline import pipeline, run_worker, segment
 from agent.contracts import AgentError
@@ -119,6 +119,22 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result['paired_depth']['available'])
         self.assertEqual(result['paired_depth']['valid_fraction'],1.)
         self.assertTrue((output/'mask.png').is_file())
+
+    def test_selected_recognition_profile_reaches_task_worker(self):
+        from PIL import Image
+        source=self.store.path/'profile-result';source.mkdir()
+        Image.fromarray(np.full((20,30),255,np.uint8)).save(source/'mask.png')
+        session=Mock();self.store.perception_session=session
+        self.store.state['battery_task_settings']={'recognition_profile':{
+            'id':'custom-test','name':'测试','dino_prompt':'selected dino','qwen_task':'selected qwen'}}
+        session.call.return_value=dict(output=str(source),status='perception_accepted',
+            selection={'status':'selected','candidate_id':1},geometry={'mask_valid':True})
+        output=self.store.path/'profile-output';output.mkdir()
+        segment(self.store,self.obs['observation_id'],output,lambda:False)
+        arguments=session.call.call_args.args[1]
+        self.assertEqual(arguments['dino_prompt'],'selected dino')
+        self.assertEqual(arguments['qwen_task'],'selected qwen')
+        self.assertEqual(arguments['recognition_profile_id'],'custom-test')
     def test_rejected_recognition_does_not_run_pose(self):
         with patch("agent.grasp_pipeline.segment",return_value={"status":"needs_new_observation"}),patch("agent.grasp_pipeline.estimate") as estimate:
             result=pipeline(self.store,self.obs["observation_id"],50,self.store.path/"preview")

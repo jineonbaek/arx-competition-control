@@ -13,9 +13,36 @@ from agent.perception_session import PerceptionSession
 from control import Rejected
 
 
+DEFAULT_RECOGNITION_PROFILES={
+    'handle':{
+        'id':'handle','name':'把手方案（当前）',
+        'dino_prompt':'battery pull handle . recessed battery handle .',
+        'qwen_task':(
+            '找到安装在无人机电池槽中的可拆卸比赛电池。\n\n'
+            '当前D435视角通常只能看到电池外露端部和前端提手，长方体电池主体大部分被无人机机身遮挡。'
+            '因此不要要求看到完整电池外壳、侧面卡扣、电源连接器、标签或其他孔位。\n\n'
+            '主要依据电池前端提手判断：提手与电池外端面连成一体，具有宽横向、圆角矩形的提手开口或提手槽，'
+            '提手后方连接被无人机机身遮挡的长方体电池主体。目标位于无人机电池槽口处，而不是地面或无人机机架上。\n\n'
+            '优先选择同时包含提手和相连电池端面的候选。若候选只覆盖提手，但其位置明确位于电池槽口并与电池端面连接，也可以选择。\n\n'
+            '必须排除无人机起落架、机臂、螺旋桨、空电池槽、地面标定板、桌面，以及画面下方的机器人夹爪和机械臂。'
+            '忽略颜色、明暗、材质、标签、条码和打印纹理差异。\n\n'
+            '如果多个候选无法可靠区分，返回 ambiguous；如果画面中确实没有电池提手或电池外端部，返回 not_found。')},
+    'battery':{
+        'id':'battery','name':'完整电池方案（历史）',
+        'dino_prompt':'a rectangular drone battery pack with a protruding handle at one end, partially inserted into a drone.',
+        'qwen_task':(
+            '找到无人机上的可拆卸比赛电池。比赛起始区域通常只有无人机和电池。'
+            '按整块电池的可见外形判断：长方形或圆角矩形外壳、侧面卡扣、端部手柄和电源连接位置。'
+            '不要求看到长圆孔、四个小圆孔或其他孔位；这些细节可能被遮挡，定位和抓取由 D405 与 FoundationPose 完成。'
+            '左下角和右下角的固定夹爪是机器人自身，必须排除；仓口、金属筐、桌面和无人机其他结构属于背景。'
+            '忽略颜色、明暗、材质、胶带、条码和文字差异，打印件可以没有标签。'
+            '若当前视角只能看到电池壳体而看不到孔位，仍应按整体外形选择最接近的电池；只有确实没有电池候选时才返回 not_found。')},
+}
+
+
 class BatteryTask:
     def __init__(self, root, controller, workflow_factory, *, depth_control=None, plan_c_path=None,
-                 close_timeout_s=2.):
+                 recognition_profiles_path=None,close_timeout_s=2.):
         if not callable(workflow_factory) or close_timeout_s <= 0:
             raise ValueError('Workflow factory and bounded close timeout required')
         self.root=Path(root)
@@ -26,6 +53,11 @@ class BatteryTask:
         self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
         self.plan_c_path=None if plan_c_path is None else Path(plan_c_path)
         self.plan_c=self._load_plan_c()
+        self.recognition_profiles_path=(None if recognition_profiles_path is None
+                                        else Path(recognition_profiles_path))
+        self.recognition_profiles,self.selected_recognition_profile_id=self._load_recognition_profiles()
+        self.task_settings['recognition_profile']=copy.deepcopy(
+            self.recognition_profiles[self.selected_recognition_profile_id])
         self.lock=threading.RLock()
         self.active=None
         self.prepared=None
@@ -97,9 +129,59 @@ class BatteryTask:
             self.plan_c_path.parent.mkdir(parents=True,exist_ok=True)
             atomic_json(self.plan_c_path,self.plan_c)
 
+    @staticmethod
+    def _recognition_profile(value):
+        if not isinstance(value,dict) or set(value)!= {'id','name','dino_prompt','qwen_task'}:
+            raise ValueError('识别方案须包含 id、名称、DINO 提示词和 Qwen 任务')
+        limits={'id':80,'name':80,'dino_prompt':1000,'qwen_task':1800}
+        clean={}
+        for key,limit in limits.items():
+            text=value[key]
+            if not isinstance(text,str) or not text.strip() or len(text)>limit:
+                raise ValueError('识别方案字段为空或过长：'+key)
+            clean[key]=text.strip()
+        if any(not (c.isalnum() or c in '-_') for c in clean['id']):
+            raise ValueError('识别方案 id 仅允许字母、数字、横线和下划线')
+        return clean
+
+    def _load_recognition_profiles(self):
+        profiles=copy.deepcopy(DEFAULT_RECOGNITION_PROFILES);selected='handle'
+        if self.recognition_profiles_path is None or not self.recognition_profiles_path.exists():
+            return profiles,selected
+        try:
+            saved=json.loads(self.recognition_profiles_path.read_text(encoding='utf-8'))
+            if not isinstance(saved,dict) or not isinstance(saved.get('custom_profiles',[]),list):
+                raise ValueError('识别方案文件格式无效')
+            for value in saved.get('custom_profiles',[]):
+                profile=self._recognition_profile(value)
+                if not profile['id'].startswith('custom-'):
+                    raise ValueError('自定义识别方案 id 无效')
+                profiles[profile['id']]=profile
+            if saved.get('selected') in profiles:selected=saved['selected']
+            return profiles,selected
+        except (OSError,ValueError,TypeError) as error:
+            raise ValueError('已保存识别方案无效：'+str(error)) from error
+
+    def _save_recognition_profiles(self):
+        if self.recognition_profiles_path is None:return
+        self.recognition_profiles_path.parent.mkdir(parents=True,exist_ok=True)
+        atomic_json(self.recognition_profiles_path,{
+            'selected':self.selected_recognition_profile_id,
+            'custom_profiles':[copy.deepcopy(profile) for identity,profile in self.recognition_profiles.items()
+                               if identity not in DEFAULT_RECOGNITION_PROFILES]})
+
+    def _select_recognition_profile(self,identity):
+        if not isinstance(identity,str) or identity not in self.recognition_profiles:
+            raise ValueError('未知识别提示词方案')
+        self.selected_recognition_profile_id=identity
+        self.task_settings['recognition_profile']=copy.deepcopy(self.recognition_profiles[identity])
+        self._save_recognition_profiles()
+
     def _settings_view(self,settings=None):
         value=copy.deepcopy(self.task_settings if settings is None else settings)
         value['plan_c']=copy.deepcopy(self.plan_c)
+        value['recognition_profiles']=[copy.deepcopy(profile) for profile in self.recognition_profiles.values()]
+        value['selected_recognition_profile_id']=self.selected_recognition_profile_id
         return value
 
     @staticmethod
@@ -225,7 +307,7 @@ class BatteryTask:
             if action=='start':
                 required={'action','request_id','expected_epoch','environment_clear'}
                 settings={'lift_target_rad','observer_z_mm'}
-                optional=settings|{'vision_mode','plan_c_lift_target_rad'}
+                optional=settings|{'vision_mode','plan_c_lift_target_rad','recognition_profile'}
                 if (not required<=set(data) or not set(data)<=required|optional
                         or (bool(set(data)&settings) and not settings<=set(data))
                         or type(data['expected_epoch']) is not int
@@ -237,6 +319,8 @@ class BatteryTask:
                     values['vision_mode']=self._vision_mode(data['vision_mode'])
                 else:
                     values.setdefault('vision_mode','d405')
+                if 'recognition_profile' in data:
+                    values['recognition_profile']=self._recognition_profile(data['recognition_profile'])
                 if 'plan_c_lift_target_rad' in data:
                     self.plan_c.update(self._lift_settings(data['plan_c_lift_target_rad']))
                     self._save_plan_c()
@@ -247,6 +331,35 @@ class BatteryTask:
                                 for key in ('pregrasp_joints_rad','grasp_joints_rad'))):
                     raise ValueError('Plan C 请先记录预夹取点和夹取点')
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
+            elif action=='select_recognition_profile':
+                if set(data)!= {'action','request_id','profile_id'}:
+                    raise ValueError('select_recognition_profile requires profile_id')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能切换识别方案')
+                self._select_recognition_profile(data['profile_id']);result=self._view(client)
+            elif action=='save_recognition_profile':
+                if set(data)!= {'action','request_id','profile'}:
+                    raise ValueError('save_recognition_profile requires profile')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能修改识别方案')
+                profile=self._recognition_profile(data['profile'])
+                if not profile['id'].startswith('custom-'):
+                    raise ValueError('内置识别方案不可覆盖，请另存为自定义方案')
+                self.recognition_profiles[profile['id']]=profile
+                self._select_recognition_profile(profile['id']);result=self._view(client)
+            elif action=='delete_recognition_profile':
+                if set(data)!= {'action','request_id','profile_id'}:
+                    raise ValueError('delete_recognition_profile requires profile_id')
+                if self.active is not None and self.active['status']=='running':
+                    raise Rejected('自动任务运行中，不能删除识别方案')
+                identity=data['profile_id']
+                if not isinstance(identity,str) or not identity.startswith('custom-') or identity not in self.recognition_profiles:
+                    raise ValueError('只能删除已保存的自定义识别方案')
+                del self.recognition_profiles[identity]
+                if self.selected_recognition_profile_id==identity:self.selected_recognition_profile_id='handle'
+                self.task_settings['recognition_profile']=copy.deepcopy(
+                    self.recognition_profiles[self.selected_recognition_profile_id])
+                self._save_recognition_profiles();result=self._view(client)
             elif action=='record_plan_c':
                 if set(data)!={'action','request_id','point','lift_target_rad'} or data['point'] not in ('pregrasp','grasp'):
                     raise ValueError('record_plan_c requires pregrasp/grasp and lift_target_rad')
