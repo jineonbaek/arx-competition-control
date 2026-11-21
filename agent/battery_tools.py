@@ -6,6 +6,7 @@ explicitly injected before the fixed lift and adaptive pick stages can execute.
 import copy
 import hashlib
 import json
+from .fast_pick import direct_plan, stopped_for_fast_pick
 from .contracts import AgentError, object_schema
 from .grasp_tools import WorkflowTools, WORKFLOW_TOOLS
 from .tools import ToolRegistry, TEXT
@@ -70,7 +71,8 @@ class BatteryExecutionTools(WorkflowTools):
             return None
         if camera=='d405' and self.store.state.get('mission',{}).get('stage')=='COARSE_ALIGNED':
             return 12
-        return self.observation_limit
+        from .codex_recovery import CURRENT
+        return max(8,self.observation_limit) if CURRENT.get() else self.observation_limit
 
     def _save_pick_plan(self,result):
         path=self.store.path/result['result_file']
@@ -108,6 +110,7 @@ class BatteryExecutionTools(WorkflowTools):
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
             if (name=='execute_pick' and not fixed and camera=='d405'
+                    and not (direct_plan(plan) and stopped_for_fast_pick(self.store))
                     and plan.get('refinement',{}).get('status')!='aligned'):
                 raise AgentError('reobservation_required','必须先到预抓位，再用新画面确认对位')
         elif name=='execute_coarse_alignment':
@@ -218,7 +221,11 @@ class BatteryExecutionTools(WorkflowTools):
                 result['plan_id']='pick_'+hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
                 if result['status']!='tcp_pending':
                     previous=mission.data.get('approach_plan')
-                    if plan_b:
+                    if (plan_f and not previous and stopped_for_fast_pick(self.store)
+                            and result.get('vision_mode') == 'd405'):
+                        result['pickup_flow'] = 'fast'
+                        next_stage = 'PICK_PLANNED'
+                    elif plan_b:
                         next_stage='PICK_PLANNED'
                     elif previous:
                         result['refinement']=(assess(result,previous,self.refinement_policy,

@@ -5,6 +5,7 @@ import json
 import math
 import time
 from threading import Lock
+from .fast_pick import fast_requested, stopped_for_fast_pick
 from .contracts import AgentError
 
 COMMON_CHECKS=('collision_checked','collision_free','environment_collision_checked')
@@ -117,6 +118,8 @@ class BatteryFlow:
                     self.store.state['mission'].update(stage='PICK_PLANNED',plan=copy.deepcopy(plan))
                     self.store.save();self._next('insert')
                 elif phase=='head':
+                    if fast_requested(self.store) and not stopped_for_fast_pick(self.store):
+                        raise AgentError('dock_incomplete','等待本轮底盘贴靠停车回执')
                     camera='d405' if self.vision_mode=='plan_f' else 'd435'
                     data=self._call('observe_battery',{'camera':camera})
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
@@ -168,6 +171,8 @@ class BatteryFlow:
                     self._next('extract')
                 elif phase=='extract':
                     self._call('stow_for_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})
+                    if fast_requested(self.store):
+                        return self._finish('completed')
                     self._next('carry')
                 elif phase=='carry':
                     self._call('return_to_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})

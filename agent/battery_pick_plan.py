@@ -6,6 +6,7 @@ from web.src.handeye_column import ColumnModel, PACKAGE
 from .grasp_geometry import ROOT, PROFILE, rigid, validate_frame
 from .grasp_scene import frame_path, CALIBRATION, D435_CALIBRATION
 from .grasp_path import plan_insert
+from .fast_pick import fast_requested
 from .storage import atomic_json
 
 
@@ -26,6 +27,11 @@ def plan(registry,observation_id,call_id,setup=None):
             or evidence.get('quality',{}).get('version')!=1
             or evidence.get('quality',{}).get('status')!='consistent'):
         raise ValueError('需要当前 RGB-D 观察已通过位姿与点云复核的证据')
+    if fast_requested(store):
+        support = evidence.get('handle_support') or {}
+        if (camera != 'd405' or support.get('confirmed') is not True
+                or support.get('snapshot_id') != evidence['geometry']['snapshot_id']):
+            raise ValueError('快流程缺少同一帧 D405 的把手深度证据')
     handoff=evidence.get('camera_handoff') or {}
     plan_f=getattr(registry,'vision_mode','d405')=='plan_f'
     if camera=='d405' and not plan_f and (handoff.get('head_observation_id')!=registry._localized('d435')
