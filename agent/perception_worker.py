@@ -89,7 +89,6 @@ class Models:
         from target import shape_view,load_reference,DINO_PROMPT,TASK
         if self.vision is None:self.vision=VisionModels()
         started=time.monotonic();output=Path(args['output']);output.mkdir(exist_ok=True,parents=True)
-        reference=load_reference()
         dino_prompt=args.get('dino_prompt',DINO_PROMPT)
         qwen_task=args.get('qwen_task',TASK)
         with np.load(args['frame'],allow_pickle=False) as archive:
@@ -117,11 +116,25 @@ class Models:
                 self.head_target if camera=='d405' else None)
         if chosen is None:
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
-            report=run_frame(self.vision,judge,image,reference,qwen_task,output,camera=camera,
+            report=run_frame(self.vision,judge,image,load_reference(),qwen_task,output,camera=camera,
                              review_mask=False,dino_prompt=dino_prompt)
             atomic_json(output/'qwen-reports.json',judge.records)
             report['path']='qwen_fallback'
-        else:
+        if chosen is None and report.get('status')!='perception_accepted' and args.get('search_region'):
+            from .codex_recovery import box,pixels
+            region=args['search_region']
+            if box(region):
+                x,y,u,v=pixels(region,image.size,12)
+                cropped=image.crop((x,y,u,v))
+                detections=self.vision.detect(shape_view(cropped),dino_prompt)
+                mapped=[]
+                for d in detections:
+                    x0,y0,x1,y1=d['bbox_xyxy']
+                    mapped.append(dict(d,bbox_xyxy=[x+x0,y+y0,x+x1,y+y1]))
+                restricted,_=filter_fixed_gripper_candidates(mapped,image.size,camera)
+                chosen=local_choice(restricted,frame,self.vision,image,self.head_target if camera=='d405' else None)
+                if chosen is not None:candidates=restricted;method='codex_region_local_detection'
+        if chosen is not None:
             row,mask,score=chosen
             Image.fromarray(mask.astype(np.uint8)*255).save(output/'mask.png')
             overlay_mask(image,mask).save(output/'overlay.png')

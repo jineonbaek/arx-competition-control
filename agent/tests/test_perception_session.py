@@ -107,6 +107,49 @@ class PerceptionTests(unittest.TestCase):
                 else:judge.select.assert_not_called()
                 judge.review.assert_not_called()
 
+    def test_qwen_precedes_codex_region_even_with_local_recovery_enabled(self):
+        import sys,types
+        from PIL import Image
+        from agent.perception_worker import Models
+        row=dict(candidate_id=1,bbox_xyxy=[2,3,20,30],score=.8)
+        mask=np.zeros((100,100),bool);mask[21:40,30:50]=True
+        for local,qwen_ok,region in ((True,False,True),(False,True,True),
+                                     (False,False,True),(False,False,False)):
+            with self.subTest(local=local,qwen_ok=qwen_ok,region=region), tempfile.TemporaryDirectory() as td:
+                root=Path(td);Image.new('RGB',(100,100)).save(root/'rgb.jpg')
+                np.savez(root/'frame.npz',camera_id='d405')
+                calls=[]
+                target=types.ModuleType('target');target.shape_view=lambda image:image
+                target.load_reference=lambda:None;target.DINO_PROMPT=target.TASK='fixture'
+                pipeline=types.ModuleType('pipeline')
+                pipeline.QwenJudge=Mock(return_value=SimpleNamespace(records=[]))
+                def qwen(*args,**kwargs):
+                    calls.append('qwen')
+                    return dict(status='perception_accepted' if qwen_ok else 'needs_new_observation',
+                                selection=dict(status='selected' if qwen_ok else 'not_found'))
+                pipeline.run_frame=Mock(side_effect=qwen)
+                pipeline.filter_fixed_gripper_candidates=lambda rows,*args:(rows,[])
+                pipeline.overlay_mask=lambda image,mask:image;pipeline.mask_geometry=lambda mask:dict(mask_valid=True)
+                models=types.ModuleType('models');models.VisionModels=Mock()
+                worker=Models();worker.vision=Mock()
+                def detect(image,prompt):
+                    calls.append('detect');return [row] if local or image.size!=(100,100) else []
+                worker.vision.detect.side_effect=detect
+                def choose(rows,*args):return (rows[0],mask,.91) if rows else None
+                params=dict(frame=str(root/'frame.npz'),image=str(root/'rgb.jpg'),output=str(root/'out'),
+                            local_recovery=True,dino_prompt='chosen prompt',qwen_task='chosen task')
+                if region:params['search_region']=[400,300,800,700]
+                with patch.dict(sys.modules,dict(target=target,pipeline=pipeline,models=models)), \
+                     patch('agent.perception_worker.validate_frame'), \
+                     patch('agent.perception_worker.local_choice',side_effect=choose):
+                    report=worker.segment(params)
+                expected='local_candidate' if local else ('qwen_fallback' if qwen_ok or not region else 'codex_region_local_detection')
+                self.assertEqual(report['path'],expected)
+                self.assertEqual(calls,['detect'] if local else (['detect','qwen'] if qwen_ok or not region else ['detect','qwen','detect']))
+                if not local:
+                    self.assertEqual(pipeline.run_frame.call_args.args[4],'chosen task')
+                    self.assertFalse(pipeline.run_frame.call_args.kwargs['review_mask'])
+
     def test_session_is_lazy_and_close_releases_the_task_child(self):
         with tempfile.TemporaryDirectory() as root:
             with patch('agent.perception_session.subprocess.Popen') as launch:
