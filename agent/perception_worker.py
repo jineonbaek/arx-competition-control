@@ -96,6 +96,8 @@ class Models:
             frame={k:archive[k] for k in archive.files}
         validate_frame(frame);camera=str(frame['camera_id']);image=Image.open(args['image']).convert('RGB')
         chosen=None;method='local_candidate';tracking_error=None
+        observation_stage='first' if self.head_target is None else 'reobserve'
+        reference_ids=(args.get('reference_images') or {}).get(observation_stage,[])
         if camera=='d405' and 'base_from_object' in self.pose:
             try:
                 box=projected_box(frame,self.pose)
@@ -117,9 +119,11 @@ class Models:
                 chosen=local_choice(candidates,frame,self.vision,image,
                     self.head_target if camera=='d405' else None)
         if chosen is None:
+            from .battery_references import reference_image
+            reference=[reference_image(identity) for identity in reference_ids] if reference_ids else load_reference()
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
             try:
-                report=run_frame(self.vision,judge,image,load_reference(),qwen_task,output,camera=camera,
+                report=run_frame(self.vision,judge,image,reference,qwen_task,output,camera=camera,
                                  review_mask=False,dino_prompt=dino_prompt)
             except AgentError as error:
                 if error.code not in ('model_protocol_error','model_http_error','model_unavailable'):raise
@@ -160,7 +164,8 @@ class Models:
                 # Plan F keeps the existing depth rejection and retry in observe().
                 if camera=='d435':raise
         report.update(output=str(output),elapsed_s=round(time.monotonic()-started,3),tracking_error=tracking_error,
-                      recognition_profile_id=args.get('recognition_profile_id','default'))
+                      recognition_profile_id=args.get('recognition_profile_id','default'),
+                      observation_stage=observation_stage,reference_image_ids=reference_ids if chosen is None else [])
         image.save(output/'rgb.png');atomic_json(output/'recognition.json',report)
         return report
 

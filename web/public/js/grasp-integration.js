@@ -3,7 +3,7 @@ import {OrbitControls} from '../vendor/lift2-preview/OrbitControls.js';
 import {frameFresh,cameraImagePath} from './camera-freshness.js';
 const el=id=>document.getElementById(id);
 let execution=null,revision='',geometry=null,geometryKey='',settingsLoaded=false;
-let recognitionProfiles=[];
+let recognitionProfiles=[],referenceCatalog=[];
 const requestId=()=>crypto.randomUUID?.()||([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));
 async function request(path,body){
  const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(10000)}:{cache:'no-store',signal:AbortSignal.timeout(10000)});
@@ -39,17 +39,34 @@ function showPlanC(profile={}){
 }
 const selectedRecognitionProfile=()=>recognitionProfiles.find(p=>p.id===el('recognition-profile').value);
 function recognitionProfileFromForm(identity=el('recognition-profile').value){
- return {id:identity,name:el('recognition-profile-name').value.trim(),dino_prompt:el('dino-prompt').value.trim(),qwen_task:el('qwen-task').value.trim()};
+ const refs={first:[...el('reference-first').selectedOptions].map(o=>o.value),reobserve:[...el('reference-reobserve').selectedOptions].map(o=>o.value)};
+ return {id:identity,name:el('recognition-profile-name').value.trim(),dino_prompt:el('dino-prompt').value.trim(),qwen_task:el('qwen-task').value.trim(),...(refs.first.length||refs.reobserve.length?{reference_images:refs}:{})};
 }
+function showReferences(refs={}){
+ for(const stage of ['first','reobserve']){
+  const select=el('reference-'+stage),chosen=refs[stage]||[];
+  select.replaceChildren(...referenceCatalog.map(row=>Object.assign(document.createElement('option'),{value:row.id,textContent:row.label,selected:chosen.includes(row.id)})));
+  referencePreview(stage);
+ }
+}
+function referencePreview(stage){
+ const selected=[...el('reference-'+stage).selectedOptions].map(o=>o.value);
+ el('reference-'+stage+'-preview').replaceChildren(...referenceCatalog.filter(row=>selected.includes(row.id)).map(row=>{
+  const img=document.createElement('img');img.src=row.url;img.alt=row.label;img.title=row.label;img.style.width='140px';return img;
+ }));
+}
+for(const stage of ['first','reobserve'])el('reference-'+stage).onchange=()=>referencePreview(stage);
 function showRecognitionProfile(profile){
  if(!profile)return;
  el('recognition-profile').value=profile.id;el('recognition-profile-name').value=profile.name;
  el('dino-prompt').value=profile.dino_prompt;el('qwen-task').value=profile.qwen_task;
+ showReferences(profile.reference_images);
  el('delete-recognition-profile').disabled=!profile.id.startsWith('custom-');
  el('recognition-profile-status').textContent='当前加载：'+profile.name;
 }
 function showRecognitionProfiles(settings={},preferred){
  recognitionProfiles=settings.recognition_profiles||recognitionProfiles;
+ referenceCatalog=settings.reference_catalog||referenceCatalog;
  const select=el('recognition-profile'),identity=preferred||settings.selected_recognition_profile_id||select.value||'handle';
  select.replaceChildren(...recognitionProfiles.map(profile=>Object.assign(document.createElement('option'),{value:profile.id,textContent:profile.name})));
  showRecognitionProfile(recognitionProfiles.find(profile=>profile.id===identity)||recognitionProfiles[0]);
@@ -102,7 +119,7 @@ function executionButtons(){
  el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running||planF;
  el('plan-c-lift-target-rad').disabled=running;
  el('record-plan-c-pregrasp').disabled=running;el('record-plan-c-grasp').disabled=running;
- for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
+ for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','reference-first','reference-reobserve','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
  el('delete-recognition-profile').disabled=running||!el('recognition-profile').value.startsWith('custom-');
 }
 const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};

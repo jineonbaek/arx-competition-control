@@ -11,6 +11,7 @@ from agent.motion_feedback import ArrivalMonitor
 from agent.storage import RunStore,atomic_json
 from agent.perception_session import PerceptionSession
 from control import Rejected
+from agent.battery_references import REFERENCES
 
 
 DEFAULT_RECOGNITION_PROFILES={
@@ -31,16 +32,20 @@ DEFAULT_RECOGNITION_PROFILES={
             '如果只能确认夹爪或多个候选无法可靠区分，返回 ambiguous；没有电池提手或电池外端部则返回 not_found。')},
     'battery':{
         'id':'battery','name':'完整电池方案（历史）',
+        'reference_images':{'first':['d405-01','d405-03'],'reobserve':['d405-02','d405-04']},
         'dino_prompt':'a rectangular drone battery pack with a protruding handle at one end, partially inserted into a drone.',
         'qwen_task':(
-            '找到前方无人机机身上、安装在电池槽口处的可拆卸比赛电池。'
-            '电池主体可能被机身遮挡，可依据外露端面及其相连提手判断，不要求看到完整外壳、标签、卡扣或小圆孔。'
-            '画面前景左侧和右侧的大型夹板、夹指及黑色内衬属于机器人夹爪，必须排除；'
-            '即使它们呈长方形、带开口或看起来像提手，也不能选择。'
-            '优先结合目标与无人机机身、电池槽口的连接关系判断，不要求目标严格位于画面中心。'
-            '排除整架无人机、机臂、起落架、空槽口、地面标定板和桌面；忽略颜色、明暗、材质和打印纹理差异。'
-            '参考图只说明电池外观，不代表实时场景中的位置。'
-            '如果只能确认两侧夹爪、无法确认无人机上的电池，返回 ambiguous 或 not_found，不要强行选择最像电池的物体。')},
+            '找到前方无人机电池槽口处已安装的可拆卸比赛电池。'
+            '电池主体可能被无人机遮挡，通常只能看到近似矩形或圆角矩形的外露端面及部分侧边，主体向机身内部延伸。'
+            '结合它与机身、电池槽口的连接关系判断，不要求看到完整电池。'
+            '若能看清与端面相连的提手，可作为辅助依据；未清楚看到提手，不应单独据此排除电池。'
+            '不要依赖小圆孔、颜色、文字标签或打印纹理。'
+            '画面近处两侧的大型夹板、夹指及黑色内衬属于机器人夹爪，必须排除；'
+            '即使呈长方形、带凹槽或开口，也不能选择。机臂、起落架、整架无人机、空槽口和地面标定板同样不是目标。'
+            '相机接近后画面可能旋转，不要求电池固定横放、竖放或严格位于画面中心。'
+            '参考图是D405成功夹持任务中的电池局部实拍，用于比较外观；位置与选择必须以CURRENT实时场景为准。'
+            '无法可靠确认时返回 ambiguous；明确没有可见电池时返回 not_found，不要强行选择最相似的物体。')},
+
 }
 
 
@@ -135,7 +140,8 @@ class BatteryTask:
 
     @staticmethod
     def _recognition_profile(value):
-        if not isinstance(value,dict) or set(value)!= {'id','name','dino_prompt','qwen_task'}:
+        if (not isinstance(value,dict) or not {'id','name','dino_prompt','qwen_task'}<=set(value)
+                or set(value)-{'id','name','dino_prompt','qwen_task','reference_images'}):
             raise ValueError('识别方案须包含 id、名称、DINO 提示词和 Qwen 任务')
         limits={'id':80,'name':80,'dino_prompt':1000,'qwen_task':1800}
         clean={}
@@ -146,6 +152,14 @@ class BatteryTask:
             clean[key]=text.strip()
         if any(not (c.isalnum() or c in '-_') for c in clean['id']):
             raise ValueError('识别方案 id 仅允许字母、数字、横线和下划线')
+        if 'reference_images' in value:
+            refs=value['reference_images']
+            if (not isinstance(refs,dict) or set(refs)!={'first','reobserve'}
+                    or any(not isinstance(ids,list) or not ids or len(ids)>len(REFERENCES)
+                           or any(not isinstance(v,str) or v not in REFERENCES for v in ids)
+                           or len(set(ids))!=len(ids) for ids in refs.values())):
+                raise ValueError('参考图须为已有D405图号，分别设置首次和再次观察')
+            clean['reference_images']=copy.deepcopy(refs)
         return clean
 
     def _load_recognition_profiles(self):
@@ -184,6 +198,7 @@ class BatteryTask:
     def _settings_view(self,settings=None):
         value=copy.deepcopy(self.task_settings if settings is None else settings)
         value['plan_c']=copy.deepcopy(self.plan_c)
+        value['reference_catalog']=[dict(id=k,label=v['label'],url='/grasp-reference/'+k+'.png') for k,v in REFERENCES.items()]
         value['recognition_profiles']=[copy.deepcopy(profile) for profile in self.recognition_profiles.values()]
         value['selected_recognition_profile_id']=self.selected_recognition_profile_id
         return value

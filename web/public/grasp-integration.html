@@ -23,9 +23,11 @@
 </div>
 <details class="recognition-manager" open><summary>识别提示词与 Qwen 任务管理</summary>
 <div class="recognition-fields">
-<label>提示词方案<select id="recognition-profile"></select><small>选择后，本轮 DINO 和有歧义时的 Qwen 都使用此方案</small></label>
+<label>提示词方案<select id="recognition-profile"></select><small>选择后，本轮 DINO 和 Qwen 都使用此方案</small></label>
 <label>方案名称<input id="recognition-profile-name" maxlength="80" required></label>
 <label class="wide">DINO 提示词<textarea id="dino-prompt" maxlength="1000" rows="3" required></textarea></label>
+<label>首次观察参考图（可多选）<select id="reference-first" multiple size="4"></select><small>首次定位自动使用；Ctrl/Command 可多选</small><div id="reference-first-preview"></div></label>
+<label>再次观察参考图（可多选）<select id="reference-reobserve" multiple size="4"></select><small>接近后再次识别时自动使用</small><div id="reference-reobserve-preview"></div></label>
 <label class="wide">Qwen 任务描述<textarea id="qwen-task" maxlength="1800" rows="8" required></textarea></label>
 </div>
 <div class="grasp-actions"><button id="save-recognition-profile" type="button" class="button secondary">保存方案</button><button id="save-as-recognition-profile" type="button" class="button secondary">另存为新方案</button><button id="delete-recognition-profile" type="button" class="button danger">删除自定义方案</button><span id="recognition-profile-status" role="status">正在读取方案…</span></div>

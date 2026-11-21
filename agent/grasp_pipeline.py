@@ -59,6 +59,7 @@ def segment(store,ident,output,cancelled):
         if profile:
             arguments.update(dino_prompt=profile['dino_prompt'],qwen_task=profile['qwen_task'],
                              recognition_profile_id=profile['id'])
+            arguments['reference_images']=profile.get('reference_images',{})
         report=session.call('segment',arguments,cancelled,420)
         atomic_json(log,report)
     else:

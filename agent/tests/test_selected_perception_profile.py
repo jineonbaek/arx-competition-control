@@ -36,7 +36,7 @@ class SelectedPerceptionProfileTests(unittest.TestCase):
         self.worker.vision.detect.return_value=[self.row]
         self.worker.vision.segment.return_value=(self.mask,.95)
 
-    def segment(self,name,chosen=None,location=None,mode='plan_f',depth_error=None):
+    def segment(self,name,chosen=None,location=None,mode='plan_f',depth_error=None,references=None):
         with patch.dict(sys.modules,{'target':self.target,'pipeline':self.pipeline,'models':self.model_module}), \
                 patch('agent.perception_worker.validate_frame'), \
                 patch('agent.perception_worker.local_choice',return_value=chosen) as local, \
@@ -44,7 +44,8 @@ class SelectedPerceptionProfileTests(unittest.TestCase):
                       side_effect=depth_error):
             result=self.worker.segment({'frame':str(self.root/'frame.npz'),'image':str(self.root/'rgb.png'),
                 'output':str(self.root/name),'vision_mode':mode,'dino_prompt':'selected battery',
-                'qwen_task':'selected battery task','recognition_profile_id':'battery'})
+                'qwen_task':'selected battery task','recognition_profile_id':'battery',
+                'reference_images':references or {}})
         return result,local
 
     def test_qwen_fallback_and_retry_use_selected_dino_and_qwen_prompts(self):
@@ -74,11 +75,21 @@ class SelectedPerceptionProfileTests(unittest.TestCase):
         self.segment('plan-a',chosen=(self.row,self.mask,.95),mode='d405')
         self.assertIsNone(self.worker.head_target)
 
+    def test_reference_images_follow_existing_observation_stage(self):
+        refs={'first':['d405-01','d405-03'],'reobserve':['d405-02','d405-04']}
+        result,_=self.segment('first-with-references',references=refs)
+        self.assertEqual(result['reference_image_ids'],refs['first'])
+        self.assertEqual([im.size for im in self.judge.select.call_args.args[1]],[(84,91),(106,103)])
+        result,_=self.segment('next-with-references',references=refs)
+        self.assertEqual(result['reference_image_ids'],refs['reobserve'])
+        self.assertEqual([im.size for im in self.judge.select.call_args.args[1]],[(212,296),(212,295)])
+
     def test_task_profile_and_mode_are_forwarded_to_worker(self):
         from agent.grasp_pipeline import segment
         store=Mock();store.path=self.root
         store.state={'battery_task_settings':{'vision_mode':'plan_f','recognition_profile':{
-            'id':'battery','dino_prompt':'selected battery','qwen_task':'selected battery task'}}}
+            'id':'battery','dino_prompt':'selected battery','qwen_task':'selected battery task',
+            'reference_images':{'first':['d405-03'],'reobserve':['d405-04']}}}}
         store.observation.return_value={'camera_id':'d405'}
         store.image_path.return_value=self.root/'rgb.png'
         store.perception_session.call.return_value={'status':'needs_new_observation','output':str(self.root/'source')}
@@ -89,6 +100,7 @@ class SelectedPerceptionProfileTests(unittest.TestCase):
         self.assertEqual(arguments['vision_mode'],'plan_f')
         self.assertEqual(arguments['dino_prompt'],'selected battery')
         self.assertEqual(arguments['qwen_task'],'selected battery task')
+        self.assertEqual(arguments['reference_images'],{'first':['d405-03'],'reobserve':['d405-04']})
 
 
 if __name__=='__main__':unittest.main()
