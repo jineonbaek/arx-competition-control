@@ -182,7 +182,7 @@ class AdviceTests(unittest.TestCase):
         self.assertEqual(result,dict(name='stop',reason='grasp not confirmed'))
         recovery.client.complete.assert_not_called()
 
-    def test_qwen_then_mapped_region_on_real_segment_entry(self):
+    def test_grasp_ignores_old_region_advice_and_preserves_qwen_failure(self):
         import sys
         import tempfile
         import types
@@ -217,6 +217,7 @@ class AdviceTests(unittest.TestCase):
             with patch('agent.perception_worker.local_choice',side_effect=choose):
                 self.assertEqual(worker.segment(params)['path'],'qwen_fallback')
                 result=worker.segment(params | dict(search_region=[400,300,800,700]))
-            self.assertEqual(result['path'],'codex_region_local_detection')
-            self.assertEqual(result['candidates'][0]['bbox_xyxy'],[30,21,48,48])
+            self.assertEqual(result['path'],'qwen_fallback')
+            self.assertEqual(result['status'],'needs_new_observation')
+            self.assertEqual(worker.vision.detect.call_count,2)
             self.assertEqual(pipeline.QwenJudge.call_count,2)

@@ -61,15 +61,6 @@ def segment(store,ident,output,cancelled):
             arguments.update(dino_prompt=profile['dino_prompt'],qwen_task=profile['qwen_task'],
                              recognition_profile_id=profile['id'])
             arguments['reference_images']=profile.get('reference_images',{})
-        from .codex_recovery import CURRENT
-        ctx=CURRENT.get()
-        if ctx:
-            arguments['local_recovery']=True
-            key=(camera,str(store.observation(ident).get('calibration_sha256','')))
-            hint=ctx.suggestion('grasp',key)
-            if hint and hint['action']=='region':
-                with np.load(arguments['frame'],allow_pickle=False) as current:
-                    if ctx.frame_matches(current):arguments['search_region']=hint['battery']
         report=session.call('segment',arguments,cancelled,420)
         atomic_json(log,report)
     else:

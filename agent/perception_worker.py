@@ -132,20 +132,6 @@ class Models:
             finally:
                 atomic_json(output/'qwen-reports.json',judge.records)
             report['path']='qwen_fallback'
-        if chosen is None and report.get('status')!='perception_accepted' and args.get('search_region'):
-            from .codex_recovery import box,pixels
-            region=args['search_region']
-            if box(region):
-                x,y,u,v=pixels(region,image.size,12)
-                cropped=image.crop((x,y,u,v))
-                detections=self.vision.detect(shape_view(cropped),dino_prompt)
-                mapped=[]
-                for d in detections:
-                    x0,y0,x1,y1=d['bbox_xyxy']
-                    mapped.append(dict(d,bbox_xyxy=[x+x0,y+y0,x+x1,y+y1]))
-                restricted,_=filter_fixed_gripper_candidates(mapped,image.size,camera)
-                chosen=local_choice(restricted,frame,self.vision,image,self.head_target if camera=='d405' else None)
-                if chosen is not None:candidates=restricted;method='codex_region_local_detection'
         if chosen is not None:
             row,mask,score=chosen
             Image.fromarray(mask.astype(np.uint8)*255).save(output/'mask.png')

@@ -114,7 +114,7 @@ class PerceptionTests(unittest.TestCase):
                 else:judge.select.assert_not_called()
                 judge.review.assert_not_called()
 
-    def test_qwen_precedes_codex_region_even_with_local_recovery_enabled(self):
+    def test_legacy_codex_region_is_ignored_without_changing_qwen_selection(self):
         import sys,types
         from PIL import Image
         from agent.perception_worker import Models
@@ -153,9 +153,9 @@ class PerceptionTests(unittest.TestCase):
                      patch('agent.perception_worker.validate_frame'), \
                      patch('agent.perception_worker.local_choice',side_effect=choose):
                     report=worker.segment(params)
-                expected='local_candidate' if local else ('qwen_fallback' if qwen_ok is True or not region else 'codex_region_local_detection')
+                expected='local_candidate' if local else 'qwen_fallback'
                 self.assertEqual(report['path'],expected)
-                self.assertEqual(calls,['detect'] if local else (['detect','qwen'] if qwen_ok is True or not region else ['detect','qwen','detect']))
+                self.assertEqual(calls,['detect'] if local else ['detect','qwen'])
                 if not local:
                     self.assertEqual(pipeline.run_frame.call_args.args[4],'chosen task')
                     self.assertFalse(pipeline.run_frame.call_args.kwargs['review_mask'])

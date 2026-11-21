@@ -69,18 +69,6 @@ def observe(registry,camera,call_id):
     elif any((recognition.get(key) or {}).get('status')=='not_found' for key in ('selection','coarse_selection')):
         status='target_not_found'
     if registry.store.cancelled:raise AgentError('cancelled','观察定位已取消')
-    from .codex_recovery import CURRENT,photos
-    ctx=CURRENT.get()
-    if ctx:
-        key=(camera,str(observation.get('calibration_sha256','')))
-        if status=='localized':ctx.end('grasp')
-        else:
-            def evidence():
-                with np.load(frame_path(registry.store,ident),allow_pickle=False) as frame:
-                    if not ctx.frame_matches(frame):
-                        raise ValueError('抓取画面与当前臂姿不一致')
-                return dict(camera=camera,reason=status,images=photos(registry.store.image_path(ident,camera),'grasp'))
-            ctx.failed('grasp',key,observation['cameras'][camera]['captured_at'],evidence)
     result=dict(observation_id=ident,camera=camera,status=status,location=location,
         recognition=recognition,message=depth_error if status=='depth_rejected' else '',calibration_sha256=observation.get('calibration_sha256'),
         image_time=observation['cameras'][camera]['captured_at'],executable=False)
