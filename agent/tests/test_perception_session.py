@@ -88,20 +88,27 @@ class PerceptionTests(unittest.TestCase):
         model_module=types.ModuleType('models');model_module.VisionModels=Mock()
         row=dict(candidate_id=1,bbox_xyxy=[8,8,32,32],score=.8,label='battery')
         mask=np.zeros((60,80),bool);mask[10:30,10:30]=True
-        for ambiguous in (False,True):
-            with self.subTest(ambiguous=ambiguous),tempfile.TemporaryDirectory() as directory:
+        for ambiguous,plan_f,located in ((False,False,False),(True,False,False),
+                                         (False,True,False),(False,True,True)):
+            initial_plan_f=plan_f and not located
+            with self.subTest(ambiguous=ambiguous,initial_plan_f=initial_plan_f,located=located),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);Image.new('RGB',(80,60)).save(root/'rgb.png')
                 np.savez(root/'frame.npz',camera_id='d405')
+                judge.select.reset_mock()
                 worker=Models();worker.vision=Mock()
+                if located:worker.head_target=np.array([0.,0.,500.])
                 worker.vision.detect.return_value=[row];worker.vision.segment.return_value=(mask,.95)
                 chosen=None if ambiguous else (row,mask,.95)
                 with patch.dict(sys.modules,{'target':target,'pipeline':pipeline,'models':model_module}), \
                         patch('agent.perception_worker.validate_frame'), \
-                        patch('agent.perception_worker.local_choice',return_value=chosen):
-                    result=worker.segment(dict(frame=str(root/'frame.npz'),image=str(root/'rgb.png'),output=str(root/'out')))
+                        patch('agent.perception_worker.local_choice',return_value=chosen) as local, \
+                        patch('agent.battery_observation.surface_location',return_value={'surface_base_mm':[0.,0.,500.]}):
+                    result=worker.segment(dict(frame=str(root/'frame.npz'),image=str(root/'rgb.png'),output=str(root/'out'),
+                                               vision_mode='plan_f' if plan_f else 'd405'))
                 self.assertEqual(result['status'],'perception_accepted')
-                self.assertEqual(result['path'],'qwen_fallback' if ambiguous else 'local_candidate')
-                if ambiguous:
+                self.assertEqual(result['path'],'qwen_fallback' if ambiguous or initial_plan_f else 'local_candidate')
+                if initial_plan_f:local.assert_not_called()
+                if ambiguous or initial_plan_f:
                     judge.select.assert_called_once()
                     self.assertEqual(result['review']['status'],'skipped')
                 else:judge.select.assert_not_called()

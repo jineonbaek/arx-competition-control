@@ -113,8 +113,9 @@ class Models:
         if chosen is None:
             detected=self.vision.detect(shape_view(image),dino_prompt)
             candidates,_=filter_fixed_gripper_candidates(detected,image.size,camera)
-            chosen=local_choice(candidates,frame,self.vision,image,
-                self.head_target if camera=='d405' else None)
+            if not (camera=='d405' and args.get('vision_mode')=='plan_f' and self.head_target is None):
+                chosen=local_choice(candidates,frame,self.vision,image,
+                    self.head_target if camera=='d405' else None)
         if chosen is None:
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
             try:
