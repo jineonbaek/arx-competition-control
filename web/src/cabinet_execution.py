@@ -112,10 +112,9 @@ class CabinetExecutionTask:
                 or state.get('chassis_active') is not False or not wheels_stopped(body['wheels'])):
             raise ValueError('Fresh feedback and stationary chassis required')
         base = self.initial
-        if (abs(body['height']-base['body']['height']) > .05
-                or max(abs(a-b) for a,b in zip(left['joints'], base['arms']['left']['joints'])) > np.radians(.5)
+        if (max(abs(a-b) for a,b in zip(left['joints'], base['arms']['left']['joints'])) > np.radians(.5)
                 or any(abs(body[k]-base['body'][k]) > .02 for k in ('waist','head_yaw','head_pitch'))):
-            raise ValueError('Lift, left arm or camera configuration changed')
+            raise ValueError('Left arm or camera configuration changed')
         if not self.state['release_requested'] and abs(right['gripper']-base['arms']['right']['gripper']) > .05:
             raise ValueError('Holding gripper changed before release')
         return True

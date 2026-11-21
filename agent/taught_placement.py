@@ -4,6 +4,7 @@ import json, math, time
 from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
+from .held_insertion_path import ENTRY_ANGLE_DEG
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ def load_taught_route(path):
             or chassis_handoff!='reports/visual-chassis-active/handoff.json'
             or d['d405_step_limit_mm']!=3. or d['d405_total_limit_mm']!=15. or d['d405_attempts']!=4
             or d['d405_target_offset_mm']!=42.4 or d['d405_convergence_mm']!=.75 or d['d405_capture_timeout_s']!=8.
-            or not 0<d['preobservation_axis_tolerance_deg']<=.2
+            or not 0<d['preobservation_axis_tolerance_deg']<=ENTRY_ANGLE_DEG
             or not 0<d['preobservation_z_tolerance_mm']<=.5
             or not 0<d['preobservation_rotation_tolerance_deg']<=.2
             or d['preobservation_j6_target_deg']!=-90. or not 0<d['preobservation_j6_tolerance_deg']<=3.
@@ -81,9 +82,15 @@ def load_preobservation_waypoint(path,current_lift):
             or not np.allclose(tool[:3,:3].T@tool[:3,:3],np.eye(3),atol=1e-6)
             or not isinstance(tcp_hash,str) or len(tcp_hash)!=64
             or not np.isfinite(values).all() or data.get('gripper_command_target')!=0
-            or abs(float(data['lift_rad'])-float(current_lift))>.10
             or not isinstance(data.get('source'),str) or not data['source']):
         raise ValueError('Invalid D405 pre-observation waypoint')
+    # Recorded joint waypoints are valid at any measured platform height.
+    # Translate their base-frame certificates with the same lift model as FK.
+    from web.src.handeye_column import NOMINAL_RAD_PER_M
+    shift=(float(current_lift)-float(data['lift_rad']))/NOMINAL_RAD_PER_M
+    data['recorded_lift_rad']=float(data['lift_rad']);data['lift_rad']=float(current_lift)
+    data['wrist_base_mm_deg']=list(data['wrist_base_mm_deg']);data['wrist_base_mm_deg'][2]+=shift*1000.
+    tool=tool.copy();tool[2,3]+=shift;data['tool_base_matrix']=tool.tolist()
     return data
 
 
@@ -101,7 +108,7 @@ def validate_preobservation_pose(tool,joints,joint_limits_deg,route):
         raise ValueError('Pre-observation joint limits exceeded')
     axis=T[:3,0]/np.linalg.norm(T[:3,0])
     axis_error=float(np.degrees(np.arccos(np.clip(axis@[1.,0.,0.],-1.,1.))))
-    if axis_error>route.preobservation_axis_tolerance_deg:
+    if axis_error>route.preobservation_axis_tolerance_deg+1e-9:
         raise ValueError('Pre-observation insertion axis is not base +X')
     j6_error=abs(float(degrees[5]-route.preobservation_j6_target_deg))
     if j6_error>route.preobservation_j6_tolerance_deg:

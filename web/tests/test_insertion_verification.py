@@ -20,6 +20,21 @@ class VerificationTests(unittest.TestCase):
         result,moves,_=self.run_case([20.,149.])
         self.assertEqual(moves,[130.]);self.assertTrue(result['insertion_depth_verified'])
 
+    def test_transient_gap_reacquires_once_and_requires_a_new_exposure(self):
+        from agent.insertion_verification import UnstableInsertionFrame
+        for same in (True,False):
+            later=sample(-25.,'a' if same else 'b')
+            rows=[UnstableInsertionFrame('unstable',dict(id='a',image_time=later['image_time']-.1)),
+                  later,sample(150.,'c')]
+            moves=[]
+            def observe(ref):
+                value=rows.pop(0)
+                if isinstance(value,Exception):raise value
+                return value
+            result=run_verified_insertion(observe,lambda d,r:moves.append(d),guard=lambda:None)
+            self.assertEqual(moves,[] if same else [175.])
+            self.assertEqual(result['insertion_depth_verified'],not same)
+
     def test_visual_shortfall_gets_measured_supplement(self):
         result,moves,events=self.run_case([-10.,142.,150.])
         self.assertEqual(moves,[160.,8.]);self.assertEqual(result['compensation_count'],1)

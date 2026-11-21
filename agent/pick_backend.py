@@ -154,7 +154,7 @@ class PickExecutionBackend(_PreparedExecutionBackend):
     operation='execute_pick'
     stage_key='pick_stage'
     terminal_stage='awaiting_hold_verification'
-    running_stages=('awaiting_trajectory','awaiting_driver_status','trajectory_running',
+    running_stages=('opening_gripper','awaiting_trajectory','awaiting_driver_status','trajectory_running',
                     'inserting','ready_to_close','closing')
 
     @staticmethod

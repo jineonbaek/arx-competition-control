@@ -38,7 +38,7 @@ from visual_docking_live import LiveDockTask
 from fast_visual_level import FastVisualLevel
 from d435_live_overlay import LiveOverlay
 from plan_d_vision import PlanDVision
-from navigation_placement import NavigationPlacement
+from navigation_placement import NavigationPlacement,CurrentPositionPlacement
 from placement_debug import PlacementDebug
 from d405_placement_preview import D405PlacementPreview
 from current_axis_push import CurrentAxisPush
@@ -46,6 +46,8 @@ from placement_stages import PlacementStages
 from placement_reference import PlacementReferenceController
 from placement_task import make_placement_task
 from competition_task import CompetitionTask
+from t2_test_task import make_t2_navigation_task
+from t2_timed_placement import TimedT2Placement
 from competition_modules import GraspModule, CarryReceiptModule, PlacementModule, QwenRecovery
 from t2_preview_backend import make_t2_placement
 from agent.battery_production import workflow_factory
@@ -59,12 +61,15 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
     limits=controller.config['arms']['right']['gripper_limits_raw']
     factory=workflow_factory(policy_path,console_url=f'http://127.0.0.1:{port}',
                              gripper_limits=limits)
+    from fast_grasp_dock import FastDock
     return BatteryTask(WEB_ROOT.parent/'agent/runs',controller,factory,depth_control=depth_control,
+                       fast_dock=FastDock(),
+                       fast_start_path=WEB_ROOT.parent/'config/fast-grasp-start.local.json',
                        plan_c_path=WEB_ROOT.parent/'config/battery-plan-c.local.json',
                        recognition_profiles_path=WEB_ROOT/'config/battery-recognition-profiles.json')
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None, d435_overlay=None, placement_reference=None, placement_stages=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None, d435_overlay=None, placement_reference=None, placement_stages=None, t2_test_task=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
@@ -77,8 +82,31 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
     grasps = GraspPreview(controller, depth_control)
     d405_preview=D405PlacementPreview(controller,grasps,WEB_ROOT.parent)
     current_push=CurrentAxisPush(controller,WEB_ROOT.parent)
-    placement_stages=placement_stages or PlacementStages(controller,grasps,current_push,WEB_ROOT.parent)
     head_scene = GraspPreview(controller, depth_control, camera="d435")
+    captures={'d435':head_scene,'d405':grasps}
+    def observe_mouth(guard,*,seat_only=False):
+        from mouth_push import measure_approach
+        return measure_approach(captures,controller,placement_stages.tcp,guard,seat_only=seat_only)
+    current_push.mouth_observer=observe_mouth
+    fast_level.mouth_observer=observe_mouth
+    fast_level.wrist_capture=grasps
+    def check_depth(task,observation,guard):
+        from fast_visual_level import guarded_read
+        from mouth_push import reobserve_seat,verify_fixed_depth
+        if not observation.get('rail_guided'):
+            return verify_fixed_depth(observation,lambda:guarded_read(lambda:observe_mouth(guard),guard,timeout_s=4.5),guard)
+        def read():
+            return verify_fixed_depth(observation,lambda:observe_mouth(guard,seat_only=True),guard)
+        def report(attempt,reason):
+            task.save(d405_seat_attempt=attempt,verification_reason=reason,reason='保持夹持，D405 正在重新识别：'+reason)
+        return reobserve_seat(read,guard,report,task.cancel.wait)
+    from seated_reference import monitor_stroke
+    current_push.stroke_monitor=lambda:monitor_stroke(current_push,grasps,controller.models['right'],placement_stages.tcp,WEB_ROOT.parent)
+    fast_level.stroke_monitor=lambda:monitor_stroke(fast_level,grasps,controller.models['right'],placement_stages.tcp,WEB_ROOT.parent)
+    current_push.check_fixed_depth=lambda observation,guard:check_depth(current_push,observation,guard)
+    fast_level.check_fixed_depth=lambda observation,guard:check_depth(fast_level,observation,guard)
+    placement_stages=placement_stages or PlacementStages(controller,grasps,current_push,WEB_ROOT.parent)
+    fast_level.saved_observation = getattr(placement_stages, 'saved_observation', lambda: None)
     plan_d_vision = PlanDVision(head_scene, controller)
     d435_overlay=d435_overlay or LiveOverlay(head_scene)
     vision = vision or VisionPreview()
@@ -114,14 +142,18 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
         return capture,artifacts
     placement_reference=placement_reference or PlacementReferenceController(reference_root,capture_reference)
     def competition_view(view):
-        module=competition_task.modules.get('place') if competition_task is not None else None
+        owner=t2_test_task if view.get('scope')=='t2_test' else competition_task
+        module=owner.modules.get('place') if owner is not None else None
+        module=getattr(module,'placement_module',module)
         if isinstance(module,NavigationPlacement):
-            view['placement_backend']='visual_chassis_d405_insert_160'
+            view['placement_backend']='lidar_locked_d405_seat_body' if module.lidar_locked else 'visual_chassis_d405_seat_body'
+            if isinstance(module,CurrentPositionPlacement):view['placement_backend']='current_position_d405_seat_body'
             view['placement_readiness']=module.readiness()
-            view['insertion_policy']=dict(cabinet_depth_mm=150.,distance='cabinet_depth_plus_measured_gap',
-                visual_verification=True,max_compensations=2,unverified_after_attempt='release_and_exit')
+            view['insertion_policy']=dict(cabinet_depth_mm=150.,distance='minimum_measured_from_stroke_origin',minimum_measured_travel_mm=150.,axis_source='right_tool_positive_x',direct_start_mm=150.,standalone_probe_mm=5.,main_speed_factor=3.,terminal_speed_factor=5.,terminal_max_mm=10.,visual_check='live_reobserve_until_recognized',seat_standard='d405_operator_seated_reference',rotation_drift_limit_deg=None,handle_outside=True,
+                visual_verification=True,compensation_step_mm=10.,max_total_travel_mm=300.,unverified_after_attempt='stop_and_hold_closed')
             if view.get('run_id'):
                 outcome=module.inspect({'request_id':view['run_id']+':place'})
+                if outcome.get('arm_progress'):view['placement_progress']=outcome['arm_progress']
                 if outcome.get('degraded'):
                     view.update(placement_confirmed=False,completion_quality='unverified',warnings=[outcome['reason']])
                     if view.get('status')=='completed':view['reason']=outcome['reason']
@@ -218,6 +250,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if not self.client():return self.json(403, {'message':'请先打开自动放置页面'})
                 if placement_task is None:return self.json(200, {'status':'idle','execution_enabled':False,'available':False,'reason':'仅预览，未配置放置执行后端'})
                 return self.json(200, placement_task.snapshot(self.client()))
+            if path == '/api/t2-test':
+                if not self.client():return self.json(403, {'message':'请先打开T2实测页面'})
+                if t2_test_task is None:return self.json(503, {'message':'T2实测入口未启用'})
+                return self.json(200,competition_view(t2_test_task.snapshot(self.client())))
             if path == '/api/competition-task':
                 if not self.client():return self.json(403, {'message':'请先打开地图与任务页'})
                 if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
@@ -299,6 +335,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 data = read_snapshot()
                 task = battery_task.snapshot(self.client()) if battery_task else {"status": "unavailable", "phase": "idle"}
                 data["task"] = {key: task.get(key) for key in ("status", "phase", "mission_stage", "reason", "run_id", "recovery_required")}
+                data['t2_test'] = competition_view(t2_test_task.snapshot(self.client())) if t2_test_task else None
                 data['competition'] = competition_view(competition_task.snapshot(self.client())) if competition_task else None
                 return self.json(200, data)
             if path == '/api/cabinet-rehearsal':
@@ -340,7 +377,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             body = target.read_bytes()
             kind = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.response_headers(200, kind + ("; charset=utf-8" if kind.startswith(("text/", "application/javascript")) else ""), len(body))
-            if path in ("/", "/map.html", "/navigation-debug.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html", "/placement.html", "/visual-docking.html") and not self.client():
+            if path in ("/", "/map.html", "/t2-test.html", "/navigation-debug.html", "/handeye.html", "/handle.html", "/vision.html", "/foundationpose.html", "/tcp-calibration.html", "/grasp-integration.html", "/placement.html", "/visual-docking.html") and not self.client():
                 self.send_header("Set-Cookie", "arx_web_session=%s; Path=/; HttpOnly; SameSite=Strict" % uuid.uuid4())
             self.end_headers()
             self.wfile.write(body)
@@ -363,7 +400,7 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     return self.json(202,plan_d_vision.refresh())
                 except ValueError as error:
                     return self.json(400,{'message':str(error)})
-            if path not in ('/api/placement-stages','/api/current-axis-push','/api/d405-placement-preview','/api/placement-debug','/api/placement-reference','/api/d435-overlay','/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
+            if path not in ('/api/placement-stages','/api/current-axis-push','/api/d405-placement-preview','/api/placement-debug','/api/placement-reference','/api/d435-overlay','/api/fast-level','/api/visual-docking','/api/cabinet-execution', '/api/cabinet-controller/probe', '/api/cabinet-rehearsal', '/api/cabinet-preview', '/api/placement-preview', '/api/placement-task', '/api/command', '/api/arxgent', '/api/grasp-integration', '/api/battery-task', '/api/competition-task', '/api/t2-test', '/api/camera/depth', '/api/handeye', '/api/handle-preview', '/api/grasp-scene', '/api/vision', '/api/foundationpose', '/api/tcp-calibration'):
                 return self.json(404, {"ok": False, "message": "接口不存在"})
             expected = "http://" + self.headers.get("Host", "")
             if self.headers.get("Origin") != expected or not self.client():
@@ -408,6 +445,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                 if path == '/api/placement-task':
                     if placement_task is None:return self.json(503,{'message':'放置执行后端未启用'})
                     return self.json(202,placement_task.action(self.client(),strict_json(raw)))
+                if path == '/api/t2-test':
+                    if t2_test_task is None:return self.json(503, {'message':'T2实测入口未启用'})
+                    return self.json(202,competition_view(t2_test_task.action(self.client(),strict_json(raw))))
                 if path == '/api/competition-task':
                     if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
                     return self.json(202, competition_view(competition_task.action(self.client(), strict_json(raw))))
@@ -492,7 +532,7 @@ def main():
     placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     navigation=NavigationSession(controller,RouteMailbox(STATE_FILE.parent,read_snapshot))
-    t2_placement=NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent)
+    t2_placement=TimedT2Placement(NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent,lidar_locked=True),navigation,WEB_ROOT.parent)
     modules={'navigate_pick':navigation.stage('point_1'),'navigate_place':navigation.stage('point_2'),
              'place':t2_placement}
     if battery_task:
@@ -500,13 +540,20 @@ def main():
         modules.update(pick=grasp,carry=CarryReceiptModule(grasp))
     competition_task=CompetitionTask(controller, WEB_ROOT.parent/'agent/competition-runs',
         modules=modules,navigation=navigation,recovery=QwenRecovery(arxgent.config))
+    t2_test_task=make_t2_navigation_task(controller,WEB_ROOT.parent/'agent/t2-test-runs',navigation,
+        TimedT2Placement(CurrentPositionPlacement(controller,fast_level,WEB_ROOT.parent),navigation,WEB_ROOT.parent))
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task,competition_task=competition_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution,visual_docking=visual_docking,fast_level=fast_level,
+        battery_task=battery_task,competition_task=competition_task,t2_test_task=t2_test_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution,visual_docking=visual_docking,fast_level=fast_level,
         t2_preview=t2_placement if getattr(t2_placement,'preview_only',False) else None))
     server.daemon_threads = True
     server.stopping = threading.Event()
     adapter.start(controller)
+    from codex_advice_server import serve as start_advice_mailbox
+    try:advice_server=start_advice_mailbox()
+    except (OSError,ValueError) as error:
+        advice_server=None
+        print('可选 Codex 纠错暂不可用：'+str(error),flush=True)
     print('T2 backend: '+('recorded_preview; no placement or completion receipt' if
         getattr(t2_placement,'preview_only',False) else 'existing_placement'),flush=True)
     def stop(signum, frame):
@@ -528,6 +575,7 @@ def main():
         cabinet_execution.close()
         cabinet_rehearsal.close()
         if placement_task is not None:placement_task.close()
+        t2_test_task.close()
         competition_task.close()
         if getattr(t2_placement,'preview_only',False):t2_placement.close()
         foundation.close()
@@ -535,6 +583,8 @@ def main():
         arxgent.close()
         grasp_integration.close()
         if battery_task is not None:battery_task.close()
+        if advice_server is not None:
+            advice_server.shutdown();advice_server.server_close()
         adapter.close()
         server.server_close()
 

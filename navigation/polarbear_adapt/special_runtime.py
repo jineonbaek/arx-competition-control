@@ -153,6 +153,7 @@ def run_special(n):
     if session['stage']=='backoff':
         from route_backoff_runtime import run_backoff
         run_backoff(n,epoch,chain);return 'arrived_stopped'
+    if not task and not test_point:chain.reset_start_assist()
     prior=np.zeros(3);last_source=source;last_tick=time.monotonic();stop=None;stop_stamp=None;stop_started=0.
     progress_pose=od.copy();progress_at=last_tick
     n.status('task_direct_running' if task else 'test_task_direct_running' if test_point else 'special_straight_running');n.waypoints.show((f'测试任务点：慢速SDK上限{SLOW_SDK:g}，T1后退／T2不后退，忽略代价地图' if test_point else f'任务点直线末段：慢速SDK上限{SLOW_SDK:g}，位置与方向闭环，忽略代价地图' if task else '特殊直线段：忽略代价地图，保留急停/定位保护'))
@@ -162,6 +163,7 @@ def run_special(n):
         nonlocal mp,od,source,prior,last_source,last_tick,stop,stop_stamp,progress_pose,progress_at
         was_stopping=stop is not None
         brake();waiting=time.monotonic();mp,od,source=wait_special_ready(n,epoch,chain)
+        if not task and not test_point:chain.reset_start_assist()
         if was_stopping and not oriented:chain.terminal_correction=True
         prior=np.zeros(3);last_source=source;last_tick=time.monotonic();stop=None;stop_stamp=None
         progress_pose=od.copy();progress_at=last_tick
@@ -229,7 +231,12 @@ def run_special(n):
                         if oriented and np.linalg.norm(mp[:2]-chain.goal[:2])<=RADIUS:
                             brake();prior=np.zeros(3);stop=StopWindow(after=n.now());stop_started=time.monotonic();stop_stamp=None
                             n.status('task_verifying_stopped');continue
-                        n.status('special_no_progress_rechecking');recover();continue
+                        if not task and not test_point:
+                            floor=chain.request_start_assist()
+                            n.status(f'special_start_assist_sdk {floor:.2f}')
+                        else:n.status('special_no_progress_observed')
+                        # No-progress never brakes or restarts the segment.
+                        # Fresh-source/control/arrival checks still gate output.
                     progress_pose=od.copy();progress_at=tick
                 if time.monotonic()-tick>.20:
                     recover();continue

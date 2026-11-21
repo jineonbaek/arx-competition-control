@@ -1,7 +1,8 @@
 from agent.insertion_verification import require_verified_receipt
-"""Join real point_2 arrival, D435 chassis admission and owned 160 mm placement."""
+"""Join real point_2 arrival, D435 chassis admission and visually confirmed battery seating."""
 import copy
 import math
+import json
 from pathlib import Path
 import threading
 import time
@@ -18,8 +19,9 @@ class NavigationPlacement:
     recoveries = {}
     preview_only = False
 
-    def __init__(self, controller, cabinet, placement, navigation, root, *, clock=time.time):
+    def __init__(self, controller, cabinet, placement, navigation, root, *, clock=time.time,lidar_locked=False):
         self.ctrl, self.cabinet, self.placement, self.navigation = controller, cabinet, placement, navigation
+        self.lidar_locked=lidar_locked
         self.root=Path(root);self.clock=clock;self.lock=threading.RLock();self.runs={};self.visits=set()
 
     @property
@@ -27,6 +29,12 @@ class NavigationPlacement:
 
     def readiness(self):
         try:
+            if self.lidar_locked:
+                from seated_reference import geometry_hashes
+                standard=json.loads((self.root/'config/seated-reference.json').read_text())
+                valid=standard['geometry_sha256']==geometry_hashes(self.root)
+                return dict(connected=True,reference_valid=valid,reference_id=standard['reference_id'],
+                            admission_source='lidar_point_2',reason='' if valid else '坐底标准与当前标定不符')
             record=load_active_reference(self.reference_root)
             sensor=record.get('capture',{}).get('d435') or {}
             center=np.asarray(sensor.get('center_base_m'),float)
@@ -40,10 +48,7 @@ class NavigationPlacement:
             return dict(connected=True,reference_valid=False,reason=str(error))
 
     def start(self, context):
-        request=context['request_id']
         with self.lock:
-            if request in self.runs:raise ValueError('本轮放置已启动，不能重复执行')
-            if any(r['thread'].is_alive() for r in self.runs.values()):raise ValueError('已有放置任务')
             visit=copy.deepcopy(self.navigation.visit)
             if (not self.navigation.active or not visit or visit.get('point_id')!='point_2'
                     or visit.get('mission_id')!=self.navigation.mission):
@@ -51,11 +56,22 @@ class NavigationPlacement:
             if not self.ctrl.motion_valid(context['token']):raise ValueError('放置控制权失效')
             identity=(visit['mission_id'],visit['visit_id'])
             if identity in self.visits:raise ValueError('本轮导航到访已处理，不能重复推入或松爪')
-            run=dict(status='running',phase='visual_chassis',reason='',run_id=request,
-                     visit_id=visit['visit_id'],stop=threading.Event(),arm_run_id=None)
-            thread=threading.Thread(target=self._run,args=(context,run),daemon=True,name='navigation-placement')
-            run['thread']=thread;self.runs[request]=run;self.visits.add(identity);thread.start()
-            return self.inspect(context)
+            result=self._launch(context,'lidar_stop' if self.lidar_locked else 'visual_chassis',visit_id=visit['visit_id'])
+            self.visits.add(identity)
+            return result
+
+    def _launch(self,context,phase,**fields):
+        # Called with self.lock held, so a request is recorded before the worker can finish.
+        request=context['request_id']
+        if request in self.runs:raise ValueError('本轮放置已启动，不能重复执行')
+        if any(r['thread'].is_alive() for r in self.runs.values()):raise ValueError('已有放置任务')
+        run=dict(status='running',phase=phase,reason='',run_id=request,
+                 stop=threading.Event(),arm_run_id=None,**fields)
+        thread=threading.Thread(target=self._run,args=(context,run),daemon=True,name='t2-placement')
+        run['thread']=thread
+        self.runs[request]=run
+        thread.start()
+        return self.inspect(context)
 
     def inspect(self,context):
         with self.lock:
@@ -63,9 +79,12 @@ class NavigationPlacement:
             if r is None:return dict(status='unknown',reason='没有本轮放置记录')
             return {k:copy.deepcopy(v) for k,v in r.items() if k not in ('thread','stop')}
 
-    def _check(self,context,run):
+    def _check_owner(self,context,run):
         if context['cancelled'].is_set() or run['stop'].is_set():raise ValueError('放置已停止')
         if not self.ctrl.motion_valid(context['token']):raise ValueError('放置控制权失效')
+
+    def _check(self,context,run):
+        self._check_owner(context,run)
         visit=self.navigation.visit or {}
         if visit.get('visit_id')!=run['visit_id']:raise ValueError('导航交接身份已变化')
         error=self.navigation.check()
@@ -90,10 +109,14 @@ class NavigationPlacement:
 
     def _stop_chassis(self,context,run):
         self.ctrl.end_chassis_output(context['token'])
-        start=self._pose();deadline=time.monotonic()+3.;stable_since=time.monotonic()
+        start=None;deadline=time.monotonic()+3.;stable_since=time.monotonic()
         while time.monotonic()<deadline:
             self._check(context,run)
-            state=self.ctrl.snapshot();pose=self._pose()
+            state=self.ctrl.snapshot()
+            try:pose=self._pose()
+            except ValueError:
+                start=None;run['stop'].wait(.05);continue
+            if start is None:start=pose;stable_since=time.monotonic()
             if state['chassis_active']:raise ValueError('底盘存在其他输出，不能交接机械臂')
             if math.hypot(pose['x']-start['x'],pose['y']-start['y'])>.003 or abs(math.atan2(math.sin(pose['yaw']-start['yaw']),math.cos(pose['yaw']-start['yaw'])))>.01:
                 start=pose;stable_since=time.monotonic()
@@ -127,15 +150,14 @@ class NavigationPlacement:
         finally:transport.end_output()
         self._stop_chassis(context,run)
 
-    def _run(self,context,run):
-        try:
-            self._check(context,run)
-            route=load_taught_route(self.root/'config/taught-placement.json')
-            body=self.ctrl.snapshot().get('body',{})
-            height=body.get('height')
-            if (body.get('fresh') is not True or not isinstance(height,(int,float))
-                    or not math.isfinite(height) or abs(height-route.lift_target_rad)>.10):
-                raise ValueError('放置高度尚未就绪：要求 %.2f rad，当前 %s rad；抓取高度配置不变' % (route.lift_target_rad,height))
+    def _admit(self,context,run):
+        if self.lidar_locked:
+            stopped=self._stop_chassis(context,run)
+            if stopped.get('stopped') is not True:raise ValueError('雷达地点 2 尚未停稳')
+            receipt=dict(status='complete',outcome='locked_admitted',admission_source='lidar_point_2',
+                         point_id='point_2',mission_id=self.navigation.mission,captured_at=self.clock(),
+                         chassis_pose=stopped['pose'],chassis_locked=True,chassis_stopped=True,admission_valid=True)
+        else:
             reference=load_active_reference(self.reference_root)['capture']
             if (reference.get('d435') or {}).get('valid') is not True:raise ValueError('柜口参考无效，请先记录确认的柜前画面')
             policy=load_chassis_policy(self.root/'config/visual-chassis-placement.json')
@@ -147,24 +169,33 @@ class NavigationPlacement:
                 write_handoff=lambda value:atomic_json(path,value|dict(navigation_visit_id=run['visit_id'])),
                 clock=self.clock)
             if receipt['outcome']!='locked_admitted':raise ValueError(receipt['reason'])
+        return receipt|dict(navigation_visit_id=run['visit_id'])
+
+    def _run(self,context,run):
+        try:
             self._check(context,run)
-            result=self.placement.start_owned(context['token'],receipt|dict(navigation_visit_id=run['visit_id']))
+            route=load_taught_route(self.root/'config/taught-placement.json')
+            receipt=self._admit(context,run)
+            self._check(context,run)
+            result=self.placement.start_owned(context['token'],receipt)
             run.update(phase='arm_placement',arm_run_id=result['run_id'])
             while True:
                 self._check(context,run);result=self.placement.snapshot()
+                with self.lock:
+                    run['arm_progress']={k:result[k] for k in ('phase','d405_live','d405_attempt','d405_seat_attempt',
+                        'd405_reason','reason','measured_travel_mm','released','returned') if k in result}
                 if result.get('run_id')!=run['arm_run_id']:raise ValueError('放置执行身份已变化')
-                if result.get('status')=='complete_unverified' and result.get('released') is True and result.get('returned') is True:
-                    if self.placement.thread:
-                        self.placement.thread.join(3.)
-                        if self.placement.thread.is_alive():raise ValueError('未确认入仓的退出清理尚未结束')
-                    run.update(status='completed',phase='returned_unverified',placement_confirmed=False,degraded=True,
-                               reason='入仓未确认；已按设置松爪退出，继续后续路线',placement=result);return
                 if result.get('status')=='complete':
-                    if result.get('released') is not True or not require_verified_receipt(result,route.full_depth_mm):raise ValueError('缺少完整深入、松爪和返回回执')
+                    outside=result.get('handle_outside_mm')
+                    if (result.get('released') is not True or result.get('returned') is not True or
+                            not require_verified_receipt(result,route.full_depth_mm) or
+                            abs(result['verified_depth_mm']-route.full_depth_mm)>2. or
+                            type(outside) not in (float,int) or not math.isfinite(outside) or outside<=0.):
+                        raise ValueError('缺少本体坐底、把手在外、松爪和返回回执')
                     if self.placement.thread:
                         self.placement.thread.join(3.)
                         if self.placement.thread.is_alive():raise ValueError('放置执行清理未结束')
-                    run.update(status='completed',phase='returned',placement_confirmed=True,reason='',placement=result);return
+                    run.update(status='completed',completed_at_monotonic=time.monotonic(),phase='returned',placement_confirmed=True,reason='',placement=result);return
                 if result.get('status') not in ('running','idle'):raise ValueError(result.get('reason') or '放置未成功')
                 run['stop'].wait(.1)
         except Exception as error:
@@ -174,7 +205,7 @@ class NavigationPlacement:
             run.update(status='stopped' if context['cancelled'].is_set() or run['stop'].is_set() else 'failed',reason=str(error))
             try:self.ctrl.end_chassis_output(context['token'])
             except Exception as stop_error:run['stop_error']=str(stop_error)
-            if run['status']=='failed' and self.navigation.active:
+            if run['status']=='failed' and self.navigation and self.navigation.active:
                 try:self.navigation._event('fail',error=str(error)[:300])
                 except Exception as receipt_error:run['receipt_error']=str(receipt_error)
 
@@ -190,3 +221,33 @@ class NavigationPlacement:
         return dict(stopped=not run['thread'].is_alive() and not (owns_arm and worker and worker.is_alive()))
 
     def resume(self,context):raise ValueError('需核实原放置状态，不能重复推入或松爪')
+
+class CurrentPositionPlacement(NavigationPlacement):
+    """Use the standalone T2 controller lease to run the normal D405 placement."""
+
+    def __init__(self,controller,placement,root):
+        super().__init__(controller,None,placement,None,root,lidar_locked=True)
+
+    def readiness(self):
+        return super().readiness() | dict(admission_source='t2_current_position')
+
+    def _stationary(self):
+        if self.ctrl.snapshot()['chassis_active']:
+            raise ValueError('底盘仍有运动输出')
+
+    def start(self,context):
+        with self.lock:
+            if context.get('route_scope')!='t2_test' or not self.ctrl.motion_valid(context['token']):
+                raise ValueError('缺少本轮 T2 单测的机械臂控制权')
+            self._stationary()
+            return self._launch(context,'current_position')
+
+    def _check(self,context,run):
+        self._check_owner(context,run)
+        self._stationary()
+
+    def _admit(self,context,run):
+        self._check(context,run)
+        return dict(status='complete',outcome='locked_admitted',admission_source='t2_current_position',
+                    test_run_id=context['run_id'],captured_at=self.clock(),chassis_locked=True,
+                    chassis_stopped=True,admission_valid=True)

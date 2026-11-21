@@ -6,6 +6,7 @@ explicitly injected before the fixed lift and adaptive pick stages can execute.
 import copy
 import hashlib
 import json
+from .fast_pick import direct_plan, stopped_for_fast_pick
 from .contracts import AgentError, object_schema
 from .grasp_tools import WorkflowTools, WORKFLOW_TOOLS
 from .tools import ToolRegistry, TEXT
@@ -70,13 +71,24 @@ class BatteryExecutionTools(WorkflowTools):
             return None
         if camera=='d405' and self.store.state.get('mission',{}).get('stage')=='COARSE_ALIGNED':
             return 12
-        return self.observation_limit
+        from .codex_recovery import CURRENT
+        return max(8,self.observation_limit) if CURRENT.get() else self.observation_limit
 
     def _save_pick_plan(self,result):
         path=self.store.path/result['result_file']
         atomic_json(path,result)
         self.store.state['battery_pick_plan_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
         self.store.save()
+
+    def replan_cached_target(self,source,call_id):
+        cached=self.store.state['battery_flow']['target_cache'][source]
+        result=plan_battery_pick(self,cached['plan']['observation_id'],call_id,
+                                self.pick_setup,cached=cached)
+        result.update(plan_id='pick_'+hashlib.sha256((self.store.state['run_id']+':'+call_id).encode()).hexdigest()[:24],
+                      cached_target=dict(source=source,source_plan_id=cached['plan']['plan_id']))
+        self.store.state['mission'].update(stage='PICK_PLANNED',plan=copy.deepcopy(result))
+        self._save_pick_plan(result)
+        return result
 
     def _operation(self,name,arguments,call_id,mission):
         if name in ('stow_for_carry','return_to_carry') and arguments['plan_id']!=(mission.data.get('plan') or {}).get('plan_id'):
@@ -98,16 +110,25 @@ class BatteryExecutionTools(WorkflowTools):
             except (OSError,ValueError,KeyError,TypeError) as error:
                 raise AgentError('plan_changed','计划或 TCP 已变化，必须重新观察和规划') from error
             fixed=plan.get('vision_mode')=='fixed'
+            cached=plan.get('cached_target')
+            if cached:
+                original=self.store.state['battery_flow']['target_cache'][cached['source']]['plan']
+                if (self.vision_mode!='plan_f' or cached['source_plan_id']!=original['plan_id']
+                        or plan['observation_id']!=original['observation_id']
+                        or plan['preview_sha256']!=original['preview_sha256']):
+                    raise AgentError('plan_changed','缓存目标不属于本轮已保存的结果')
             camera='d435' if plan.get('vision_mode')=='d435' else 'd405'
-            if not fixed and plan.get('observation_id')!=self._localized(camera):
+            if not fixed and not cached and plan.get('observation_id')!=self._localized(camera):
                 raise AgentError('stale_observation','计划不再对应最新 '+camera.upper()+' 观察')
-            if (not fixed and camera=='d405'
+            if (not fixed and not cached and camera=='d405'
                     and not (self.vision_mode=='plan_f' and self._wrist_stage()=='COARSE_ALIGNED')):
                 self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
             if (plan.get('arm')!='right' or any(plan.get(k) is not True for k in
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
             if (name=='execute_pick' and not fixed and camera=='d405'
+                    and not cached
+                    and not (direct_plan(plan) and stopped_for_fast_pick(self.store))
                     and plan.get('refinement',{}).get('status')!='aligned'):
                 raise AgentError('reobservation_required','必须先到预抓位，再用新画面确认对位')
         elif name=='execute_coarse_alignment':
@@ -218,7 +239,11 @@ class BatteryExecutionTools(WorkflowTools):
                 result['plan_id']='pick_'+hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
                 if result['status']!='tcp_pending':
                     previous=mission.data.get('approach_plan')
-                    if plan_b:
+                    if (plan_f and not previous and stopped_for_fast_pick(self.store)
+                            and result.get('vision_mode') == 'd405'):
+                        result['pickup_flow'] = 'fast'
+                        next_stage = 'PICK_PLANNED'
+                    elif plan_b:
                         next_stage='PICK_PLANNED'
                     elif previous:
                         result['refinement']=(assess(result,previous,self.refinement_policy,

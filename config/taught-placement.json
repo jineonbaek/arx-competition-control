@@ -15,7 +15,7 @@
   "d405_target_offset_mm": 42.4,
   "d405_convergence_mm": 0.75,
   "d405_capture_timeout_s": 8.0,
-  "preobservation_axis_tolerance_deg": 0.2,
+  "preobservation_axis_tolerance_deg": 10.0,
   "preobservation_z_tolerance_mm": 0.5,
   "preobservation_rotation_tolerance_deg": 0.2,
   "preobservation_j6_target_deg": -90.0,

@@ -16,6 +16,8 @@ from urllib.error import URLError
 from urllib.request import urlopen, Request, build_opener, HTTPCookieProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from navigation_services import network_status, lio_status, ensure_lio
+from lidar_services import ensure_lidars as _ensure_lidars, lidar_status as _lidar_status
 from gamepad_services import ensure_gamepad_services, gamepad_status, gamepad_restart_needed, repair_gamepad_services, request_gamepad_start
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +31,55 @@ SERVER = ROOT / "web/src/server.py"
 CAMERA = ROOT / "web/src/camera_preview.py"
 CAMERA_OUTPUT = ROOT / "web/public/camera-live"
 CAMERA_NAMES = {"d435": "D435", "d405": "D405", "astra": "Astra Pro"}
+
+
+LIDAR_START_WARNING = ''
+def ensure_lidars():
+    global LIDAR_START_WARNING
+    LIDAR_START_WARNING=_ensure_lidars()
+    return LIDAR_START_WARNING
+
+def lidar_status():
+    global LIDAR_START_WARNING
+    fault=_lidar_status()
+    if not fault:LIDAR_START_WARNING=''
+    return '\n'.join(dict.fromkeys(x for x in [LIDAR_START_WARNING,fault] if x))
+
+
+SCHEDULER_UNIT = 'arx-chassis-scheduler.service'
+SCHEDULER_START_WARNING = ''
+
+def scheduler_needs_start():
+    try:
+        return subprocess.run(['systemctl','--user','is-active','--quiet',SCHEDULER_UNIT],
+                              capture_output=True,timeout=3).returncode != 0
+    except (OSError,subprocess.SubprocessError):
+        return True
+
+def ensure_scheduler():
+    global SCHEDULER_START_WARNING
+    # Start is idempotent. Never restart a running scheduler or initialize CAN/SDK.
+    try:
+        result=subprocess.run(['systemctl','--user','start',SCHEDULER_UNIT],
+                              capture_output=True,text=True,timeout=10)
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or 'systemd start failed')
+        if scheduler_needs_start():raise RuntimeError('服务启动后未保持运行，请查看用户服务日志')
+    except (OSError,subprocess.SubprocessError,RuntimeError) as exc:
+        raise StartupError('scheduler','独立 ROS 底盘调度器启动失败：'+str(exc)) from exc
+    SCHEDULER_START_WARNING = ''
+    return ''
+
+
+def wait_scheduler_binding(snapshot):
+    if (snapshot and snapshot.get('chassis_scheduler',{}).get('backend')=='ros'
+            and not snapshot['chassis_scheduler'].get('ready') and not check_fault(snapshot,'lift')
+            and not scheduler_needs_start()):
+        def ready():
+            current=state()
+            return current if current and current.get('chassis_scheduler',{}).get('ready') else None
+        return wait_for(ready,5,{}) or state() or snapshot
+    return snapshot
 
 
 def processes():
@@ -178,6 +229,10 @@ def check_fault(snapshot, name):
         if not source.get("publishers"):
             return "驱动未启动或已退出；" + (source.get("message") or "未发现反馈发布者")
         return source.get("message") or "\u6ca1\u6709\u5b9e\u65f6\u53cd\u9988"
+    if name == 'chassis':
+        scheduler=snapshot.get('chassis_scheduler',{})
+        if scheduler.get('backend')=='ros' and (not scheduler.get('ready') or snapshot.get('nav_sdk_ready') is False):
+            return '独立 ROS 底盘调度器尚未就绪；检查服务、驱动实例绑定及校准状态，勿因此重启升降'
     caps = snapshot.get("capabilities", {})
     return next((caps.get(key) or f"\u672a\u62a5\u544a\u63a7\u5236\u63a5\u53e3 {key} \u7684\u72b6\u6001"
                  for key in keys if caps.get(key) != ""), "")
@@ -213,6 +268,35 @@ def owned(name, records=None):
         return len(args) > 1 and args[1] == str(target)
     return [record for record in (process_records() if records is None else records)
             if matches(record["args"])]
+
+
+def driver_executable(name):
+    return BODY if name=='body' else ARM
+
+def running_executable(pid):
+    return Path('/proc')/str(pid)/'exe'
+
+def driver_version_fault(name):
+    records=owned(name)
+    if len(records)!=1:return ''  # Existing publisher/process checks handle this.
+    expected=driver_executable(name)
+    try:b=expected.stat()
+    except OSError as exc:return '仓库驱动文件缺失或不可读：'+str(expected)+'；'+str(exc)
+    try:
+        actual=running_executable(records[0]['pid'])
+        a=actual.stat()
+        if (a.st_dev,a.st_ino)==(b.st_dev,b.st_ino):return ''
+        import hashlib
+        if hashlib.sha256(actual.read_bytes()).digest()==hashlib.sha256(expected.read_bytes()).digest():return ''
+        return '当前进程仍运行旧版驱动；仓库最新构建已就绪，请现场确认后恢复/重启以切换'
+    except FileNotFoundError:
+        if not Path('/proc',str(records[0]['pid'])).exists():return ''
+        return '无法核对正在运行的驱动版本；请人工检查，不自动重启'
+    except (OSError,KeyError) as exc:
+        return '无法核对驱动版本；请人工检查，不自动重启：'+str(exc)
+
+def driver_update_needed(name):
+    return driver_version_fault(name).startswith('当前进程仍运行旧版驱动')
 
 
 def adapter_records():
@@ -359,12 +443,17 @@ def can_health():
 def recovery_plan(snapshot, buses=None):
     if (snapshot is None or not snapshot.get("ros", {}).get("connected")
             or snapshot.get("ros", {}).get("domain_id") != "191"):
-        result = ["web"]
+        result = (["scheduler"] if snapshot is None and scheduler_needs_start() else []) + ["web"]
     else:
         buses = can_health()[0] if buses is None else buses
         result = [name for name, channel in CHANNELS.items()
-                  if buses[channel] or check_fault(snapshot, "lift" if name == "body" else name)
-                  or (name == "body" and (buses.get("chassis") or check_fault(snapshot, "chassis")))]
+                  if buses[channel] or check_fault(snapshot, "lift" if name == "body" else name) or driver_update_needed(name)
+                  or (name == "body" and (buses.get("chassis") or
+                      (snapshot.get('chassis_scheduler',{}).get('backend')!='ros' and check_fault(snapshot,"chassis"))))]
+        if snapshot.get('chassis_scheduler',{}).get('backend')=='ros' and scheduler_needs_start():
+            result.insert(0,'scheduler')
+    if lidar_status():
+        result.append("lidars")
     if camera_fault():
         result.append("cameras")
     return result
@@ -541,6 +630,12 @@ except ProcessLookupError: pass
 
 
 def restart_faults(physical_bottom=False, manual=False, selected=None, progress=lambda message: None):
+    if selected == ['lidars']:
+        ensure_lidars()
+        return component_status(state())
+    if selected == ['scheduler']:
+        ensure_scheduler()
+        return component_status(wait_scheduler_binding(state()))
     if not physical_bottom:
         raise RuntimeError("尚未现场确认升降最低且稳定，禁止重启")
     with (RUNTIME / "launcher.lock").open("a") as lock:
@@ -557,6 +652,9 @@ def restart_faults(physical_bottom=False, manual=False, selected=None, progress=
         names = recovery_plan(snapshot, buses)
         if selected is not None:
             names = [name for name in names if name in selected]
+        if 'scheduler' in names:
+            ensure_scheduler()
+            names.remove('scheduler')
         # Refuse foreign publishers, duplicates and missing USB devices before stopping anything.
         for name in names:
             if len(owned(name)) > 1:
@@ -603,6 +701,8 @@ def restart_faults(physical_bottom=False, manual=False, selected=None, progress=
                          WEB_ROS_DOMAIN_ID="191", ROS_AUTOMATIC_DISCOVERY_RANGE="SUBNET"))
                 if wait_for(state, 12, children) is None:
                     raise RuntimeError("网页重启失败，请检查 launcher-web.log")
+            elif name == "lidars":
+                ensure_lidars()  # Surface sensor faults without blocking other selected repairs.
             else:
                 fault = ensure_cameras()
                 if fault:
@@ -621,7 +721,7 @@ GAMEPAD_START_WARNING = ''
 
 
 def required_faults(values):
-    return any(fault for name, fault in values.items() if name not in OPTIONAL_COMPONENTS)
+    return any(fault for name, fault in values.items() if name not in OPTIONAL_COMPONENTS and not (name=='FAST-LIO' and fault.startswith('FAST-LIO未启动；')))
 
 
 def optional_gamepad_status():
@@ -640,15 +740,19 @@ def component_status(snapshot, failed=None, reason=""):
     for name in CHECKS:
         channel = CHANNELS["body" if name in ("chassis", "lift") else name]
         faults[name] = "\n".join(filter(None, [buses[channel],
-            buses.get("chassis", "") if name == "chassis" else "", check_fault(snapshot, name)]))
+            buses.get("chassis", "") if name == "chassis" else "", check_fault(snapshot, name),
+            driver_version_fault("body" if name in ("chassis","lift") else name)]))
     if failed in ("left", "can1"):
         faults["left"] = reason
     elif failed in ("right", "can3"):
         faults["right"] = reason
     elif failed in ("body", "can5"):
         faults["chassis"] = faults["lift"] = reason
+    if SCHEDULER_START_WARNING and not (snapshot or {}).get('chassis_scheduler',{}).get('ready'):
+        faults['chassis']=SCHEDULER_START_WARNING+'\n'+faults['chassis']
+    if failed == 'scheduler':faults['chassis']=reason
     arm_faults = [f"{LABELS[side]}\uff1a{faults[side]}" for side in ("left", "right") if faults[side]]
-    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault(), **optional_gamepad_status()}
+    return {"\u673a\u68b0\u81c2": "\n".join(arm_faults), "\u5e95\u76d8": faults["chassis"], "\u5347\u964d": faults["lift"], "相机": camera_fault(), "雷达数据": lidar_status(), "雷达网络": network_status(), "FAST-LIO": lio_status(), **optional_gamepad_status()}
 
 
 class StartupError(RuntimeError):
@@ -659,11 +763,18 @@ class StartupError(RuntimeError):
 
 def launch():
     # These user services do not initialize CAN or restart robot hardware.
-    global GAMEPAD_START_WARNING
+    global GAMEPAD_START_WARNING, SCHEDULER_START_WARNING
     try:
         GAMEPAD_START_WARNING = request_gamepad_start(RUNTIME)
     except Exception as exc:
         GAMEPAD_START_WARNING = str(exc)
+    SCHEDULER_START_WARNING = ""
+    try:
+        ensure_scheduler()
+    except (RuntimeError, OSError) as exc:
+        SCHEDULER_START_WARNING = str(exc)
+    ensure_lidars()
+    ensure_lio(False)  # Reuse only; cold initialization requires the dedicated confirmation.
     ensure_cameras()
     children = {}
     commands = processes()
@@ -684,11 +795,14 @@ def launch():
 
     # Never restart or re-enable hardware during status checks.
     # All hardware starts, including cold boots, go through confirmed recovery.
-    return component_status(snapshot)
+    return component_status(wait_scheduler_binding(snapshot))
 
 
 def choose_recovery(snapshot):
     selected = recovery_plan(snapshot)
+    if 'scheduler' in selected:return ['scheduler'],False
+    if selected==['lidars']:return selected,False
+    selected=[name for name in selected if name!='lidars']
     if selected:
         return selected, False
     try:
@@ -718,6 +832,7 @@ def show_status(statuses, warning):
     dialog.set_default_size(620, 680)
     retry = dialog.add_button("恢复 / 重启故障服务", Gtk.ResponseType.APPLY)
     close = dialog.add_button("关闭", Gtk.ResponseType.CLOSE)
+    lio_button = dialog.add_button("初始化 FAST-LIO", 1001)
     cancel_button = dialog.add_button("停止下降 / 取消恢复", Gtk.ResponseType.REJECT)
     cancel = threading.Event()
     outer = dialog.get_content_area()
@@ -754,13 +869,16 @@ def show_status(statuses, warning):
         state_ui["statuses"] = values
         for name, fault in values.items():
             status_label, detail = rows[name]
-            status_label.set_markup(('<span foreground="#b7791f"><b>可选任务告警</b></span>' if name in OPTIONAL_COMPONENTS else '<span foreground="#b42318"><b>不好</b></span>') if fault else
+            pending_lio=name=='FAST-LIO' and fault.startswith('FAST-LIO未启动；')
+            status_label.set_markup('<span foreground="#b7791f"><b>待确认</b></span>' if pending_lio else ('<span foreground="#b7791f"><b>可选任务告警</b></span>' if name in OPTIONAL_COMPONENTS else '<span foreground="#b42318"><b>不好</b></span>') if fault else
                                     '<span foreground="#067647"><b>好</b></span>')
             detail.set_text(fault)
             detail.set_visible(bool(fault))
-        retry.set_sensitive(any(values.values()) and not state_ui["busy"])
+        retry.set_sensitive(any(v for k,v in values.items() if k!='FAST-LIO') and not state_ui["busy"])
+        lio_button.set_sensitive(not state_ui["busy"])
         note.set_text(state_ui["warning"] or
-                      ("检测到异常，是否恢复 / 重启故障服务？正常服务继续运行。"
+                      ("FAST-LIO等待静止确认；其他服务保持运行。点击「初始化 FAST-LIO」继续。" if values.get('FAST-LIO','').startswith('FAST-LIO未启动；') and not required_faults(values) else
+                       "检测到异常，是否恢复 / 重启故障服务？正常服务继续运行。"
                        if required_faults(values) else "手柄为可选任务，当前告警不影响其他任务运行。"
                        if any(values.values()) else "各项检查通过；每 2 秒更新。关闭窗口后服务继续运行。手柄：先回中，再按住 LT 使能，松开停车。"))
 
@@ -811,6 +929,16 @@ def show_status(statuses, warning):
 
     def recover():
         selected, gamepad_only = choose_recovery(state())
+        if selected == ['lidars']:
+            def lidar_completed(values):
+                state_ui['warning']='';state_ui['statuses']=values;idle()
+            worker(lambda: restart_faults(selected=['lidars']),lidar_completed)
+            return
+        if selected == ['scheduler']:
+            def scheduler_completed(values):
+                state_ui['warning']='';state_ui['statuses']=values;idle()
+            worker(lambda: restart_faults(selected=['scheduler']),scheduler_completed)
+            return
         if gamepad_only:
             def gamepad_completed(values):
                 state_ui["warning"] = ""
@@ -874,7 +1002,18 @@ def show_status(statuses, warning):
     timer = GLib.timeout_add_seconds(2, refresh)
     while True:
         response = dialog.run()
-        if response == Gtk.ResponseType.REJECT:
+        if response == 1001 and not state_ui['busy']:
+            if not message('初始化要求底盘及其固定雷达/IMU保持静止。升降和双臂不要求特定姿态，但请避免造成底盘晃动或明显振动。已有健康融合会复用，异常会话不会被停止。是否确认并继续？',True):
+                continue
+            def initialize_lio():
+                fault=ensure_lio(True)
+                values=component_status(state())
+                if fault:values['FAST-LIO']=fault
+                return values
+            def lio_done(values):
+                state_ui['statuses']=values;idle()
+            worker(initialize_lio,lio_done)
+        elif response == Gtk.ResponseType.REJECT:
             cancel.set()
             note.set_text("正在取消下降并请求保持；不会停止驱动")
         elif response == Gtk.ResponseType.APPLY:

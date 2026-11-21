@@ -224,7 +224,7 @@ class MppiDriver(RetainedGoal,Driver):
 
     def bind_task_worker(self):
         route=self.waypoints.route
-        needed={p['point_id'] for p in route.points[route.index:] if p['type']=='task'} if route.running else set()
+        needed=route.required_task_ids()
         if not needed:self.worker_mission=None;self.worker_instance=None;return
         if self.worker_mission!=route.mission_id:
             self.worker_mission=route.mission_id
@@ -258,7 +258,7 @@ class MppiDriver(RetainedGoal,Driver):
 
     def task_worker_ready(self):
         route=self.waypoints.route
-        needed={p['point_id'] for p in route.points[route.index:] if p['type']=='task'} if route.running else set()
+        needed=route.required_task_ids()
         if not needed:return True
         with self.waypoints.hub.lock:
             current=(self.waypoints.hub.worker or {}).get('instance_id')

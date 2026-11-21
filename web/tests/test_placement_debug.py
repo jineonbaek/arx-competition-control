@@ -66,6 +66,15 @@ class PlacementDebugTests(unittest.TestCase):
         self.assertEqual(self.arm.starts[0][1]['chassis_pose']['source'],'operator_confirmed_fixed_base')
         self.assertFalse(result['sends_navigation_receipt']);self.assertFalse(result['control_retained'])
 
+    def test_standalone_place_accepts_height_above_old_window(self):
+        snapshot=self.ctrl.snapshot
+        def actual_height():
+            value=snapshot();value['body']['height']=.18;return value
+        self.ctrl.snapshot=actual_height
+        self.debug.action('browser',self.place());result=self.wait()
+        self.assertEqual(result['status'],'completed',result)
+        self.assertEqual(len(self.arm.starts),1)
+
     def test_observe_does_not_automatically_start_place(self):
         self.debug.action('browser',{'op':'observe','request_id':'observe-1'});self.wait()
         self.assertEqual(self.arm.starts,[])

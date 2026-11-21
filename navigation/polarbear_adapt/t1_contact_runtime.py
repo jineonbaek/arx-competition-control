@@ -6,10 +6,13 @@ from std_msgs.msg import Bool
 from mppi_trial.speed_profile import SLOW_SDK
 from special_segments import StraightChain
 
-DURATION=.2
+DURATION=2.
+COMMAND_TTL=.2
+REFRESH_INTERVAL=.05
 
 def point_key(n):
  r=n.waypoints.route;i=r.target_index
+ if getattr(r,'t2_index',None) is not None and i==r.t2_index-1:return None
  if not r.running or r.state!='running' or i is None or not 0<=i<len(r.points):return None
  p=r.points[i]
  if p.get('type')!='task' or p.get('point_id')!='point_1':return None
@@ -59,21 +62,25 @@ def resume_contact(n,epoch):
   if not n.transport.native_sdk:raise ValueError('special_native_sdk_required')
   n.wait_controller_quiet(epoch);proof(require_idle=True);intent()
   state['handle']=n.transport.current
-  n.status('t1_contact_forward');n.waypoints.show('T1交接前贴靠：车头正前方0.225 SDK，单次0.2秒')
+  n.status('t1_contact_forward');n.waypoints.show('T1交接前贴靠：车头正前方0.225 SDK，单次2秒')
   began=time.monotonic()
   # Set before send: an acknowledgement timeout can still mean accepted motion.
   state['attempted']=True
   try:
    n.active=True;n.intent.publish(Bool(data=True))
-   try:n.transport.send((SLOW_SDK,0.,0.),handle=state['handle'],ttl_s=DURATION)
-   except ValueError as exc:
-    # ROS Session reports transport timeouts as InvalidChassis(ValueError).
-    # Treat only those exact transport failures as uncertain, never replay them.
-    if str(exc) in ('ROS chassis scheduler unavailable','ROS chassis management timeout','ROS chassis command acknowledgement timeout'):
-     raise TimeoutError('t1_contact_output_uncertain '+str(exc)) from exc
-    raise
+   next_send=began
    while time.monotonic()-began<DURATION:
     proof()
+    now=time.monotonic();remaining=DURATION-(now-began)
+    if remaining<=0:break
+    if now>=next_send:
+     try:n.transport.send((SLOW_SDK,0.,0.),handle=state['handle'],ttl_s=min(COMMAND_TTL,remaining))
+     except ValueError as exc:
+      # Any uncertain acknowledgement ends this single attempt; never restart.
+      if str(exc) in ('ROS chassis scheduler unavailable','ROS chassis management timeout','ROS chassis command acknowledgement timeout'):
+       raise TimeoutError('t1_contact_output_uncertain '+str(exc)) from exc
+      raise
+     next_send=now+REFRESH_INTERVAL
     remaining=DURATION-(time.monotonic()-began)
     if remaining>0:n.spin(min(.02,remaining))
   finally:close()

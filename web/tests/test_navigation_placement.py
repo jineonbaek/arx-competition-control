@@ -28,7 +28,7 @@ class Placement:
     def __init__(self,status='complete'):self.status=status;self.starts=[];self.actions=[]
     def start_owned(self,token,handoff):
         self.starts.append((token,handoff));return {'run_id':'arm-1'}
-    def snapshot(self):return dict(status=self.status,run_id='arm-1',released=True,depth_mm=150.,insertion_depth_verified=True,verified_depth_mm=150.,reason='injected fault')
+    def snapshot(self):return dict(status=self.status,run_id='arm-1',released=True,returned=True,handle_outside_mm=45.,depth_mm=150.,insertion_depth_verified=True,verified_depth_mm=150.,reason='injected fault')
     def action(self,data):self.actions.append(data)
 
 class Module(NavigationPlacement):
@@ -59,6 +59,34 @@ class NavigationPlacementTests(unittest.TestCase):
         self.assertFalse(self.module.runs[self.context['request_id']]['thread'].is_alive())
         return self.module.inspect(self.context)
 
+    def test_current_position_test_has_no_lidar_visit_or_navigation_events(self):
+        from navigation_placement import CurrentPositionPlacement
+        self.module=CurrentPositionPlacement(self.ctrl,self.arm,self.root)
+        self.context.update(route_scope='t2_test',run_id='run')
+        self.module.start(self.context)
+        result=self.wait()
+        self.assertEqual(result['status'],'completed',result)
+        handoff=self.arm.starts[0][1]
+        self.assertEqual(handoff['admission_source'],'t2_current_position')
+        self.assertNotIn('navigation_visit_id',handoff)
+        self.assertNotIn('point_id',handoff)
+        with self.assertRaises(ValueError):
+            self.module.start(self.context)
+        self.assertEqual(len(self.arm.starts),1)
+
+    def test_current_position_requires_ownership_stationary_chassis_and_test_scope(self):
+        from navigation_placement import CurrentPositionPlacement
+        self.module=CurrentPositionPlacement(self.ctrl,self.arm,self.root)
+        with self.assertRaises(ValueError):
+            self.module.start(self.context)
+        self.context.update(route_scope='t2_test',run_id='run')
+        with self.assertRaises(ValueError):
+            self.module.start(self.context | dict(token=object()))
+        self.ctrl.snapshot=lambda:dict(chassis_active=True)
+        with self.assertRaises(ValueError):
+            self.module.start(self.context)
+        self.assertFalse(self.arm.starts)
+
     def test_point_two_admission_uses_existing_token_and_waits_for_full_return_receipt(self):
         self.module.start(self.context);result=self.wait()
         self.assertEqual(result['status'],'completed')
@@ -71,14 +99,12 @@ class NavigationPlacementTests(unittest.TestCase):
         self.assertEqual(saved['navigation_visit_id'],'visit-1')
         self.assertEqual(self.nav.events,[]) # Competition releases ownership before complete_route sends complete.
 
-    def test_unverified_but_released_and_returned_attempt_continues_with_warning(self):
+    def test_unverified_old_receipt_cannot_complete_navigation_visit(self):
         original=self.arm.snapshot
         self.arm.snapshot=lambda:original()|dict(status='complete_unverified',returned=True,insertion_depth_verified=False,verified_depth_mm=140.)
         self.module.start(self.context);result=self.wait()
-        self.assertEqual(result['status'],'completed')
-        self.assertFalse(result['placement_confirmed']);self.assertTrue(result['degraded'])
-        self.assertEqual(result['phase'],'returned_unverified')
-        self.assertEqual(self.nav.events,[])
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual([name for name,_ in self.nav.events],['fail'])
 
     def test_arm_travel_without_visual_depth_is_not_success(self):
         original=self.arm.snapshot
@@ -97,12 +123,10 @@ class NavigationPlacementTests(unittest.TestCase):
             self.module.start(self.context|dict(request_id='different-request'))
         self.assertEqual(len(self.arm.starts),1)
 
-    def test_grasp_height_cannot_silently_start_zero_height_placement(self):
+    def test_placement_does_not_gate_on_lift_reference_difference(self):
         self.ctrl.height=3.;self.module.start(self.context);result=self.wait()
-        self.assertEqual(result['status'],'failed')
-        self.assertIn('放置高度',result['reason'])
-        self.assertEqual(self.arm.starts,[])
-        self.assertEqual(self.nav.events[0][0],'fail')
+        self.assertEqual(result['status'],'completed')
+        self.assertEqual(len(self.arm.starts),1)
 
     def test_invalid_reference_reports_failure_without_starting_arm(self):
         self.record(False);self.module.start(self.context);result=self.wait()

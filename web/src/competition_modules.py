@@ -89,6 +89,8 @@ class QwenRecovery:
         self.client = QwenClient(config)
 
     def decide(self, evidence, names):
+        if not names:
+            return dict(name='stop',reason=evidence.get('failure') or '本地流程已结束，没有可执行的恢复动作')
         schema = object_schema({'name':{'type':'string', 'enum':['stop'] + names},
                                 'reason':{'type':'string', 'minLength':1, 'maxLength':500}})
         tool = dict(type='function', function=dict(name='select_recovery',

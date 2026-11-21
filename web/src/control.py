@@ -46,6 +46,7 @@ class _MotionToken:
     """Process-local capability; never supplied by a browser or serialized."""
     def __init__(self, prestarted_lift_target=None):
         self.prestarted_lift_target = prestarted_lift_target
+        self.contact_stop_pending = False
 
 
 class _CompetitionToken:
@@ -220,11 +221,27 @@ class Controller:
             self.motion_interrupted = True
             self.command_epoch += 1
 
+    def begin_contact_stop(self, token):
+        """Retain ownership across child, debug and competition task cleanup."""
+        with self.lock:
+            if not isinstance(token, _MotionToken) or token is not self.motion_owner:
+                raise Rejected('阻塞停止缺少任务控制权')
+            token.contact_stop_pending = True
+
+    def complete_contact_stop(self, token):
+        """Internal executor calls this only after stop ack and measured rest."""
+        with self.lock:
+            if not self.motion_valid(token) or not token.contact_stop_pending:
+                raise Rejected('阻塞停止控制权已变化')
+            token.contact_stop_pending = False
+
     def release_motion(self, token):
         """Stop any leftover trajectory and return ownership when the executor exits."""
         with self.lock:
             if not isinstance(token, _MotionToken) or token is not self.motion_owner:
                 raise Rejected("任务控制权已失效")
+            if token.contact_stop_pending:
+                raise Rejected('阻塞停止尚未确认，保留控制权和夹持')
             if self.motion_trajectory is not None:
                 self._trajectory_abort(self.motion_trajectory['side'],token)
                 if self.motion_trajectory is not None:
@@ -260,6 +277,8 @@ class Controller:
             return
         if client is not self.motion_owner or self.motion_interrupted:
             raise Rejected("自动任务占用控制权或已被人工停止；禁止继续运动")
+        if self.motion_owner.contact_stop_pending:
+            raise Rejected('阻塞停止尚未确认，禁止继续运动')
         if self.motion_trajectory is not None:
             raise Rejected("轨迹尚未完成或停止核验，禁止发送其他运动")
 
@@ -290,6 +309,8 @@ class Controller:
         with self.lock:
             if side not in self.arms or not self.motion_valid(token) or not callable(preflight):
                 raise Rejected("轨迹需要有效任务控制权和执行前复查")
+            if token.contact_stop_pending:
+                raise Rejected('阻塞停止尚未确认，禁止启动轨迹')
             if self.motion_trajectory is not None:
                 raise Rejected("已有轨迹待完成或清理")
             reason = (self.wrist_reason(side) if require_lift_settle
@@ -381,11 +402,12 @@ class Controller:
             self.serial += 1
             self.logs.append({"id": self.serial, "time": time.time(), "level": level, "text": text})
 
-    def update_arm(self, side, joints, gripper, tcp):
+    def update_arm(self, side, joints, gripper, tcp, *, currents=None):
         if side not in self.arms or not vector(joints, 6) or not number(gripper) or not vector(tcp, 6):
             return
         with self.lock:
             self.arms[side] = {"joints": joints[:], "gripper": gripper, "tcp": tcp[:],
+                               "currents": currents[:] if vector(currents, 6) else None,
                                "received": self.clock(), "timestamp": time.time()}
 
     def update_body(self, height, wheels, waist, yaw, pitch):
@@ -600,6 +622,7 @@ class Controller:
                         "max_error_deg": max(right_avoidance_errors) if right_avoidance_errors else None,
                         "arrived": bool(right_avoidance_errors and max(right_avoidance_errors) <= LEFT_HOLD_TOLERANCE_DEG)},
                     "motion_interrupted": self.motion_interrupted, "command_epoch": self.command_epoch,
+                    "contact_stop_pending": bool(self.motion_owner and self.motion_owner.contact_stop_pending),
                     "nav_sdk_ready": self.adapter.chassis_ready(),
                     "logs": list(self.logs)}
 

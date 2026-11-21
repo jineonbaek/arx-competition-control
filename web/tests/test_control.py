@@ -23,6 +23,8 @@ class FakeAdapter:
 
 def configured():
     c = json.loads((Path(__file__).resolve().parents[1] / "config/control.json").read_text())
+    # Unit fixtures use FakeAdapter and the in-process scheduler, never live ROS.
+    c.pop('chassis_backend', None)
     c["execution_enabled"] = True
     c["body"].pop("lift_stop_service", None)
     c["body"].pop("calibrated_topic", None)

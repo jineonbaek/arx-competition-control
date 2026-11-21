@@ -1,13 +1,10 @@
 """Explicit read-only D405 capture and partial calibration-line preview."""
-import hashlib
 import json
 import threading
 from pathlib import Path
 import numpy as np
-from agent.d405_aperture_alignment import estimate_horizontal_alignment
-from agent.docking_fit import OBJECT_TO_TOOL
+from d405_left_edges import measure_left_edges
 from d405_alignment_overlay import write_horizontal_overlay
-from handeye_validation import CANDIDATE
 from d405_battery_edges import detect_face,select_depth_preview
 
 
@@ -41,15 +38,8 @@ class D405PlacementPreview:
                 calibration_sha256=str(frame['calibration_sha256']))
             try:
                 tcp=np.asarray(json.loads((self.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
-                bounds=np.asarray(json.loads((self.root/'config/battery-envelope.json').read_text())['bounds_mm'])
-                contact=np.asarray(json.loads((self.root/'web/public/cad/battery-grip.json').read_text())['points_object_mm']['tip'])
                 tool=self.ctrl.models['right'].wrist_transform(frame['joints'],float(frame['lift_rad']))@tcp
-                front=np.array([[bounds[0,0],0.,bounds[1,2]],[bounds[1,0],0.,bounds[1,2]]])
-                expected=((front-contact)@OBJECT_TO_TOOL.T/1000.)@tool[:3,:3].T+tool[:3,3]
-                policy=json.loads((self.root/'config/taught-placement.json').read_text())
-                result=estimate_horizontal_alignment(frame,target_offset_mm=policy['d405_target_offset_mm'],
-                    expected_calibration_sha256=hashlib.sha256(CANDIDATE.read_bytes()).hexdigest(),
-                    expected_battery_front_base_m=expected,max_step_mm=policy['d405_step_limit_mm'])
+                result=measure_left_edges(frame,tool,self.root)
             except (OSError,ValueError) as error:result['reason']=str(error)
             return write_horizontal_overlay(frame,result,self.root/'web/public/camera-overlay')
         finally:self.lock.release()

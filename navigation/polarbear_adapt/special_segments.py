@@ -32,6 +32,14 @@ class StraightChain:
   self.goals=[self.rotation@(pose(p['pose'])[:2]-self.entry_map[:2])+self.entry_odom[:2] for p in points]
   self.start=self.entry_odom[:2].copy();self.yaw=self.entry_odom[2]
   self.filtered_motion=np.zeros(2);self.terminal_correction=False
+  self.reset_start_assist()
+ def reset_start_assist(self):
+  self.start_assist_floor=0.;self.start_assist_origin=None
+ def request_start_assist(self):
+  if self.previous_sample is None:raise ValueError('start_assist_requires_fresh_source')
+  self.start_assist_floor=.3 if self.start_assist_floor<.3 else .6
+  self.start_assist_origin=self.previous_sample[2][:2].copy()
+  return self.start_assist_floor
  @property
  def target(self):return self.goals[self.index]
  def sample(self,m,o,stamp,now):
@@ -54,11 +62,14 @@ class StraightChain:
   c,s=math.cos(o[2]),math.sin(o[2]);to_world=np.array([[c,-s],[s,c]])
   motion=to_world@self.measured[:2]
   self.filtered_motion+=(1.-math.exp(-control_dt/.20))*(motion-self.filtered_motion)
+  if self.start_assist_origin is not None and np.linalg.norm(o[:2]-self.start_assist_origin)>=.015:
+   self.reset_start_assist()
   passed=[]
   if self.index<len(self.goals)-1 and np.linalg.norm(self.target-o[:2])<=RADIUS:
-   passed=[self.points[self.index]['id']];self.start=o[:2].copy();self.index+=1
+   passed=[self.points[self.index]['id']];self.start=o[:2].copy();self.index+=1;self.reset_start_assist()
   error=float(np.linalg.norm(self.target-o[:2]));terminal=self.index==len(self.goals)-1 and error<=RADIUS
-  if terminal:return Step((0.,0.,0.),passed,True)
+  if terminal:
+   self.reset_start_assist();return Step((0.,0.,0.),passed,True)
   line=self.target-self.start;length=float(np.linalg.norm(line));unit=line/max(length,1e-12)
   # Increase preview with measured speed and source latency, never a forged pose.
   speed=max(float(np.linalg.norm(motion)),float(np.linalg.norm(self.filtered_motion)))
@@ -81,6 +92,9 @@ class StraightChain:
    floor=.14 if final else SLOW_SDK
    effort=min(effort,max(min(floor,NORMAL_SDK),1.2*remaining))
   if self.terminal_correction:effort=min(effort,.14)
+  # Only the normal-special runtime requests this floor. Task approaches and
+  # test backoff never request it. Retain slew limits and the .60 total cap.
+  effort=min(NORMAL_SDK,max(effort,self.start_assist_floor))
   desired=direction/max(norm,1e-12)*effort
   normal=np.array([-unit[1],unit[0]])
   lateral=float(self.filtered_motion@normal)

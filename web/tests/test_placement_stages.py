@@ -137,6 +137,13 @@ class StageTests(unittest.TestCase):
         self.task.action(data);self.assertEqual(len(self.push.calls),1)
         self.assertEqual(self.task.snapshot()['operation'],'insert')
 
+    def test_web_probe_delegates_only_one_bounded_forward_move(self):
+        data=dict(op='run',phase='insert',probe_only=True,request_id='probe',expected_epoch=10)
+        self.task.action(data);self.task.thread.join(2.)
+        self.assertTrue(self.push.calls[0]['probe_only'])
+        self.assertTrue(self.push.calls[0]['mouth_then_push'])
+        self.task.action(data);self.assertEqual(len(self.push.calls),1)
+
     def test_wrapper_failure_cancels_only_its_delegated_insert(self):
         settings=self.task.snapshot()['settings'];settings['z_reference']='model'
         self.task.action({'op':'save_settings','settings':settings})

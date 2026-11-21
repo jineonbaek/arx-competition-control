@@ -94,13 +94,13 @@ class SpecialROS(unittest.TestCase):
   from special_runtime import run_special
   with self.assertRaisesRegex(ValueError,'native_sdk'):run_special(self.n)
   self.assertEqual(self.n.transport.calls,[])
- def test_unrelated_epoch_and_temporary_no_progress_resume_without_manual_restart(self):
+ def test_unrelated_epoch_and_temporary_no_progress_continue_without_pause(self):
   self.start_special(.5);self.simulate=True;self.external_after=2
   from special_runtime import run_special
   old=self.n.status;self.rechecked=False
   def status(v):
    old(v)
-   if v=='special_no_progress_rechecking':self.rechecked=True;self.simulate=True
+   if v=='special_no_progress_observed' or v.startswith('special_start_assist_sdk '):self.rechecked=True;self.simulate=True
   self.n.status=status
   self.assertEqual(run_special(self.n),'arrived_stopped');self.assertTrue(self.rechecked)
   self.assertGreater(len(self.n.transport.calls),2);self.assertFalse(self.n.active)

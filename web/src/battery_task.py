@@ -51,13 +51,15 @@ DEFAULT_RECOGNITION_PROFILES={
 
 class BatteryTask:
     def __init__(self, root, controller, workflow_factory, *, depth_control=None, plan_c_path=None,
-                 recognition_profiles_path=None,close_timeout_s=2.):
+                 recognition_profiles_path=None,close_timeout_s=2.,fast_start_path=None,fast_dock=None):
         if not callable(workflow_factory) or close_timeout_s <= 0:
             raise ValueError('Workflow factory and bounded close timeout required')
         self.root=Path(root)
         self.controller=controller
         self.workflow_factory=workflow_factory
         self.depth_control=depth_control
+        self.fast_start_path = Path(fast_start_path) if fast_start_path else None
+        self.fast_dock = fast_dock
         self.close_timeout_s=float(close_timeout_s)
         self.task_settings=copy.deepcopy(getattr(workflow_factory,'task_settings',{}))
         self.plan_c_path=None if plan_c_path is None else Path(plan_c_path)
@@ -197,11 +199,20 @@ class BatteryTask:
 
     def _settings_view(self,settings=None):
         value=copy.deepcopy(self.task_settings if settings is None else settings)
+        if self.fast_start_path is not None:
+            value['fast_start'] = self._fast_reference()
+            value['fast_dock_policy'] = getattr(self.fast_dock, 'policy', None)
         value['plan_c']=copy.deepcopy(self.plan_c)
         value['reference_catalog']=[dict(id=k,label=v['label'],url='/grasp-reference/'+k+'.png') for k,v in REFERENCES.items()]
         value['recognition_profiles']=[copy.deepcopy(profile) for profile in self.recognition_profiles.values()]
         value['selected_recognition_profile_id']=self.selected_recognition_profile_id
         return value
+
+    def _fast_reference(self):
+        try:
+            return json.loads(self.fast_start_path.read_text())
+        except FileNotFoundError:
+            return None
 
     @staticmethod
     def _vision_mode(value):
@@ -354,6 +365,34 @@ class BatteryTask:
                                 for key in ('pregrasp_joints_rad','grasp_joints_rad'))):
                     raise ValueError('Plan C 请先记录预夹取点和夹取点')
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
+            elif action in ('record_fast_start', 'start_fast'):
+                if self.fast_start_path is None:
+                    raise ValueError('快速抓取未配置')
+                if self.active and self.active['status'] == 'running':
+                    raise Rejected('抓取任务正在运行')
+                from fast_grasp_start import capture, check_start
+                from navigation_view import read_snapshot
+                if action == 'record_fast_start':
+                    if set(data) != {'action', 'request_id'}:
+                        raise ValueError('记录起点仅需要请求编号')
+                    robot = self.controller.snapshot()
+                    if robot.get('motion_reserved') or robot.get('competition_reserved'):
+                        raise Rejected('机器人正被其他任务使用')
+                    reference = capture(robot, read_snapshot())
+                    atomic_json(self.fast_start_path, reference)
+                    result = self._view(client)
+                else:
+                    if (set(data) != {'action', 'request_id', 'expected_epoch', 'environment_clear'}
+                            or type(data['expected_epoch']) is not int or data['environment_clear'] is not True):
+                        raise ValueError('快速抓取需要本轮控制编号和现场确认')
+                    reference = self._fast_reference()
+                    if not reference or not getattr(self.fast_dock, 'policy', None):
+                        raise ValueError('需要记录出发点并配置平台停车信号')
+                    check_start(reference, read_snapshot())
+                    settings = dict(self.task_settings, vision_mode='plan_f', pickup_flow='fast',
+                                    fast_reference=reference,
+                                    recognition_profile=copy.deepcopy(DEFAULT_RECOGNITION_PROFILES['handle']))
+                    result = self._start(client, data['expected_epoch'], True, settings)
             elif action=='select_recognition_profile':
                 if set(data)!= {'action','request_id','profile_id'}:
                     raise ValueError('select_recognition_profile requires profile_id')
@@ -493,12 +532,36 @@ class BatteryTask:
             time.sleep(.02)
 
     def _run(self, state, flow):
+        from agent.codex_recovery import session
+        with session(state['run_id'],self.controller,lambda:not state['store'].cancelled and self.controller.motion_valid(state['token']),
+                     lambda event,kind:state['store'].event('codex_advice',dict(event=event,kind=kind))):
+            return self._run_task(state, flow)
+
+    def _run_task(self, state, flow):
         try:
-            self._prepare_plan_f_lift(state,flow)
+            store = state['store']
+            if store.state.get('battery_task_settings', {}).get('pickup_flow') == 'fast':
+                if store.state.get('fast_dock'):
+                    raise ValueError('本轮已有贴靠记录，不能重复前进')
+                dock = dict(run_id=state['run_id'], status='approaching')
+                store.state['fast_dock'] = dock
+                store.save()
+                store.event('fast_dock', dict(stage='底盘贴靠平台'))
+                receipt = self.fast_dock(self.controller, state['token'], store)
+                if receipt.get('status') != 'stopped':
+                    raise ValueError('底盘停车未确认')
+                dock.update(receipt)
+                store.save()
+                store.event('fast_dock', dict(stage='底盘已停稳，开始 D405 把手定位', **receipt))
+            else:
+                self._prepare_plan_f_lift(state,flow)
             result=flow.run()
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:
             result={'status':'needs_attention','reason':str(error)[:300]}
+        if result.get('status') not in ('completed','cancelled'):
+            from agent.recovery_watch import report_fault
+            report_fault('抓取',result.get('reason') or result.get('status'),run=state['run_id'])
         self._restore_depth(state)
         with self.lock:
             state['flow']=copy.deepcopy(result)

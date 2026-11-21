@@ -1,27 +1,45 @@
+const taskKey=document.body?.dataset?.taskKey || 'competition';
+const taskEndpoint=document.body?.dataset?.taskEndpoint || '/api/competition-task';
 const el = id => document.getElementById(id);
 const canvas = el('map');
 const ctx = canvas.getContext('2d');
 const statuses = {idle:'等待比赛', running:'比赛运行中', recovering:'Qwen 分析与恢复中',
   stopping:'正在停止并交还控制权', paused:'已停止，可检查后继续',
   completed:'整场比赛完成', needs_attention:'任务中断，需要检查'};
+if(taskKey==='t2_test')Object.assign(statuses,{idle:'等待T2实测',running:'T2实测运行中',completed:'T2单独实测完成'});
 let latest = null;
 let connected = false;
 let received = 0;
 let taskBusy = false;
+let directTask = null;
+let directConnected = false;
 
 function renderCompetition(task) {
-  task ||= {};
+  task = (taskKey==='t2_test' ? directTask : task) || {};
+  const taskConnected=taskKey==='t2_test' ? directConnected : connected;
   el('task-state').textContent=statuses[task.status] || '比赛总控未启用';
+  if(taskKey==='t2_test' && task.target)el('target').textContent=task.target;
   el('phase').textContent=(task.tasks || []).find(t=>t.id===task.phase)?.label || '—';
   el('mission').textContent=task.control_owned?'控制权：整场任务管理':
     task.manual_available===false?'控制权：其他任务正在使用':'控制权：9983 手动控制';
-  el('reason').textContent=task.reason || task.placement_readiness?.reason || '';
+  const p=task.phase==='place' && task.placement_progress;
+  const lines=[];
+  if(p){
+    const phases={d405_preobservation:'进入预观测点',j4_sag_check:'检查 J4 下坠',d405_horizontal_trim:'D405 水平对齐',seat_push:'沿电池轴推入',compensate:'末段补推',verify:'D405 确认坐底',release:'松爪',exit:'原路返回',release_and_return:'松爪并返回'};
+    if(phases[p.phase])lines.push(phases[p.phase]);
+    if(Number.isFinite(p.measured_travel_mm))lines.push('实测推进 '+p.measured_travel_mm.toFixed(1)+' mm');
+    if(p.d405_seat_attempt)lines.push('坐底复查 '+p.d405_seat_attempt+' 次');
+    else if(p.d405_attempt)lines.push('水平观测 '+p.d405_attempt+' 次');
+    if(Number.isFinite(p.d405_live?.remaining_mm))lines.push('D405 估计剩余 '+p.d405_live.remaining_mm.toFixed(1)+' mm');
+    if(p.reason || p.d405_reason || p.d405_live?.reason)lines.push(p.reason || p.d405_reason || p.d405_live.reason);
+  }
+  el('reason').textContent=[task.reason || task.placement_readiness?.reason,...lines].filter(Boolean).join(' · ');
   const nav=task.navigation, handoff=nav?.handoff;
   el('navigation-state').textContent=nav?`导航：${nav.route?.available?nav.route.status || '等待路线':nav.error || '导航执行端未就绪'}${nav.route?.drive_status?' · '+nav.route.drive_status:''}`:'';
   el('navigation-handoff').textContent=nav?`交接：${handoff?.task?handoff.task.point_id+' · '+handoff.task.status:nav.registered?'等待到点通知':'比赛开始时登记'}${handoff?.navigation_check?.reason?' · '+handoff.navigation_check.reason:''}`:'';
   el('run').textContent=task.run_id || '';
-  el('competition-start').disabled=taskBusy || !connected || !task.can_start || !el('environment-clear').checked;
-  el('competition-continue').disabled=taskBusy || !connected || !task.can_continue || !el('environment-clear').checked;
+  el('competition-start').disabled=taskBusy || !taskConnected || !task.can_start || !el('environment-clear').checked;
+  el('competition-continue').disabled=taskBusy || !taskConnected || !task.can_continue || !el('environment-clear').checked;
   el('competition-stop').disabled=!task.control_owned && !['running','recovering','stopping'].includes(task.status);
   el('stages').replaceChildren(...(task.tasks || []).map(t=>{
     const li=document.createElement('li');
@@ -46,20 +64,21 @@ async function competitionAction(action) {
   if(action!=='stop' && taskBusy)return;
   const request_id=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
   const data={action,request_id};
-  if(action!=='stop')Object.assign(data,{expected_epoch:latest?.competition?.command_epoch,
+  if(action!=='stop')Object.assign(data,{expected_epoch:(taskKey==='t2_test' ? directTask : latest?.[taskKey])?.command_epoch,
     environment_clear:el('environment-clear').checked});
-  taskBusy=true;renderCompetition(latest?.competition);el('task-message').textContent='';
+  taskBusy=true;renderCompetition(latest?.[taskKey]);el('task-message').textContent='';
   try {
-    const response=await fetch('/api/competition-task',{method:'POST',
+    const response=await fetch(taskEndpoint,{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(10000)});
     const task=await response.json();
     if(!response.ok)throw new Error(task.message || '比赛操作未被接受');
-    if(latest)latest.competition=task;
+    if(taskKey==='t2_test')directTask=task;
+    else if(latest)latest[taskKey]=task;
   } catch(error) {el('task-message').textContent=error.message+'；请查看当前状态，勿重复启动任务。';}
-  finally {taskBusy=false;renderCompetition(latest?.competition);}
+  finally {taskBusy=false;renderCompetition(latest?.[taskKey]);}
 }
 for(const action of ['start','stop','continue'])el('competition-'+action).addEventListener('click',()=>competitionAction(action));
-el('environment-clear').addEventListener('change',()=>renderCompetition(latest?.competition));
+el('environment-clear').addEventListener('change',()=>renderCompetition(latest?.[taskKey]));
 
 function draw() {
   const ratio = window.devicePixelRatio || 1;
@@ -112,7 +131,7 @@ function render(data) {
   el('pose-value').textContent = pose ? `X ${pose.x.toFixed(3)} m / Y ${pose.y.toFixed(3)} m / 朝向 ${(pose.yaw*180/Math.PI).toFixed(1)}°` : '等待 map → base_link 定位变换';
   el('pose-age').textContent = pose ? `反馈年龄 ${pose.age_s.toFixed(1)} 秒` : '尚无定位反馈';
   el('path-state').textContent = data.path ? `路径反馈 ${data.path.age_s.toFixed(1)} 秒前${data.path.age_s >= 5 ? '，已隐藏过期路径' : ''}` : '等待规划路径';
-  renderCompetition(data.competition);
+  renderCompetition(data[taskKey]);
   draw();
 }
 
@@ -142,8 +161,8 @@ async function poll() {
     connected = false; el('connection').textContent = `连接中断 · ${error.message}`;
     el('pose-state').textContent = '定位反馈已过期';
     el('task-state').textContent = '连接中断，以下为最后收到的任务状态'; draw();
-    renderCompetition(latest?.competition);
-    el('task-state').textContent='连接中断，以下为最后收到的任务状态';
+    renderCompetition(latest?.[taskKey]);
+    if(taskKey!=='t2_test')el('task-state').textContent='连接中断，以下为最后收到的任务状态';
   } finally { setTimeout(poll, 1000); }
 }
 setInterval(() => {
@@ -156,3 +175,18 @@ setInterval(() => {
 }, 500);
 new ResizeObserver(draw).observe(canvas.parentElement);
 poll();
+
+async function pollDirectTask() {
+  try {
+    const response=await fetch(taskEndpoint,{signal:AbortSignal.timeout(4000),cache:'no-store'});
+    if (!response.ok) throw new Error('HTTP '+response.status);
+    directTask=await response.json();
+    directConnected=true;
+  } catch {
+    directConnected=false;
+  }
+  renderCompetition(directTask);
+  if (!directConnected) el('task-state').textContent='T2 服务连接中断';
+  setTimeout(pollDirectTask,1000);
+}
+if (taskKey==='t2_test') pollDirectTask();

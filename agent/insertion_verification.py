@@ -4,6 +4,13 @@ import math,queue,threading,time
 
 class ObservationUnavailable(ValueError):pass
 
+class UnstableInsertionFrame(ValueError):
+    def __init__(self, message, frame):
+        super().__init__(message)
+        self.frame_id = str(frame['id'])
+        self.image_time = float(frame['image_time'])
+
+
 def run_verified_insertion(observe,move,*,guard,event=lambda **v:None,cabinet_depth_mm=150.,
                            observation_timeout_s=2.5,observation_budget_s=8.,
                            max_compensations=2,max_compensation_mm=10.,max_extra_mm=20.):
@@ -20,7 +27,19 @@ def run_verified_insertion(observe,move,*,guard,event=lambda **v:None,cabinet_de
         if remaining<=0:raise ObservationUnavailable('入仓观测时间预算已用完')
         box=queue.Queue(maxsize=1)
         def worker():
-            try:box.put((True,observe(reference)))
+            try:
+                try:
+                    value=observe(reference)
+                except UnstableInsertionFrame as first:
+                    # Reacquire one exposure for a transient visual failure before
+                    # pushing. Never retry a measured misalignment or a move.
+                    if reference is not None or time.monotonic()-start>=remaining:
+                        raise
+                    guard()
+                    value=observe(reference)
+                    if value['frame_id']==first.frame_id or value['image_time']<=first.image_time:
+                        raise ObservationUnavailable('重新测距未取得新曝光')
+                box.put((True,value))
             except Exception as error:box.put((False,error))
         start=time.monotonic();threading.Thread(target=worker,daemon=True,name='insertion-observation').start()
         try:

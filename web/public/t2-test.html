@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ARX · T2 单独实测</title>
+  <link rel="stylesheet" href="css/map.css">
+  <script type="module" src="js/map.js"></script>
+</head>
+<body data-task-key="t2_test" data-task-endpoint="/api/t2-test">
+  <header><strong>ARX / 地图与任务</strong><a href="/">返回控制台</a></header>
+  <main>
+    <section class="map-panel">
+      <div class="toolbar"><h1>T2 导航地图</h1><span id="connection" role="status">连接中</span></div>
+      <div class="viewport"><canvas id="map" aria-label="雷达地图、机器人位置和规划路径"></canvas><p id="empty">等待 /pb/map 地图数据</p></div>
+      <div class="legend"><span>深色 · 障碍</span><span>灰色 · 未知</span><span>蓝线 · 规划路径</span><span>橙色箭头 · 机器人</span></div>
+      <p id="map-info">地图坐标尚未就绪</p>
+      <p>需要导航和定位就绪；先到T2前一点，再到T2。</p>
+    </section>
+    <aside>
+      <section><h2>定位</h2><strong id="pose-state">等待反馈</strong><p id="pose-value">—</p><p id="pose-age">—</p><p id="path-state">—</p></section>
+      <section>
+        <h2>T2 单独实测</h2>
+        <p>先导航到T2前一点，再导航至T2。到达T2后才发送真实任务开始信号，放置完成并归还控制权后，继续剩余导航点，到路线终点（随后以0.225 SDK向车头正前方前进4秒并停车）才结束实测。T2真实任务超过180秒未完成时，停止原任务，先将右臂回到预观察点，再将底盘回到T2；确认归位后跳过本次放置并继续导航。当前不在前一点范围内时，按比赛起步方式直线接入，忽略障碍和代价地图。</p>
+        <p id="target">T2前一点 → T2 → 真实放置 → 剩余导航 → 路线终点</p>
+        <label class="clearance"><input id="environment-clear" type="checkbox">已确认本轮作业区无人且无临时障碍</label>
+        <div class="task-actions">
+          <button id="competition-start" type="button" disabled>开始 T2 实测</button>
+          <button id="competition-stop" class="stop" type="button" disabled>停止实测</button>
+          <button id="competition-continue" type="button" hidden disabled>检查并继续</button>
+        </div>
+        <strong id="task-state" role="status">等待反馈</strong>
+        <p id="phase">—</p><p id="mission"></p><p id="reason" role="status"></p>
+        <p id="navigation-state"></p><p id="navigation-handoff"></p>
+        <p id="task-message" role="alert"></p><p id="run"></p><ol id="stages"></ol>
+        <p><a href="/visual-docking.html">查看放置与柜口参考</a> · <a href="/map.html">返回整场比赛</a></p>
+        <details><summary>任务与异常恢复记录</summary><ol id="task-logs"></ol></details>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>

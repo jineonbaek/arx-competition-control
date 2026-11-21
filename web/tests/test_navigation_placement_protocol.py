@@ -44,6 +44,23 @@ class NavigationPlacementHTTPTests(fixtures.NavigationPlacementTests):
         self.hub.acknowledge(task['visit_id'])
         self.assertFalse(self.hub.blocking())
 
+    def test_point_two_dispatches_once_with_lidar_and_no_visual_chassis_reference(self):
+        self.record(False)
+        self.module.lidar_locked=True
+        self.module._stop_chassis=lambda *_:dict(stopped=True,pose=dict(x=0.,y=0.,yaw=0.))
+        self.module._observe=lambda *_:self.fail('D435 requested after lidar handoff')
+        self.module._chassis_step=lambda *_:self.fail('chassis correction requested')
+        self.module.start(self.context)
+        self.assertEqual(self.wait()['status'],'completed')
+        handoff=self.arm.starts[0][1]
+        self.assertEqual(handoff['admission_source'],'lidar_point_2')
+        self.assertEqual(handoff['navigation_visit_id'],self.hub.state()['task']['visit_id'])
+        self.assertEqual(self.hub.state()['task']['status'],'running')
+        self.nav.complete_visit(self.context)
+        self.assertEqual(self.hub.state()['task']['status'],'resume_pending')
+        with self.assertRaises(ValueError):self.module.start(self.context)
+        self.assertEqual(len(self.arm.starts),1)
+
     def test_http_failed_reference_cannot_emit_completion(self):
         self.record(False);self.module.start(self.context);result=self.wait()
         self.assertEqual(result['status'],'failed')

@@ -87,9 +87,10 @@ class ObservationTests(unittest.TestCase):
     def test_observe_rejection_archives_reason_without_pose_or_motion(self):
         f=self.head_frame();buf=io.BytesIO();np.savez(buf,**f)
         obs=save_frame(self.store,buf.getvalue(),source='test',camera='d435')
-        with patch('agent.battery_observation.capture',return_value=obs),patch(
+        with patch('agent.codex_recovery.CURRENT') as advice,patch('agent.battery_observation.capture',return_value=obs),patch(
             'agent.battery_observation.segment',return_value={'status':'needs_new_observation','coarse_selection':{'status':'not_found'}}):
             out=observe(self.tools,'d435','observe_head')
+            advice.get.assert_not_called()
         self.assertEqual(out['status'],'target_not_found')
         self.assertIsNone(out['location'])
         self.assertEqual(out['camera'],'d435')

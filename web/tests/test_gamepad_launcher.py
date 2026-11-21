@@ -43,10 +43,16 @@ class GamepadLauncherTests(unittest.TestCase):
 
 spec=importlib.util.spec_from_file_location('launcher_gamepad_integration',ROOT/'scripts/start-console.py')
 launcher=importlib.util.module_from_spec(spec);spec.loader.exec_module(launcher)
+launcher.network_status=lambda: ''
+launcher.lio_status=lambda: ''
+launcher.ensure_lio=lambda *a: ''
+# Isolate unrelated sensor startup in the existing component fixtures.
+launcher.ensure_lidars=lambda: ''
+launcher.lidar_status=lambda: ''
 
 class IntegrationTests(unittest.TestCase):
  def test_desktop_launch_starts_handpad_without_restarting_hardware(self):
-  with patch.object(launcher,'request_gamepad_start',return_value='') as start,patch.object(launcher,'ensure_cameras',side_effect=RuntimeError('stop before hardware')):
+  with patch.object(launcher,'ensure_scheduler',return_value=''),patch.object(launcher,'request_gamepad_start',return_value='') as start,patch.object(launcher,'ensure_cameras',side_effect=RuntimeError('stop before hardware')):
    with self.assertRaises(RuntimeError):launcher.launch()
    start.assert_called_once()
  def test_status_includes_both_services(self):
@@ -85,7 +91,7 @@ class OptionalIsolationTests(unittest.TestCase):
   self.assertFalse(launcher.required_faults({'底盘':'','相机':'','手柄可视化':'not connected','手柄底盘控制':'start failed'}))
   self.assertTrue(launcher.required_faults({'底盘':'CAN offline','手柄可视化':''}))
  def test_unexpected_start_exception_does_not_skip_cameras(self):
-  with patch.object(launcher,'request_gamepad_start',side_effect=RuntimeError('systemd failed')),patch.object(launcher,'ensure_cameras',side_effect=RuntimeError('camera phase reached')) as cameras:
+  with patch.object(launcher,'ensure_scheduler',return_value=''),patch.object(launcher,'request_gamepad_start',side_effect=RuntimeError('systemd failed')),patch.object(launcher,'ensure_cameras',side_effect=RuntimeError('camera phase reached')) as cameras:
    with self.assertRaisesRegex(RuntimeError,'camera phase reached'):launcher.launch()
    cameras.assert_called_once()
  def test_status_exception_does_not_hide_other_components(self):

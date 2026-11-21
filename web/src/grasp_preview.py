@@ -1,6 +1,7 @@
 """Shared D405 RGB-D capture, point clouds and taught horizontal handle previews."""
 import base64
 import hashlib
+from functools import lru_cache
 import json
 import os
 import re
@@ -42,6 +43,23 @@ def xyz_image(raw, scale, k, *, max_depth_m=1.5):
     if len(v):
         xyz[v,u]=[rs.rs2_deproject_pixel_to_point(intr,[float(x),float(y)],float(z[y,x])) for y,x in zip(v,u)]
     return xyz
+
+
+@lru_cache(maxsize=2)
+def _unit_rays(intrinsics):
+    rs,intr=camera_intrinsics(json.loads(intrinsics))
+    # RealSense deprojection is linear in metric depth for fixed intrinsics.
+    return np.array([rs.rs2_deproject_pixel_to_point(intr,[float(x),float(y)],1.)
+                     for y in range(intr.height) for x in range(intr.width)],
+                    dtype=np.float32).reshape(intr.height,intr.width,3)
+
+
+def live_xyz(raw,scale,k,max_depth_m):
+    if raw.dtype!=np.uint16 or raw.shape!=(k['height'],k['width']) or not np.isfinite(scale) or scale<=0:
+        raise ValueError('RGB-D 深度格式或单位无效')
+    z=raw.astype(np.float32)*scale
+    z[(z<.07)|(z>max_depth_m)]=0.
+    return _unit_rays(json.dumps(k,sort_keys=True))*z[:,:,None]
 
 
 def atomic_json(path, value):
@@ -96,23 +114,42 @@ class GraspPreview:
             raise ValueError('未知预览操作')
         finally:self.lock.release()
 
-    def capture(self):
+    def live_frame(self,guard=None,timeout_s=2.,*,monitor_only=False):
+        """Consume a new paired RGB-D exposure without building a browser point cloud or touching the snapshot cache."""
+        if not self.lock.acquire(blocking=False):raise ValueError('相机正在采集，等待下一帧')
+        try:return self._frame(guard,timeout_s,live=True,monitor_only=monitor_only)[0]
+        finally:self.lock.release()
+
+    def live_color_frame(self,guard=None,timeout_s=2.):
+        """Fresh paired color exposure; never requests or waits for depth."""
+        if not self.lock.acquire(blocking=False):raise ValueError('相机正在采集，等待下一帧')
+        try:return self._frame(guard,timeout_s,live=True,color_only=True)[0]
+        finally:self.lock.release()
+
+    def _frame(self,guard=None,timeout_s=16.,*,live=False,monitor_only=False,color_only=False):
         calibration_path=CANDIDATE if self.camera=='d405' else HEAD_CALIBRATION
         calibration_blob=calibration_path.read_bytes()
         cal=json.loads(calibration_blob)
         if self.camera=='d405' and self.model is None:self.model=ColumnModel()
-        try:token=self.depth.acquire_grasp(self.camera)
-        except (RuntimeError,OSError) as e:raise ValueError(str(e)) from e
-        try:meta,jpeg,png,q,arm_time,height,body_time=self.read_pair()
-        finally:self.depth.release_handeye(token)
-        k=meta['color_intrinsics'];d=meta['depth']
+        if color_only:
+            meta,jpeg,png,q,arm_time,height,body_time=self.read_pair(guard,timeout_s,color_only=True)
+        else:
+            try:token=self.depth.acquire_grasp(self.camera)
+            except (RuntimeError,OSError) as e:raise ValueError(str(e)) from e
+            try:meta,jpeg,png,q,arm_time,height,body_time=(self.read_pair() if not live else self.read_pair(guard,timeout_s,monitor_only=monitor_only))
+            finally:self.depth.release_handeye(token)
+        k=meta['color_intrinsics']
         if calibration_path.read_bytes()!=calibration_blob:raise ValueError('采集期间外参发生变化')
         serial=cal['camera']['serial'] if self.camera=='d405' else cal['serial']
         if k['serial']!=serial:raise ValueError('当前相机序列号与外参不一致')
-        raw=cv2.imdecode(np.frombuffer(png,np.uint8),cv2.IMREAD_UNCHANGED)
         bgr=cv2.imdecode(np.frombuffer(jpeg,np.uint8),cv2.IMREAD_COLOR)
-        if raw is None or bgr is None or bgr.shape[:2]!=raw.shape:raise ValueError('RGB-D 图像尺寸不匹配')
-        xyz=xyz_image(raw,d['scale_m_per_unit'],k,max_depth_m=1.5 if self.camera=='d405' else 3.)
+        if bgr is None:raise ValueError('彩色图像解码失败')
+        depth_fields={}
+        if not color_only:
+            d=meta['depth'];raw=cv2.imdecode(np.frombuffer(png,np.uint8),cv2.IMREAD_UNCHANGED)
+            if raw is None or bgr.shape[:2]!=raw.shape:raise ValueError('RGB-D 图像尺寸不匹配')
+            xyz=(live_xyz if live else xyz_image)(raw,d['scale_m_per_unit'],k,max_depth_m=1.5 if self.camera=='d405' else 3.)
+            depth_fields=dict(xyz=xyz,raw_depth=raw,scale=d['scale_m_per_unit'])
         rgb=bgr[:,:,::-1].copy()
         if self.camera=='d405':
             T=self.model.wrist_transform(q,height)@np.asarray(cal['T_right_link26_from_D405_color'])
@@ -121,26 +158,34 @@ class GraspPreview:
                 or not np.allclose(T[:3,:3].T@T[:3,:3],np.eye(3),atol=1e-6) or np.linalg.det(T[:3,:3])<.99):
             raise ValueError('相机外参不是有效刚性变换')
         ident=uuid.uuid4().hex
-        tmp=self.cache/'frame.tmp.npz'
         left=meta.get('paired_left_feedback')
         extra={} if left is None else dict(left_joints=left['joints'],left_arm_time=left['timestamp'])
-        np.savez_compressed(tmp,id=ident,camera_id=self.camera,calibration_sha256=hashlib.sha256(calibration_blob).hexdigest(),xyz=xyz,rgb=rgb,raw_depth=raw,scale=d['scale_m_per_unit'],
+        frame=dict(id=ident,camera_id=self.camera,calibration_sha256=hashlib.sha256(calibration_blob).hexdigest(),rgb=rgb,
                             intrinsics=json.dumps(k),base_from_color=T,lift_rad=height,body_time=body_time,joints=q,arm_time=arm_time,
-                            image_time=meta['captured_at'],**extra)
+                            image_time=meta['captured_at'],capture_mode='color_only' if color_only else 'rgbd',**depth_fields,**extra)
+        return frame,jpeg
+
+    def capture(self):
+        frame,jpeg=self._frame()
+        ident=frame['id'];xyz=frame['xyz'];rgb=frame['rgb'];T=frame['base_from_color']
+        k=json.loads(frame['intrinsics']);stamp=frame['image_time']
+        tmp=self.cache/'frame.tmp.npz'
+        np.savez_compressed(tmp,**frame)
         yy,xx=np.nonzero(xyz[::4,::4,2]>0);yy*=4;xx*=4
         points_base = xyz[yy,xx] @ T[:3,:3].T + T[:3,3]
         points=np.column_stack((points_base.round(4),rgb[yy,xx])).tolist()
-        view=dict(id=ident,frame_id='base_link',base_from_color=T.tolist(),time=meta['captured_at'],width=k['width'],height=k['height'],points=points,
+        view=dict(id=ident,frame_id='base_link',base_from_color=T.tolist(),time=stamp,width=k['width'],height=k['height'],points=points,
                   image='data:image/jpeg;base64,'+base64.b64encode(jpeg).decode(),result=None,
-                  paired_ms=round(abs(arm_time-meta['captured_at'])*1000),roi=None)
+                  paired_ms=round(abs(frame['arm_time']-stamp)*1000),roi=None)
         os.replace(tmp,self.cache/'frame.npz')
         atomic_json(self.cache/'view.json',view)
         return view
 
-    def read_pair(self):
-        start=time.time();end=time.monotonic()+16;history=[];left_history=[];reason='等待对齐深度帧'
+    def read_pair(self,guard=None,timeout_s=16.,*,monitor_only=False,color_only=False):
+        start=time.time();end=time.monotonic()+timeout_s;history=[];left_history=[];reason='等待实时彩色帧' if color_only else '等待对齐深度帧'
         while time.monotonic()<end:
-            if not self.depth.enabled(self.camera):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
+            if guard is not None:guard()
+            if not color_only and not self.depth.enabled(self.camera):raise ValueError('深度采集被标定接管或相机已退回彩色模式')
             s=self.ctrl.snapshot();arm=s['arms']['right'];body=s['body']
             if not self.ctrl.adapter.body_calibrated():raise ValueError('升降回零状态未就绪')
             if s['chassis_active'] or not arm.get('fresh') or not body.get('fresh'):
@@ -157,18 +202,18 @@ class GraspPreview:
                 t=meta.get('captured_at') or 0
                 if (len(history)>=4 and history[-1][0]-history[0][0]>=.35 and
                     history[0][0]<=t<=history[-1][0]+.05 and t>=start and -.05<=time.time()-t<.8 and
-                    meta.get('state')=='online' and d.get('state')=='online' and d.get('aligned_to_color') is True and
-                    d.get('timestamp_gap_ms',1000)<=50):
+                    meta.get('state')=='online' and (color_only or (d.get('state')=='online' and d.get('aligned_to_color') is True and
+                    d.get('timestamp_gap_ms',1000)<=50))):
                     ts,paired,height,body_time=min(history,key=lambda v:abs(v[0]-t))
                     stable=np.max(np.ptp([v[1] for v in history],axis=0))<np.radians(.25) and np.ptp([v[2] for v in history])<.05
-                    if max(abs(t-ts),abs(t-body_time))<.20 and stable:
-                        rgb=meta['raw_image_file'];z=d['image_file']
+                    if max(abs(t-ts),abs(t-body_time))<(.05 if monitor_only else .20) and (stable or monitor_only):
+                        rgb=meta['raw_image_file'];z=None if color_only else d['image_file']
                         m=re.fullmatch(self.camera+r'-v-([a-f0-9]+-\d+)\.jpg',rgb)
-                        if m and z==self.camera+'-z-'+m[1]+'.png':
+                        if m and (color_only or z==self.camera+'-z-'+m[1]+'.png'):
                             meta=dict(meta,paired_left_feedback=paired_left([v[1] for v in left_history],t))
-                            return meta,(LIVE/rgb).read_bytes(),(LIVE/z).read_bytes(),paired,ts,height,body_time
-                    reason='等待与静止右臂配对的 RGB-D 帧'
-                elif d.get('message'):reason=d['message']
+                            return meta,(LIVE/rgb).read_bytes(),None if color_only else (LIVE/z).read_bytes(),paired,ts,height,body_time
+                    reason='等待与静止右臂配对的彩色帧' if color_only else '等待与静止右臂配对的 RGB-D 帧'
+                elif not color_only and d.get('message'):reason=d['message']
             except (FileNotFoundError,json.JSONDecodeError):pass
             time.sleep(.055)
         raise ValueError(reason)

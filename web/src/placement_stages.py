@@ -7,9 +7,12 @@ from agent.grasp_path import TimedJointPath,plan_correction
 from agent.visual_battery_level import motion_limits
 from agent.storage import atomic_json
 from docking_motion import DockingMotion
+from observation_sag import at_observation, correct_observation_sag
 from placement_clamp import close_for_placement,require_closed_target
-from fast_visual_level import MAX_ARM_SEGMENT_S,split_plan
-from placement_stage_geometry import cabinet_observation,height_reading,z_target,battery_front
+from fast_visual_level import MAX_ARM_SEGMENT_S,split_plan,continuous_correction
+from placement_stage_geometry import cabinet_observation,height_reading,z_target
+from d405_left_edges import lateral_step_mm, measure_left_edges
+from d405_horizontal_recovery import HorizontalRecovery, rgb_correction_step
 from d405_alignment_overlay import write_horizontal_overlay
 from insertion_observation import capture_insertion
 
@@ -76,6 +79,14 @@ class PlacementStages:
                 self.settings=self._validate_settings(saved['settings'])
                 self.manual_anchor=saved.get('manual_anchor')
             except (ValueError,OSError,KeyError,TypeError) as e:self.config_error='保存参数读取失败：'+str(e)
+
+    def saved_observation(self):
+        with self.lock:
+            if self.config_error:
+                raise ValueError(self.config_error)
+            if self.settings_path.exists() and self.settings['preobserve_source'] not in ('尚未记录', '原 D405 预观测点'):
+                return copy.deepcopy(self.settings)
+            return None
 
     def _driver(self):return self.ctrl.adapter.trajectory_status('right') or {}
     def _tool(self,state):return self.ctrl.models['right'].wrist_transform(state['arms']['right']['joints'],state['body']['height'])@self.tcp
@@ -205,7 +216,9 @@ class PlacementStages:
                     known_tcp_z_mm=data['known_tcp_z_mm'],base_sequence=_sequence(s),driver_instance=self._driver().get('driver_instance'),captured_at=time.time())
                 self._persist(manual_anchor=anchor);return self.snapshot()
             fields={'op','phase','request_id','expected_epoch'}
-            if op!='run' or not fields<=set(data) or set(data)-fields not in (set(),{'delta_z_mm'}):raise ValueError('仅支持独立阶段及 Z 调整')
+            if op!='run' or not fields<=set(data) or set(data)-fields not in (set(),{'delta_z_mm'},{'probe_only'}):raise ValueError('仅支持独立阶段及 Z 调整')
+            if 'probe_only' in data and (data['phase']!='insert' or data['probe_only'] is not True):
+                raise ValueError('试推仅适用于入仓')
             if data['phase'] not in ('preobserve','correct','insert','z'):raise ValueError('未知阶段')
             if not isinstance(data['request_id'],str) or not 1<=len(data['request_id'])<=128 or type(data['expected_epoch']) is not int:raise ValueError('需要本次请求编号和控制代次')
             if 'delta_z_mm' in data and (data['phase']!='z' or not _number(data['delta_z_mm']) or not 0<abs(data['delta_z_mm'])<=20):raise ValueError('Z 步进范围为 ±20 mm')
@@ -233,12 +246,16 @@ class PlacementStages:
     def _capture(self):
         with self.measure_lock:return self._capture_locked()
 
-    def _capture_locked(self):
-        initial=self.ctrl.snapshot();view=self.capture.action({'op':'capture'})
-        with np.load(self.capture.cache/'frame.npz',allow_pickle=False) as f:frame={k:f[k] for k in f.files}
-        if str(frame['id'])!=view['id']:raise ValueError('D405 本轮配对帧已被替换')
+    def _paired_frame(self,*,color_only=False):
+        from mouth_push import capture_frame
+        initial=self.ctrl.snapshot()
+        frame=self.capture.live_color_frame() if color_only else capture_frame(self.capture)
         current=self.ctrl.snapshot()
         if current['command_epoch']!=initial['command_epoch'] or current['chassis_active'] or _sequence(current)!=_sequence(initial):raise ValueError('D405 曝光期间控制状态或底盘发生变化')
+        return frame,current
+
+    def _capture_locked(self):
+        frame,current=self._paired_frame()
         geometry=cabinet_observation(frame)
         with self.lock:
             self.geometry=geometry;self.geometry_binding=dict(base_sequence=_sequence(current),driver_instance=self._driver().get('driver_instance'))
@@ -255,11 +272,39 @@ class PlacementStages:
         except (OSError,ValueError):pass
         return frame,geometry
 
+    def _left_measurement(self,frame,after=None):
+        tool=self.ctrl.models['right'].wrist_transform(frame['joints'],float(frame['lift_rad']))@self.tcp
+        try:
+            result=measure_left_edges(frame,tool,self.root,after_image_time=after)
+        except ValueError as error:
+            write_horizontal_overlay(frame,dict(status='unavailable',reason=str(error),frame_id=str(frame['id']),
+                image_time=float(frame['image_time'])),self.root/'web/public/camera-overlay')
+            raise
+        write_horizontal_overlay(frame,result,self.root/'web/public/camera-overlay')
+        return result
+
+    def _left_only(self):
+        with self.measure_lock:
+            frame,_=self._paired_frame(color_only=True)
+            return frame,None
+
+    def _observe_current_axes(self):
+        if self.settings['correction_axes']=='y':
+            frame,_=self._left_only()
+            measured=self._left_measurement(frame)
+            with self.lock:
+                self.observation_error=''
+                self.state.update(d405_left_clearance_mm=measured['clearance_mm'],
+                    d405_y_in_band=measured['in_band'],d405_step_mm=measured['step_mm'],
+                    d405_measurement_source=measured.get('measurement_source'),d405_depth_used=measured.get('depth_used'))
+        else:
+            self._capture()
+
     def _observe_loop(self):
         while not self.shutdown.is_set():
             if not self.observing:return
             try:
-                if not (self.thread and self.thread.is_alive()):self._capture()
+                if not (self.thread and self.thread.is_alive()):self._observe_current_axes()
             except Exception as e:
                 with self.lock:self.observation_error=str(e)
             self.shutdown.wait(.8)
@@ -274,16 +319,24 @@ class PlacementStages:
             self._save(timeline=self.state['timeline']+[row],active_phase=None)
 
     def _run(self,data,token):
+        from agent.codex_recovery import session
+        with session(self.run.name,self.ctrl,lambda:not self.cancel.is_set() and self.ctrl.motion_valid(token),
+                     lambda event,kind:self._save(codex_advice=dict(event=event,kind=kind))):
+            return self._run_task(data,token)
+
+    def _run_task(self,data,token):
         moving=False;stopped=True;line=None;advance=[0.,time.monotonic()];delegate_started=False
         try:
             initial=self.ctrl.snapshot();height=initial['body']['height'];raw=initial['arms']['right']['gripper'];driver=self._driver()
             clamp=None
             def guard(state=None,now=None):
+                nonlocal height
                 s=self.ctrl.snapshot() if state is None else state
                 if self.cancel.is_set():raise ValueError('阶段已停止')
                 if token is not None and not self.ctrl.motion_valid(token):raise ValueError('阶段控制权已中断')
                 if s['chassis_active'] or not s['arms']['right']['fresh'] or not s['body']['fresh']:raise ValueError('底盘运动或位姿反馈失效')
-                if abs(s['body']['height']-height)>.02 or (clamp and abs(s['arms']['right']['gripper']-raw)>.15):raise ValueError('升降或夹持状态发生变化')
+                height=float(s['body']['height'])
+                if clamp and abs(s['arms']['right']['gripper']-raw)>.15:raise ValueError('夹持状态发生变化')
                 current_driver=self._driver()
                 if clamp:require_closed_target(current_driver)
                 if current_driver.get('driver_instance')!=driver.get('driver_instance'):raise ValueError('右臂驱动发生变化')
@@ -300,7 +353,8 @@ class PlacementStages:
                 guard();s=self.ctrl.snapshot()
                 if s['command_epoch']!=data['expected_epoch']:raise ValueError('入仓前控制状态已变化')
                 command=dict(op='start',request_id=data['request_id'],expected_epoch=s['command_epoch'],
-                    verify_insertion=True,cabinet_depth_mm=settings['insert_distance_mm'],speed_mm_s=settings['insert_speed_mm_s'])
+                    mouth_then_push=True,speed_mm_s=settings['insert_speed_mm_s'])
+                if data.get('probe_only'):command['probe_only']=True
                 self.push.action(command);delegate_started=True
                 while True:
                     if self.cancel.is_set():self.push.action({'op':'cancel','request_id':data['request_id']})
@@ -318,7 +372,7 @@ class PlacementStages:
             raw=clamp['feedback_raw'];self._save(clamp=clamp)
             guard();initial=self.ctrl.snapshot()
             limits=motion_limits(json.loads((self.root/'config/battery-execution.json').read_text()),self.ctrl.config)
-            model=self.ctrl.models['right'];self.motion=DockingMotion(self.ctrl,token,guard=guard,require_lift_settle=False,timeout_s=60.)
+            model=self.ctrl.models['right'];self.motion=DockingMotion(self.ctrl,token,guard=guard,require_lift_settle=False,check_lift=False,timeout_s=60.)
             def execute(points,times,label):
                 nonlocal moving,stopped
                 segments=split_plan(points,times)
@@ -327,15 +381,16 @@ class PlacementStages:
                     expected_start=dict(joints=s['arms']['right']['joints'],height=height),
                     expected_driver={k:d[k] for k in ('driver_instance','command_epoch')}),float(times[-1]))
                 stopped=True;return result
-            def move_tool(target,label):
+            def move_tool(target,label,*,correct_y=False):
                 nonlocal line
                 s=self.ctrl.snapshot();q=np.asarray(s['arms']['right']['joints']);before=self._tool(s)
-                if np.linalg.norm(target[:3,3]-before[:3,3])<.0002:
+                vector=target[:3,3]-before[:3,3]
+                length=float(np.linalg.norm(vector))
+                if length==0. or (not correct_y and length<.0002):
                     self._timed(label,lambda:None,0.);return
-                path=plan_correction(model,q,height,self.tcp,target,self.ctrl.config['arms']['right']['joint_limits_deg'],
+                path=continuous_correction(plan_correction,model,q,height,self.tcp,target,self.ctrl.config['arms']['right']['joint_limits_deg'],
                     timing_limits=dict(limits,tcp_speed_mm_s=15.,tcp_acceleration_mm_s2=10.))
                 atomic_json(self.run/(label+'-'+str(len(self.state['timeline']))+'-plan.json'),path)
-                vector=target[:3,3]-before[:3,3];length=float(np.linalg.norm(vector))
                 line=(before[:3,3].copy(),vector/length,length*1000,before[:3,:3].copy());advance[:]=[0.,time.monotonic()]
                 end=execute(path['joint_waypoints_rad'],path['timing']['time_from_start_s'],label)
                 line=None
@@ -343,13 +398,21 @@ class PlacementStages:
                 self._save(endpoint_error_mm=error,endpoint_rotation_error_deg=angle)
             if phase=='preobserve':
                 q=np.asarray(initial['arms']['right']['joints']);goal=np.radians(settings['preobserve_joints_deg'])
-                if np.max(abs(q-goal))>np.radians(.1):
+                if not at_observation(model,self.tcp,q,goal,height,settings['tolerance_mm']):
                     if not model.check(q,goal,height)['clear']:raise ValueError('预观测路径穿过机械臂基座')
                     path=time_preobserve(q,goal,model,height,self.tcp,limits,guard)
                     end=execute(path.q.tolist(),path.times.tolist(),'preobserve')
                     if np.max(abs(np.asarray(end['arms']['right']['joints'])-goal))>np.radians(2.):raise ValueError('预观测关节点未到达')
                 else:self._timed('preobserve',lambda:None,0.)
-                guard();self._save(status='completed',phase='hold',reason='已到预观测点；等待你选择下一步')
+                def move_j4(start, target):
+                    if not model.check(start,target,height)['clear']:
+                        raise ValueError('J4 补偿路径与底座相交')
+                    path=time_preobserve(start,target,model,height,self.tcp,limits,guard)
+                    execute(path.q.tolist(),path.times.tolist(),'j4_sag_trim')
+                sag=correct_observation_sag(self.ctrl,self.tcp,goal,settings['tolerance_mm'],guard,move_j4,
+                    lambda value:self._save(observation_sag=value))
+                guard();self._save(status='completed',phase='hold',reason=(
+                    '已到预观测点，J4 已补偿' if sag['steps'] else '已到预观测点，高度在容差内'))
             elif phase=='z':
                 s=self.ctrl.snapshot();reading=self._height(s,settings['z_reference'])
                 if reading['tcp_z_mm'] is None:raise ValueError(reading.get('reason','高度依据不可用'))
@@ -357,30 +420,79 @@ class PlacementStages:
                 target=z_target(self._tool(s),reading['up_base'],delta)
                 move_tool(target,'z');self._save(status='completed',phase='hold',reason='Z 调整完成；X/Y 和末端朝向保持')
             elif phase=='correct':
-                attempt=0;last_norm=None;last_step=0.
+                attempt=0;last_norm=None;last_step=0.;after=None
+                axes=settings['correction_axes'];use_y='y' in axes;use_z='z' in axes
+                origin_y=self._tool(initial)[1,3] if use_y else None
+                recovery=HorizontalRecovery()
                 while True:
-                    guard();frame,geometry=self._timed('d405_observe',self._capture);guard();attempt+=1
-                    s=self.ctrl.snapshot();T=self._tool(s);reading=self._visual_height(s,T)
-                    error_z=settings['target_z_mm']-reading['tcp_z_mm'] if 'z' in settings['correction_axes'] else 0.
-                    error_y=0.;dy=0.
-                    if 'y' in settings['correction_axes']:
-                        if geometry['lateral_anchor_base_m'] is None:raise ValueError('左右相对内沿未全部可见；可单独修正 Z')
-                        body=battery_front(frame,geometry);axis=np.asarray(geometry['lateral_axis_base'])
-                        observed=float(axis@(np.asarray(body['point_base_m'])-geometry['lateral_anchor_base_m']))*1000
-                        error_y=settings['y_target_offset_mm']-observed
-                        dy=float(np.clip(error_y,-settings['correction_step_mm'],settings['correction_step_mm']))/axis[1]
+                    guard()
+                    try:recovery.before_observe()
+                    finally:self._save(d405_recovery=recovery.snapshot())
+                    attempt+=1;frame=None
+                    try:
+                        frame,geometry=self._timed('d405_observe',self._capture if use_z else self._left_only)
+                        guard();s=self.ctrl.snapshot();T=self._tool(s)
+                        error_z=0.;error_y=0.;dy=0.;y_ok=True;reading=None
+                        if use_y:
+                            left=self._left_measurement(frame,after)
+                            after=left['image_time'];y_ok=left['in_band']
+                            error_y=left['raw_error_mm']
+                            if not y_ok:
+                                dy=lateral_step_mm(error_y,left['observed_y_m'],T[1,3],origin_y)
+                                dy=rgb_correction_step(left,dy)
+                            self._save(d405_left_clearance_mm=left['clearance_mm'],d405_y_in_band=y_ok,d405_step_mm=dy,
+                                d405_measurement_source=left.get('measurement_source'),d405_depth_used=left.get('depth_used'),d405_reason='')
+                    except (OSError,ValueError,TimeoutError) as error:
+                        guard()
+                        from agent.recovery_watch import report_fault
+                        if attempt==3:report_fault('D405 独立探查',str(error),run=getattr(getattr(self,'run',None),'name',None))
+                        self._save(d405_attempt=attempt,d405_reason=str(error))
+                        current=self._tool(self.ctrl.snapshot())
+                        try:target=recovery.failed(error,frame,current,allow_search=use_y and not use_z,
+                                                   after_image_time=after)
+                        finally:self._save(d405_recovery=recovery.snapshot(),d405_reason=recovery.message,reason=recovery.message)
+                        if target is not None:
+                            guard()
+                            self._save(d405_step_mm=float((target[1,3]-current[1,3])*1000.))
+                            move_tool(target,'d405_search',correct_y=True)
+                            after=max(float(frame['image_time']),time.time())
+                        else:self.cancel.wait(.1)
+                        continue
+                    recovery.recognized()
+                    self._save(d405_recovery=recovery.snapshot(),reason=recovery.message)
+                    if use_z:
+                        reading=self._visual_height(s,T)
+                        error_z=settings['target_z_mm']-reading['tcp_z_mm']
                     self._save(d405_attempt=attempt,d405_error_z_mm=error_z,d405_error_y_mm=error_y,
-                               d405_frame_id=geometry['frame_id'],height=reading)
+                               d405_frame_id=str(frame['id']),height=reading)
                     norm=max(abs(error_z),abs(error_y))
-                    if last_norm is not None:require_residual_improvement(last_norm,norm,settings['tolerance_mm'],last_step)
-                    if norm<=settings['tolerance_mm']:break
+                    if time.time()-float(frame['image_time'])>2.:
+                        self._save(d405_reason='D405 测量已过期，正在重新观测')
+                        self.cancel.wait(.1)
+                        continue
+                    if y_ok and abs(error_z)<=settings['tolerance_mm']:break
+                    if last_norm is not None and y_ok:
+                        try:require_residual_improvement(last_norm,norm,0.,last_step)
+                        except ValueError:
+                            self._save(d405_reason='本帧未显示修正效果，保持位置并等待新帧')
+                            self.cancel.wait(.1)
+                            continue
                     target=T.copy();target[1,3]+=dy/1000
-                    dz=float(np.clip(error_z,-settings['correction_step_mm'],settings['correction_step_mm']))
-                    target=z_target(target,geometry['up_base'],dz-np.asarray(geometry['up_base'])[1]*dy)
+                    if use_z:
+                        dz=float(np.clip(error_z,-settings['correction_step_mm'],settings['correction_step_mm']))
+                        target=z_target(target,geometry['up_base'],dz-np.asarray(geometry['up_base'])[1]*dy)
                     last_norm=norm;last_step=float(np.linalg.norm(target[:3,3]-T[:3,3])*1000)
-                    move_tool(target,'d405_correct')
+                    if use_y and not y_ok and dy==0. and (not use_z or abs(error_z)<=settings['tolerance_mm']):
+                        self._save(d405_reason='已到本帧测量目标，等待新帧确认')
+                        self.cancel.wait(.1)
+                        continue
+                    move_tool(target,'d405_correct',correct_y=dy!=0.)
+                    if use_y:
+                        after=max(float(after),time.time())
                 self._save(status='completed',phase='hold',reason='D405 已收敛；等待你选择入仓，不自动触发')
         except Exception as e:
+            from agent.recovery_watch import report_fault
+            if not self.cancel.is_set():report_fault('独立放置阶段',str(e),run=getattr(getattr(self,'run',None),'name',None))
             if delegate_started:
                 try:
                     self.push.action({'op':'cancel','request_id':data['request_id']})

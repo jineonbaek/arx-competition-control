@@ -63,7 +63,8 @@ class RosAdapter:
                         self.update_trajectory(side,None)
                 self.node.create_subscription(String,"/web/"+side+"/trajectory_status",trajectory_callback,1)
                 def callback(msg, side=side):
-                    self.controller.update_arm(side, list(msg.joint_pos[:6]), float(msg.joint_pos[6]), list(msg.end_pos))
+                    self.controller.update_arm(side, list(msg.joint_pos[:6]), float(msg.joint_pos[6]), list(msg.end_pos),
+                                               currents=list(msg.joint_cur[:6]))
                 self.node.create_subscription(RobotStatus, self.config["arms"][side]["state_topic"], callback, qos_profile_sensor_data)
                 if self.config["arms"][side].get("command_result_topic"):
                     def command_result(msg):

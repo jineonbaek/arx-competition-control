@@ -203,7 +203,7 @@ class TaskRuntime:
   intent=getattr(self,'resume_intent',None)
   if intent and (not a or a['visit_id']!=intent['visit_id']):
    self.resume_intent=None;intent=None
-  retrying=bool(intent and a and a['visit_id']==intent['visit_id'] and a['status']=='acknowledged' and a.get('outcome')=='completed')
+  retrying=bool(intent and a and a['visit_id']==intent['visit_id'] and a['status']=='acknowledged' and a.get('outcome') in ('completed','timed_out'))
   if retrying and (not self.waypoints.route.running or self.dispatch_accepted(intent)):
    self.resume_intent=None;return
   key=None if a is None else (a['visit_id'],a['status'],a['revision'])
@@ -223,7 +223,7 @@ class TaskRuntime:
    mp,op,stamp=n.motion_poses();poses={'map':mp,'odom':op}
    route=self.waypoints.route;i=route.index
    final_task=(route.running and route.state=='waiting_task' and route.mode=='task_direct'
-               and 0<=i<len(route.points) and i+1==len(route.points)
+               and 0<=i<len(route.points) and i+1==route._execution_limit()
                and route.points[i]['type']=='task' and route.points[i]['id']==a['route_point_id']
                and route.points[i]['point_id']==a['point_id'] and route.mission_id==a['mission_id']
                and route.map_id==a['map_id'])

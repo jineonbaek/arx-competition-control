@@ -87,7 +87,7 @@ class PlacementBackend:
         s=self.controller.snapshot();a=s['arms']['right'];body=s['body']
         if (not a.get('fresh') or not body.get('fresh') or s.get('chassis_active') is not False
             or s.get('motion_interrupted') is not False):raise ValueError('反馈失效、底盘运动或任务中断')
-        if self.lift is not None and abs(body['height']-self.lift)>.02:raise ValueError('放置期间升降发生变化')
+        self.lift=float(body['height'])
         if self.left_joints is not None:
             other=s['arms']['left']
             if not other.get('fresh') or np.max(abs(np.asarray(other['joints'])-self.left_joints))>np.radians(.5):raise ValueError('左臂反馈缺失或姿态变化')
@@ -144,7 +144,7 @@ class PlacementBackend:
         p=self.pick_policy['pick']
         return tool_feedback(snapshot,self.model,self.held['T_wrist_from_battery'],target,
             now=self.clock(),max_age_s=p['arm_policy']['max_age_s'],max_pair_skew_s=p['max_pair_skew_s'],
-            expected_lift_rad=self.lift,lift_tolerance_rad=p['lift_tolerance_rad'])
+            expected_lift_rad=snapshot['body']['height'],lift_tolerance_rad=p['lift_tolerance_rad'])
 
     def _settle(self,target,region,holding,deadline):
         from .motion_feedback import ArrivalMonitor
@@ -200,7 +200,8 @@ class PlacementBackend:
             start=np.asarray(s['arms']['right']['joints']);sent=False
             def preflight(snapshot,now):
                 try:
-                    self._check(holding)
+                    measured=self._check(holding)
+                    self._sweep(plan if not sent else {'joint_waypoints_rad':[measured['arms']['right']['joints']]*2},holding)
                     self._fresh(self.region,self.settings.get('execution_observation_max_age_s',120.))
                     return (self.environment_clear is True and (sent or np.max(abs(np.asarray(snapshot['arms']['right']['joints'])-start))<np.radians(.1)))
                 except Exception:return False

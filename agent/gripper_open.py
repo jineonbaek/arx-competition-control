@@ -5,9 +5,10 @@ from .motion_feedback import ArrivalMonitor, tool_feedback
 
 
 class OpenThenApproachStep:
-    def __init__(self, approach, start_joints):
+    def __init__(self, approach, start_joints, *, close_at_target=False):
         self.approach=approach;self.controller=approach.controller
         self.token=approach.token;self.monitor=approach.monitor
+        self.close_at_target = close_at_target
         self.preflight=approach.preflight
         q=np.asarray(start_joints,float)
         config=self.controller.config['arms']['right']
@@ -27,7 +28,8 @@ class OpenThenApproachStep:
                 and np.isfinite(arm['gripper']) and arm['gripper']<=-2.9)
 
     def _approach_ready(self,snapshot,now):
-        return self._open(snapshot,now) and self.preflight(snapshot,now) is True
+        closing = self.close_at_target and self.monitor.stage in ('closing', 'awaiting_hold_verification')
+        return (closing or self._open(snapshot,now)) and self.preflight(snapshot,now) is True
 
     def _guard(self,snapshot,now):
         if (not self.controller.motion_valid(self.token)

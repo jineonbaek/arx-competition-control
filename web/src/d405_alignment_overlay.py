@@ -35,11 +35,16 @@ def write_horizontal_overlay(frame, measurement, output_dir):
     rgb = np.asarray(frame["rgb"])
     if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
         raise ValueError("Invalid D405 RGB image")
+    face=frame.get('battery_face_observation')
+    if frame.get('capture_mode')=='color_only' and face is None:
+        from d405_rgb_alignment import color_battery_face
+        try:face=color_battery_face(rgb)
+        except ValueError:face=False
     with _VISUAL_LOCK:
         # Static captures use fresh observed lines; live trackers remain in the
         # restored module, but an old held contour cannot label a new snapshot.
         image,visual=annotate(rgb,'d405',xyz=frame.get('xyz'),base_from_color=frame.get('base_from_color'),
-            face_observation=frame.get('battery_face_observation'))
+            face_observation=face)
     ready = measurement.get("status") == "visual_guidance_only"
     rim_points, battery_points = _point_pairs(measurement) if ready else ([], [])
     if not ready:
@@ -60,7 +65,18 @@ def write_horizontal_overlay(frame, measurement, output_dir):
                 cv2.putText(image,'RIM VISIBLE / BATTERY EDGE UNCONFIRMED',(8,image.shape[0]-10),
                     cv2.FONT_HERSHEY_SIMPLEX,.42,(0,255,255),1,cv2.LINE_AA)
 
-    if ready:
+    left_pair = ready and measurement.get("method") == "left_inner_rim_to_left_battery_edge"
+    if left_pair:
+        rim_points=measurement["rim_left_px"]
+        battery_points=measurement["battery_left_px"]
+        for points,color in ((rim_points,(0,165,255)),(battery_points,(255,0,255))):
+            for x,y in points:
+                cv2.circle(image,(int(x),int(y)),2,color,-1,cv2.LINE_AA)
+        basis=" (RGB EST)" if measurement.get('measurement_source')=='rgb_only' else (" (SIDE FIT)" if measurement.get("battery_reference")=="side_plane_at_mouth" else "")
+        label=f"LEFT GAP{basis} {measurement['clearance_mm']:.1f} mm / 0-5 mm"
+        cv2.rectangle(image,(0,0),(340,26),(20,20,20),-1)
+        cv2.putText(image,label,(8,19),cv2.FONT_HERSHEY_SIMPLEX,.55,(255,255,255),1,cv2.LINE_AA)
+    elif ready:
         rows = measurement["rim_rows_px"]
         inner = measurement["rim_inner_px"]
         for y, pair in zip(rows, inner):
@@ -94,7 +110,17 @@ def write_horizontal_overlay(frame, measurement, output_dir):
         "calibration_sha256": measurement.get("calibration_sha256"),
         "image_file": "/camera-overlay/d405-horizontal.jpg",
         "rim": {"status": "visible" if ready else "visible_partial", "points": rim_points} if rim_points else {"status": "unavailable"},
-        "battery_front": {"status": "visible", "points": battery_points} if ready else {"status": "unavailable"},
+        "method": measurement.get("method"),
+        "measurement_source": measurement.get("measurement_source"),
+        "depth_used": measurement.get("depth_used"),
+        "metric_source": measurement.get("metric_source"),
+        "pixel_gap": measurement.get("pixel_gap"),
+        "battery_reference": measurement.get("battery_reference"),
+        "clearance_mm": measurement.get("clearance_mm"),
+        "clearance_band_mm": measurement.get("clearance_band_mm"),
+        "in_band": measurement.get("in_band"),
+        "battery_left": {"status": "visible", "points": battery_points} if left_pair else {"status": "unavailable"},
+        "battery_front": {"status": "visible", "points": battery_points} if ready and not left_pair else {"status": "unavailable"},
         "battery_visual": visual.get('battery'),
         "rim_visual": visual.get('rim_outline'),
         "visual_alignment": visual.get('alignment'),

@@ -19,8 +19,9 @@ class Route:
     def __init__(self,hub):
         self.hub=hub;self.sent=[]
         self.definition=dict(route_id=str(uuid.uuid4()),map_id='map',points=[
-            dict(type='task',point_id=p,id=p) for p in ('point_1','point_2')])
+            dict(type='task',point_id=p,id=p,pose=[1.,0.,0.]) for p in ('point_1','point_2')])
         self.status='待开始 0/2';self.results={};self.online=True
+        self.hub.set_route(self.definition,state='draft',running=False,index=0)
     def snapshot(self):
         return dict(route=dict(available=self.online,definition=self.definition,status=self.status,drive_status=''))
     def command(self,action,ident,route_id=None):
@@ -127,6 +128,13 @@ class NavigationSessionTests(unittest.TestCase):
         from competition_task import CompetitionTask
         from test_competition_task import Module
         self.ctrl.release_competition(self.lease)
+        for side in ('left','right'):
+            self.ctrl.update_arm(side,[0.]*6,-1.,[0.]*6)
+        send=self.ctrl.adapter.arm
+        def reflect(side,joints,gripper,tcp,mode,**options):
+            send(side,joints,gripper,tcp,mode,**options)
+            self.ctrl.update_arm(side,list(joints),gripper,list(tcp))
+        self.ctrl.adapter.arm=reflect
         trace=[];checked=[]
         modules={key:Module(trace,key) for key in ['pick','carry','place']}
         if not place:modules.pop('place')
@@ -181,8 +189,8 @@ class NavigationSessionTests(unittest.TestCase):
         view,trace,_=self.run_total(place=False)
         self.assertEqual(view['status'],'needs_attention',view)
         self.assertIn('能力未接入',view['reason'])
-        self.assertEqual(self.hub.state()['task']['status'],'cancelled')
-        self.assertFalse(self.hub.state()['task']['navigation_ready'])
+        self.assertIsNone(self.hub.state()['task'])
+        self.assertEqual(self.route.sent,[])
         self.assertTrue(view['manual_available'])
 
     def test_stop_during_grasp_cancels_navigation_too(self):

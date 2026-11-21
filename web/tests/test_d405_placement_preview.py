@@ -34,7 +34,7 @@ class PreviewTests(unittest.TestCase):
         self.capture=Capture();self.preview=D405PlacementPreview(Controller(),self.capture,self.root)
 
     def test_missing_battery_still_publishes_real_rim_without_motion_api(self):
-        with patch('d405_placement_preview.estimate_horizontal_alignment',side_effect=ValueError('battery front missing')):
+        with patch('d405_placement_preview.measure_left_edges',side_effect=ValueError('battery front missing')):
             result=self.preview.action({'op':'refresh'})
         self.assertEqual(result['status'],'partial');self.assertEqual(result['reason'],'battery front missing')
         self.assertEqual(result['rim']['status'],'visible_partial');self.assertIsNone(result['step_mm'])

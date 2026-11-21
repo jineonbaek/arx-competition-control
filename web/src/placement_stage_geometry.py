@@ -126,7 +126,8 @@ def battery_front(frame,observation,*,outside_range_mm=(5.,300.),insertion_track
     uv=pixels[:,:,:2]/pixels[:,:,2,None]
     T=np.asarray(frame['base_from_color']);axis=np.asarray(observation['inside_axis_base'])
     normal=T[:3,:3].T@axis
-    distance=float(axis@(np.asarray(observation['height_anchor_base_m'])-T[:3,3]))
+    anchor=observation['mouth_anchor_base_m'] if 'mouth_anchor_base_m' in observation else observation['height_anchor_base_m']
+    distance=float(axis@(np.asarray(anchor)-T[:3,3]))
     signed=distance-xyz@normal
     keep=(uv[:,:,0]>.05)&(uv[:,:,0]<.95)&(uv[:,:,1]>=0)&(uv[:,:,1]<.15)&np.isfinite(xyz).all(2)&(xyz[:,:,2]>.07)&(signed>outside_range_mm[0]/1000)&(signed<outside_range_mm[1]/1000)
     points=xyz[keep]

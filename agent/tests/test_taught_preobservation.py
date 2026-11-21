@@ -40,7 +40,7 @@ class TaughtPreobservationTests(unittest.TestCase):
         self.assertEqual(route.d405_attempts, 4)
         self.assertEqual(route.d405_capture_timeout_s, 8.)
 
-    def test_load_waypoint_requires_right_arm_closed_gripper_and_current_lift(self):
+    def test_load_waypoint_requires_right_arm_closed_gripper_and_finite_lift(self):
         payload = dict(version=1, arm="right", joints_rad=self.joints.tolist(),
                        wrist_base_mm_deg=[610., -210., 530., 0., 0., 0.],
                        lift_rad=.34, gripper_command_target=0,
@@ -52,7 +52,7 @@ class TaughtPreobservationTests(unittest.TestCase):
             path.write_text(json.dumps(payload))
             self.assertEqual(load_preobservation_waypoint(path, .35)["arm"], "right")
             for key, value in (("arm", "left"), ("gripper_command_target", -3.14),
-                               ("lift_rad", .8)):
+                               ("lift_rad", float("nan"))):
                 bad = dict(payload, **{key: value})
                 path.write_text(json.dumps(bad))
                 with self.assertRaisesRegex(ValueError, "pre-observation waypoint"):
@@ -68,9 +68,16 @@ class TaughtPreobservationTests(unittest.TestCase):
         self.assertGreaterEqual(locked["j5_margin_deg"], 5.)
         self.assertGreaterEqual(locked["elbow_margin_deg"], 10.)
 
+    def test_ten_degree_entry_retains_tracking_precision(self):
+        tilted=self.tool.copy()
+        tilted[:3,:3]=Rotation.from_euler('z',10.,degrees=True).as_matrix()
+        lock=validate_preobservation_pose(tilted,self.joints,self.limits,self.route)
+        self.assertAlmostEqual(lock['axis_error_deg'],10.)
+        self.assertEqual(lock['rotation_tolerance_deg'],.2)
+
     def test_pose_rejects_axis_rotation_j6_j5_and_elbow_violations(self):
         tilted = self.tool.copy()
-        tilted[:3, :3] = Rotation.from_euler("z", .3, degrees=True).as_matrix()
+        tilted[:3, :3] = Rotation.from_euler("z", 10.01, degrees=True).as_matrix()
         cases = [
             (tilted, self.joints, "insertion axis"),
             (self.tool, np.r_[self.joints[:5], np.radians(-86.)], "J6"),

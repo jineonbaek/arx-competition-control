@@ -1,6 +1,8 @@
 #include "windows.hpp"
+#include "scan_timing.hpp"
 #include <chrono>
 #include <cmath>
+#include <cinttypes>
 #include <fstream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -12,6 +14,9 @@ using Cloud=livox_ros_driver2::msg::CustomMsg;
 using Json=nlohmann::json;
 class Frontend:public rclcpp::Node{
  Windows windows;std::string root,run,fault;
+ ScanTiming scan_timing;
+ static constexpr std::array<const char*,2> source_names{"bottom", "head"};
+ std::array<std::chrono::steady_clock::time_point,2> last_scan_warning{};
  rclcpp::Publisher<Cloud>::SharedPtr pub;
  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status;
  std::array<rclcpp::Subscription<Cloud>::SharedPtr,2> subs;
@@ -32,6 +37,13 @@ class Frontend:public rclcpp::Node{
      for(int s=0;s<2;s++)if(windows.enabled[s]&&t-windows.latest[s]>500000000)state="waiting for enabled source "+std::to_string(s);
      if(t-imu_stamp>150000000)state="waiting for bottom IMU";
      Json report={{"mode",state},{"fault",fault},{"frames",frames},{"skipped_incomplete_windows",incomplete_windows},{"expired_pending_points",windows.expired_points},{"pending_points",windows.pending.size()},{"bottom_points",counts[0]},{"rear_points",counts[1]},{"last_output_ns",last_output},{"enabled",windows.enabled},{"commands_sent",0}};
+     for (std::size_t s = 0; s < source_names.size(); ++s) {
+       const auto& stats = scan_timing.rejected[s];
+       report["scan_rejections"][source_names[s]] = {
+           {"total", stats.total}, {"consecutive", stats.consecutive},
+           {"last_offset_ns", stats.last_offset_ns}, {"last_stamp_ns", stats.last_stamp_ns},
+           {"last_reason", ScanTiming::description(stats.last_reason)}};
+     }
      std_msgs::msg::String m;m.data=report.dump();status->publish(m);std::ofstream(run+"/fixed-fusion.json")<<report.dump(2);drain();
    });
  }
@@ -39,10 +51,25 @@ class Frontend:public rclcpp::Node{
    if(!fault.empty()||!windows.enabled[s])return;
    int64_t t=rclcpp::Time(m.header.stamp).nanoseconds(),age=now().nanoseconds()-t;
    if(age>600000000||age< -25000000)return;
-   if(std::llabs(t-int64_t(m.timebase))>1000000||m.point_num!=m.points.size()){fail("malformed point clock");return;}
+   // Discard the whole scan before updating the fusion window or source clock.
+   if (!scan_timing.accept(s, t, m.timebase, m.point_num, m.points)) {
+     auto& last_warning = last_scan_warning[s];
+     const auto received = std::chrono::steady_clock::now();
+     if (last_warning == std::chrono::steady_clock::time_point{} ||
+         received - last_warning >= std::chrono::seconds(2)) {
+       const auto& stats = scan_timing.rejected[s];
+       RCLCPP_WARN(get_logger(),
+           "Dropped %s LiDAR scan: %s; max point offset=%" PRIu32 " ns (limit=%" PRIu32
+           " ns), stamp=%" PRId64 " ns, consecutive=%zu, total=%zu",
+           source_names[s], ScanTiming::description(stats.last_reason),
+           stats.last_offset_ns, ScanTiming::max_offset_ns,
+           stats.last_stamp_ns, stats.consecutive, stats.total);
+       last_warning = received;
+     }
+     return;
+   }
    std::vector<Sample> points;points.reserve(m.points.size());
    for(auto &p:m.points){
-     if(p.offset_time>150000000){fail("point offset outside scan");return;}
      if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))continue;
      if(std::sqrt(p.x*p.x+p.y*p.y+p.z*p.z)<.2)continue;
      Sample a{int64_t(m.timebase)+p.offset_time,s,p.x,p.y,p.z,p.reflectivity,p.tag,p.line};

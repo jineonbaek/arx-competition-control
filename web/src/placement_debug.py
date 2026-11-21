@@ -80,12 +80,6 @@ class PlacementDebug:
         started=self.clock();retained=False
         try:
             self._check(token)
-            if op=='place':
-                route=load_taught_route(self.root/'config/taught-placement.json')
-                body=self.ctrl.snapshot().get('body',{})
-                height=body.get('height')
-                if body.get('fresh') is not True or not isinstance(height,(int,float)) or not math.isfinite(height) or abs(height-route.lift_target_rad)>.10:
-                    raise ValueError('放置要求 %.2f rad；当前高度 %s rad，本调试不调整升降' % (route.lift_target_rad,height))
             result=self.cabinet.action({'camera':'d435','model':'demo'},include_arm_preview=False,token=token)
             self._check(token)
             with self.lock:self.state.update(image=result.get('image'),observation=result)
@@ -126,6 +120,7 @@ class PlacementDebug:
                     with self.lock:self.state.update(status='completed_unverified',phase='returned',placement_confirmed=False,reason='入仓未确认；已松爪退出，本轮结束')
                     break
                 if arm.get('status')=='complete':
+                    route=load_taught_route(self.root/'config/taught-placement.json')
                     if not arm.get('released') or not require_verified_receipt(arm,route.full_depth_mm):raise ValueError('缺少完整推入和松爪回执')
                     if self.placement.thread:
                         self.placement.thread.join(3.)

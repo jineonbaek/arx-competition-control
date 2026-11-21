@@ -12,7 +12,7 @@ target_link_libraries(frontend nlohmann_json::nlohmann_json)
 ament_target_dependencies(frontend rclcpp livox_ros_driver2 sensor_msgs std_msgs)
 
 enable_testing()
-foreach(test windows incomplete retention)
+foreach(test windows incomplete retention scan_timing)
   add_executable(test_${test} tests/test_${test}.cpp)
   target_compile_options(test_${test} PRIVATE -UNDEBUG)
   add_test(NAME ${test} COMMAND test_${test})

@@ -53,12 +53,15 @@ class ContactTests(unittest.TestCase):
   with patch('t1_contact_runtime.time.monotonic',n.clock.now),patch('t1_contact_runtime.rclpy.ok',return_value=True):
    return contact.finish_arrival(n,n.seen,'arrived_stopped')
  def test_one_forward_pulse_then_immediate_handoff_after_output_end(self):
-  n=Driver();self.assertEqual(self.run_contact(n),'arrived_stopped');ps=n.pulses();self.assertEqual(len(ps),1)
+  n=Driver();self.assertEqual(self.run_contact(n),'arrived_stopped');ps=n.pulses();self.assertGreater(len(ps),5)
   self.assertEqual(tuple(ps[0][k] for k in ('x','y','omega')),(.225,0.,0.));self.assertAlmostEqual(ps[0]['ttl_s'],.2)
-  self.assertAlmostEqual(n.now(),100.2);self.assertFalse(n.active);self.assertTrue(n.t1_contact_session['complete'])
+  self.assertAlmostEqual(n.now(),102.);self.assertFalse(n.active);self.assertTrue(n.t1_contact_session['complete'])
   self.assertEqual(n.payloads[-1]['type'],'chassis.end_output')
+  self.assertTrue(all(0<p['ttl_s']<=.2 for p in ps))
+  self.assertTrue(all(p['issued_at']+p['ttl_s']<=102.+1e-9 for p in ps))
+  self.assertTrue(all(tuple(p[k] for k in ('x','y','omega'))==(.225,0.,0.) for p in ps))
  def test_completed_stage_cannot_pulse_again(self):
-  n=Driver();self.run_contact(n);self.run_contact(n);self.assertEqual(len(n.pulses()),1)
+  n=Driver();self.run_contact(n);count=len(n.pulses());self.run_contact(n);self.assertEqual(len(n.pulses()),count)
  def test_cancel_during_pulse_closes_output_without_handoff(self):
   n=Driver();n.cancel_at=100.08
   with self.assertRaisesRegex(ValueError,'goal_changed'):self.run_contact(n)
@@ -70,10 +73,10 @@ class ContactTests(unittest.TestCase):
   self.run_contact(n);self.assertEqual(len(n.pulses()),1)
  def test_stale_post_pulse_inputs_delay_handoff_without_replay(self):
   n=Driver();old=n.end_output
-  def end(handle=None):old(handle);n.stale_until=max(n.stale_until,100.8);return True
+  def end(handle=None):old(handle);n.stale_until=max(n.stale_until,102.8);return True
   n.end_output=end
   with self.assertRaisesRegex(ValueError,'special_pose_stale'):self.run_contact(n)
-  n.clock.t=100.9;n.t1_contact_session['chain'].previous_sample=(n.now(),np.zeros(3),np.zeros(3));self.run_contact(n);self.assertEqual(len(n.pulses()),1);self.assertAlmostEqual(n.now(),100.9)
+  count=len(n.pulses());n.clock.t=102.9;n.t1_contact_session['chain'].previous_sample=(n.now(),np.zeros(3),np.zeros(3));self.run_contact(n);self.assertEqual(len(n.pulses()),count);self.assertAlmostEqual(n.now(),102.9)
  def test_closed_gate_never_sends_or_hands_off(self):
   n=Driver();n.gate=False
   with self.assertRaisesRegex(ValueError,'execution_gate_closed'):self.run_contact(n)
@@ -87,14 +90,14 @@ class ContactTests(unittest.TestCase):
   n=Driver();original=n.special_poses
   def poses():
    mp,od,s=original();mp[0]=.03*min(s-100.,.7);return mp,od,s
-  n.special_poses=poses;self.run_contact(n);self.assertAlmostEqual(n.now(),100.2)
+  n.special_poses=poses;self.run_contact(n);self.assertAlmostEqual(n.now(),102.)
  def test_common_goal_exit_covers_normal_and_special_t1(self):
   from mppi_goal_drive import MppiDriver
   for special in (False,True):
    n=Driver();n._special_execution=special
    with patch('special_runtime.run_special',return_value='arrived_stopped'),patch('t1_contact_runtime.time.monotonic',n.clock.now),patch('t1_contact_runtime.rclpy.ok',return_value=True):
     self.assertEqual(MppiDriver.run_goal(n),'arrived_stopped')
-   self.assertEqual(len(n.pulses()),1)
+   self.assertGreater(len(n.pulses()),5)
  def test_goal_retry_resumes_contact_instead_of_driving_back_to_goal(self):
   from mppi_goal_drive import MppiDriver
   n=Driver();n.fail_send=True
@@ -126,14 +129,14 @@ class ContactTests(unittest.TestCase):
    s=json.loads(original().read());s['chassis_active']=bool(n.pulses());return io.BytesIO(json.dumps(s).encode())
   n.transport.client.open=busy
   with self.assertRaisesRegex(ValueError,'special_console_unready'):self.run_contact(n)
-  self.assertFalse(n.t1_contact_session['complete']);self.assertEqual(len(n.pulses()),1)
+  self.assertFalse(n.t1_contact_session['complete']);self.assertGreater(len(n.pulses()),5)
  def test_unconfirmed_end_blocks_handoff_and_retry_does_not_push(self):
   n=Driver();original=n.end_output
   def uncertain(handle=None):original(handle);return False
   n.end_output=uncertain
   with self.assertRaisesRegex(ValueError,'previous_output_end_unconfirmed'):self.run_contact(n)
-  self.assertFalse(n.t1_contact_session['complete']);n.end_output=original
-  self.run_contact(n);self.assertEqual(len(n.pulses()),1)
+  self.assertFalse(n.t1_contact_session['complete']);count=len(n.pulses());n.end_output=original
+  self.run_contact(n);self.assertEqual(len(n.pulses()),count)
  def test_cleanup_does_not_end_a_newer_goal_generation(self):
   n=Driver();original=n.spin;new=[]
   def spin(dt):
@@ -142,7 +145,7 @@ class ContactTests(unittest.TestCase):
     n.seq+=1;n.target=np.ones(3);new.append(n.transport.begin_task('new-goal'))
   n.spin=spin
   with self.assertRaisesRegex(ValueError,'goal_changed'):self.run_contact(n)
-  self.assertNotIn(new[0],n.transport.ended);self.assertEqual(len(n.pulses()),1)
+  self.assertNotIn(new[0],n.transport.ended);self.assertLess(n.now(),100.1)
 
  def test_busy_before_contact_never_sends_a_pulse(self):
   n=Driver();original=n.transport.client.open
@@ -161,6 +164,17 @@ class ContactTests(unittest.TestCase):
   n.transport.submit=lost
   with self.assertRaises(TimeoutError):self.run_contact(n)
   n.transport.submit=original;self.run_contact(n);self.assertEqual(len(n.pulses()),1)
+
+ def test_midway_stale_input_stops_refresh_and_never_restarts(self):
+  n=Driver();original=n.spin
+  def spin(dt):
+   original(dt)
+   if n.now()>=100.5:n.stale_until=103.
+  n.spin=spin
+  with self.assertRaisesRegex(ValueError,'special_pose_stale'):self.run_contact(n)
+  count=len(n.pulses());self.assertGreater(count,1);self.assertLess(n.now(),100.6)
+  n.clock.t=103.1;n.t1_contact_session['chain'].previous_sample=(n.now(),np.zeros(3),np.zeros(3))
+  self.run_contact(n);self.assertEqual(len(n.pulses()),count)
 
 class TTLTests(unittest.TestCase):
  def test_short_ttl_is_original_not_renewed_after_transport_delay(self):

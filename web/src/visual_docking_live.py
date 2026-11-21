@@ -135,7 +135,7 @@ class LiveDockBackend:
         self.high_aligned=False
         self.last_geometry_check=0.
         self.grip_lock=threading.RLock();self.monitor_stop=threading.Event();self.after_motion_wall=0.
-        self.motion=DockingMotion(ctrl,token,guard=self.guard,base_client=maintenance)
+        self.motion=DockingMotion(ctrl,token,guard=self.guard,base_client=maintenance,check_lift=False,require_lift_settle=False)
         self.timing=dict(joint_speed_deg_s=[3.]*6,joint_acceleration_deg_s2=[6.]*6,tcp_speed_mm_s=12.,tcp_acceleration_mm_s2=25.)
         self.tcp=np.asarray(json.loads((self.root/'config/right-grip-tcp.json').read_text())['T_wrist_from_tool'])
         self.battery=json.loads((self.root/'config/battery-envelope.json').read_text())
@@ -197,7 +197,6 @@ class LiveDockBackend:
         if abs(state['arms']['right']['gripper']-self.raw)>.05:raise ValueError('Gripper feedback changed')
         if max(abs(a-b) for a,b in zip(state['arms']['left']['joints'],self.initial['arms']['left']['joints']))>np.radians(.5):raise ValueError('Left arm changed')
         if any(abs(state['body'][k]-self.initial['body'][k])>.02 for k in ('waist','head_yaw','head_pitch')):raise ValueError('Camera/body configuration changed')
-        if active!='lift' and abs(state['body']['height']-self.initial['body']['height'])>.05:raise ValueError('Lift changed during arm/base task')
         if active!='base' and (state['chassis_active'] or not wheels_stopped(state['body']['wheels'])):raise ValueError('Unexpected chassis movement')
         meta=json.loads((self.root/'web/public/camera-live/d435.json').read_text())
         if meta['state']!='online' or not 0<=time.time()-meta['captured_at']<=1.:raise ValueError('Primary D435 camera stale')
@@ -318,7 +317,7 @@ class LiveDockBackend:
         drift=np.linalg.norm(np.asarray(fresh['window']['center_base_m'])-self.window['center_base_m'])*1000
         if drift>(.3 if at_entry else 5.):raise ValueError('Cabinet pose changed during planning %.3fmm'%drift)
         current=self.ctrl.snapshot()
-        if np.max(np.abs(np.asarray(current['arms']['right']['joints'])-q))>np.radians(.1) or abs(current['body']['height']-h)>.02:
+        if np.max(np.abs(np.asarray(current['arms']['right']['joints'])-q))>np.radians(.1):
             raise ValueError('Robot start state changed during planning')
         self.window=fresh['window'];self.table=fresh['table_estimate']
         if self.cached['strategy']=='arm':

@@ -12,6 +12,12 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('console_launcher',ROOT/'scripts/start-console.py')
 launcher=importlib.util.module_from_spec(spec);spec.loader.exec_module(launcher)
+launcher.network_status=lambda: ''
+launcher.lio_status=lambda: ''
+launcher.ensure_lio=lambda *a: ''
+# Isolate unrelated sensor startup in the existing component fixtures.
+launcher.ensure_lidars=lambda: ''
+launcher.lidar_status=lambda: ''
 
 class CameraLauncherTests(unittest.TestCase):
     def setUp(self):
@@ -56,7 +62,7 @@ class CameraLauncherTests(unittest.TestCase):
             self.assertTrue(launcher.ensure_cameras());start.assert_not_called()
 
     def test_full_launcher_requests_cameras_before_hardware_preflight(self):
-        with patch.object(launcher,'request_gamepad_start',return_value=''),patch.object(launcher,'ensure_cameras',return_value='') as ensure,patch.object(launcher,'ARM',Path('/missing-camera-test/arm')),patch.object(launcher,'ensure_can',side_effect=AssertionError('CAN must not run in this test')):
+        with patch.object(launcher,'ensure_scheduler',return_value=''),patch.object(launcher,'request_gamepad_start',return_value=''),patch.object(launcher,'ensure_cameras',return_value='') as ensure,patch.object(launcher,'ARM',Path('/missing-camera-test/arm')),patch.object(launcher,'ensure_can',side_effect=AssertionError('CAN must not run in this test')):
             with self.assertRaises(RuntimeError):launcher.launch()
             ensure.assert_called_once()
 

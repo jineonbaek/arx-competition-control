@@ -26,6 +26,7 @@ class Interrupted(Exception):
 
 
 class CompetitionTask:
+    stages = STAGES
     def __init__(self, controller, root, *, modules=None, recovery=None, navigation=None):
         self.controller, self.root = controller, Path(root)
         self.modules = dict(modules or {})
@@ -40,7 +41,7 @@ class CompetitionTask:
         with self.lock:
             if self.active and (self.active['status'] in ACTIVE or self.active['worker'].is_alive()):
                 raise Rejected('比赛任务运行中，不能替换模块')
-            if stage not in dict(STAGES):
+            if stage not in dict(self.stages):
                 raise ValueError('Unknown competition stage')
             if not all(callable(getattr(module, k, None)) for k in ('start', 'inspect', 'stop', 'resume')):
                 raise ValueError('Module requires start, inspect, stop and resume')
@@ -53,7 +54,7 @@ class CompetitionTask:
             manual_available = not robot['motion_reserved'] and not robot['chassis_active'] and not robot['competition_reserved']
             view = dict(status=s['status'] if s else 'idle',
                 run_id=s['run_id'] if s else None,
-                phase=STAGES[s['index']][0] if s and s['index'] < len(STAGES) else 'idle',
+                phase=('finish_forward' if s and (s['records'].get('finish_forward') or {}).get('status')=='running' else self.stages[s['index']][0] if s and s['index'] < len(self.stages) else 'idle'),
                 reason=s['reason'] if s else '',
                 command_epoch=robot['command_epoch'],
                 control_owned=bool(s and s['competition_token'] is not None),
@@ -65,11 +66,13 @@ class CompetitionTask:
                     and s['competition_token'] is None and not s['worker'].is_alive()),
                 tasks=[], logs=copy.deepcopy(s['logs'][-50:]) if s else [],
                 target='无人机指定左上角电池 → 电池柜红框 A 口')
-            for key, label in STAGES:
+            for key, label in self.stages:
                 record = (s['records'].get(key) or {}) if s else {}
                 view['tasks'].append(dict(id=key, label=label, connected=key in self.modules,
                     status=record.get('status', 'pending'), request_id=record.get('request_id'),
                     reason=record.get('reason', '')))
+            if s and 'finish_forward' in s['records']:
+                record=s['records']['finish_forward'];view['tasks'].append(dict(id='finish_forward',label='末点后向前0.225 SDK前进4秒并停车',connected=True,status=record.get('status','pending'),request_id=record['request_id'],reason=''))
             if self.navigation:view['navigation']=self.navigation.snapshot()
             return view
 
@@ -150,7 +153,7 @@ class CompetitionTask:
             return result
 
     def _context(self, s, stage, record):
-        return dict(run_id=s['run_id'], stage=stage, request_id=record['request_id'],
+        return dict(t2_timed_out=((s['records'].get('place') or {}).get('result') or {}).get('outcome')=='timed_out',run_id=s['run_id'], stage=stage, request_id=record['request_id'],
             token=s['token'], cancelled=s['cancel'], controller=self.controller,
             environment_clear=True, competition_token=s['competition_token'])
 
@@ -243,15 +246,26 @@ class CompetitionTask:
                 self._save(s,'placement_lift_requested','0 rad; continue navigation without waiting')
             result = module.start(context)
             if stage=='pick':s['lift_prepositioned']=False
+        waiting_since=time.monotonic();last_wait=None
         while True:
             if not isinstance(result, dict):
                 raise ValueError('模块返回无效结果')
+            if result.get('timeout_phase'):
+                record['reason']=result.get('reason','')
+                if record.get('timeout_phase')!=result['timeout_phase']:
+                    record['timeout_phase']=result['timeout_phase'];self._save(s,'t2_timeout_progress',record['reason'])
             status = result.get('status')
             if status in ('completed', 'failed', 'stopped', 'unknown'):
                 return result
             self._check(s)
             if status not in ('running', 'accepted'):
                 raise ValueError('模块返回未知状态')
+            marker=(result.get('status'),result.get('reason'))
+            if marker!=last_wait:last_wait=marker;waiting_since=time.monotonic()
+            elif time.monotonic()-waiting_since>=15.:
+                from agent.recovery_watch import report_fault
+                report_fault(stage,result.get('reason') or '模块持续运行，尚无完成回执',run=s['run_id'])
+                waiting_since=time.monotonic()
             s['cancel'].wait(.1)
             self._check(s)
             result = module.inspect(context)
@@ -294,30 +308,33 @@ class CompetitionTask:
         snapshot = self.controller.snapshot()
         return {k:snapshot.get(k) for k in ('arms', 'body', 'motion_reserved', 'motion_interrupted', 'chassis_active')}
 
+    def _prepare_run(self,s):
+        prepare=getattr(self.navigation,'prepare',None)
+        preflight=getattr(self.navigation,'validate_start_route',None)
+        if s['index']==0:
+            if callable(prepare):prepare(self._context(s,'navigate_pick',dict(request_id=s['run_id']+':navigate_pick')))
+            elif callable(preflight):preflight()
+        self._prepare_arm_presets(s)
+        pick = self.modules.get('pick')
+        if (s['index']==0 and callable(getattr(pick,'preposition_lift',None))):
+            self.controller.set_competition_navigation(s['competition_token'],True)
+            pick.preposition_lift(self.controller,s['competition_token'])
+            s['lift_prepositioned']=True
+
     def _run(self, s):
         status, reason = 'completed', ''
         try:
-            missing = [label for key, label in STAGES if key not in self.modules]
+            missing = [label for key, label in self.stages if key not in self.modules]
             if missing:
                 raise ValueError(missing[0] + '：能力未接入')
-            prepare=getattr(self.navigation,'prepare',None)
-            preflight=getattr(self.navigation,'validate_start_route',None)
-            if s['index']==0:
-                if callable(prepare):prepare(self._context(s,'navigate_pick',dict(request_id=s['run_id']+':navigate_pick')))
-                elif callable(preflight):preflight()
-            self._prepare_arm_presets(s)
-            pick = self.modules.get('pick')
-            if (s['index']==0 and callable(getattr(pick,'preposition_lift',None))):
-                self.controller.set_competition_navigation(s['competition_token'],True)
-                pick.preposition_lift(self.controller,s['competition_token'])
-                s['lift_prepositioned']=True
+            self._prepare_run(s)
             self._save(s, 'current_state_checked', json.dumps(self._robot_evidence(), ensure_ascii=False)[:500])
-            while s['index'] < len(STAGES):
+            while s['index'] < len(self.stages):
                 self._check(s)
-                stage = STAGES[s['index']][0]
+                stage = self.stages[s['index']][0]
                 module = self.modules.get(stage)
                 if module is None:
-                    raise ValueError(dict(STAGES)[stage] + '：能力未接入')
+                    raise ValueError(dict(self.stages)[stage] + '：能力未接入')
                 record = s['records'].setdefault(stage, dict(request_id=s['run_id'] + ':' + stage))
                 try:
                     result = self._execute(s, stage, module, record)
@@ -326,12 +343,15 @@ class CompetitionTask:
                 except Interrupted:
                     raise
                 except Exception as error:
+                    from agent.recovery_watch import report_fault
+                    report_fault(stage,str(error),run=s['run_id'])
                     result = self._recover(s, stage, module, record, error)
                     if result.get('status') != 'completed':
                         raise ValueError(result.get('reason') or '恢复后任务仍未完成')
                 with self.lock:
                     # Preserve a completed receipt even if Stop raced its arrival.
                     record.update(status='completed', result=copy.deepcopy(result))
+                    if result.get('outcome')=='timed_out':record['reason']=result.get('reason','T2超时已跳过')
                     s['index'] += 1
                     s['current'] = None
                     s['status'] = 'running'
@@ -340,6 +360,12 @@ class CompetitionTask:
             if self.navigation and self.navigation.active:
                 self._mode(s,True)
                 self.navigation.complete_route(self._context(s,'place',s['records']['place']))
+            if self.navigation and callable(getattr(self.navigation,'finish_forward',None)):
+                self._check(s);self._mode(s,False)
+                record=s['records'].setdefault('finish_forward',dict(request_id=s['run_id']+':finish_forward'))
+                record['status']='running';self._save(s,'final_forward_started','末点完成：0.225 SDK车头正前方4秒')
+                self.navigation.finish_forward(self._context(s,'finish_forward',record))
+                record['status']='completed';self._save(s,'final_forward_completed','前进4秒并结束输出')
         except Interrupted as error:
             status, reason = 'paused', str(error)
         except Exception as error:
@@ -379,8 +405,8 @@ class CompetitionTask:
         with self.lock:
             if s['cancel'].is_set(): status, reason = 'paused', '操作员停止'
             s.update(status=status, reason=reason or s['reason'])
-            if s['index'] < len(STAGES):
-                record = s['records'].get(STAGES[s['index']][0])
+            if s['index'] < len(self.stages):
+                record = s['records'].get(self.stages[s['index']][0])
                 if record and record.get('status') != 'completed':
                     record.update(status='stopped' if status=='paused' else 'failed', reason=s['reason'])
             if s['token'] is not None:
@@ -400,6 +426,9 @@ class CompetitionTask:
                     self.controller.release_competition(s['competition_token']);s['competition_token']=None
                     self.controller.log('整场任务已退出，控制权已返还 9983')
                 except Exception as error:s.update(status='needs_attention',reason='控制权待清理：'+str(error)[:300])
+            if s['status']=='needs_attention':
+                from agent.recovery_watch import report_fault
+                report_fault('整场/控制权清理',s['reason'],run=s['run_id'])
             self._save(s, 'competition_' + s['status'], s['reason'])
 
     def close(self):

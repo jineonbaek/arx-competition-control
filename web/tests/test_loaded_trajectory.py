@@ -33,6 +33,24 @@ class LoadedTrajectoryTests(unittest.TestCase):
         limits=[[float(np.degrees(a-.01)),float(np.degrees(a+.01))] for a in self.actual]
         with self.assertRaises(ValueError):loaded_trajectory_plan(self.plan,self.actual,self.driver,limits)
 
+    def test_failed_push_retains_partial_phase_timing(self):
+        from agent.taught_placement import PhaseTimeline
+        from docking_motion import record_elapsed
+        from fast_visual_level import FastVisualLevel
+        from types import SimpleNamespace
+        elapsed=iter([1.,1.4])
+        task=SimpleNamespace(timeline=PhaseTimeline(),save=lambda **kw:None)
+        times={}
+        def fail_dispatch():
+            with record_elapsed(times, 'dispatch', lambda:next(elapsed)):
+                raise ValueError('dispatch refused')
+        with self.assertRaisesRegex(ValueError,'dispatch refused'):
+            FastVisualLevel._timed(task,'seat_push',fail_dispatch,push_timing_s=times)
+        row=task.timeline.snapshot()['timeline'][0]
+        self.assertEqual(row['status'],'failed')
+        self.assertAlmostEqual(row['push_timing_s']['dispatch'],.4)
+        self.assertNotIn('reference',row['push_timing_s'])
+
     def test_executor_retains_reference_across_two_segments(self):
         test=self
         class Controller:
@@ -46,17 +64,31 @@ class LoadedTrajectoryTests(unittest.TestCase):
             def snapshot(self):return {'arms':{'right':{'joints':self.q.tolist(),'fresh':True,'received':self.now}},'body':{'height':.4}}
             def trajectory_status(self,side):return {'joint_reference_rad':self.ref.tolist(),'driver_instance':'test','command_epoch':self.epoch}
             def check(self,a,b,h):return {'clear':True}
+            def check_rail_path(self,points,height):
+                test.assertEqual(points[0],self.q.tolist())
+                test.assertEqual(points[1],self.ref.tolist())
+                self.sleep(.08)
+                return True
             def start_trajectory(self,side,plan,token,*,preflight,expected_driver,require_lift_settle):
+                self.sleep(.02)
                 test.assertTrue(preflight(self.snapshot(),self.now))
                 test.assertEqual(plan['joint_waypoints_rad'][0],self.ref.tolist())
                 self.sent.append(plan);old_epoch=self.epoch;self.epoch+=1
                 self.ref=np.asarray(plan['joint_waypoints_rad'][-1])
                 self.q=self.ref-(test.held-test.actual)
                 return {'driver_instance':'test','command_epoch':old_epoch}
-            def poll_trajectory(self,token,*,preflight):return {'status':'reference_complete'}
+            def poll_trajectory(self,token,*,preflight):
+                self.sleep(1.)
+                return {'status':'reference_complete'}
         ctrl=Controller();motion=DockingMotion(ctrl,'owner',guard=lambda s,t:True,sleep=ctrl.sleep,require_lift_settle=False)
         second=dict(self.plan,joint_waypoints_rad=[(self.actual+.02).tolist(),(self.actual+.03).tolist()],time_from_start_s=[0.,2.])
-        motion.arm([self.plan,second],lambda:None,expected_driver={'driver_instance':'test','command_epoch':4})
+        times={}
+        motion.arm([self.plan,second],lambda:None,rail_path=True,timing_detail=times,expected_driver={'driver_instance':'test','command_epoch':4})
+        self.assertAlmostEqual(times['loaded_check'],.16)
+        self.assertAlmostEqual(times['dispatch'],.04)
+        self.assertAlmostEqual(times['reference'],2.)
+        self.assertGreaterEqual(times['settle'],.5)
+        self.assertAlmostEqual(sum(times.values()),ctrl.now)
         self.assertEqual(len(ctrl.sent),2);self.assertEqual(len(motion.handoffs),2)
         np.testing.assert_allclose(ctrl.q,self.actual+.03,atol=1e-15)
         self.assertIsNone(motion.active)

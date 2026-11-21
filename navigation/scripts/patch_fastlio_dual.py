@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Apply to the staged FAST-LIO only; original upstream remains untouched."""
 from pathlib import Path
+import subprocess
 import sys
 
 p = Path(sys.argv[1]) / 'src/laserMapping.cpp'
@@ -41,6 +42,8 @@ if base_patched:
 
 ''' + s[end:]
         p.write_text(s)
+    gap_patch = Path(__file__).with_name('patch_fastlio_imu_gap.py')
+    subprocess.run([sys.executable, str(gap_patch), sys.argv[1]], check=True)
     raise SystemExit(0)
 s = s.replace('bool sensor_only_tf = false;', '''// arx_dual_frames_and_twist
 bool sensor_only_tf = false;
@@ -97,7 +100,6 @@ s = s.replace(anchor, '''    // State velocity is in the gravity-aligned world; 
 ''' + anchor)
 p.write_text(s)
 # Apply the optional gravity extension through the idempotent upgrade path.
-import subprocess
 subprocess.run([sys.executable, __file__, sys.argv[1]], check=True)
 p = p.parent / 'IMU_Processing.hpp'
 s = p.read_text().replace('  ofstream fout_imu;', '  V3D angular_velocity() const { return angvel_last; }\n  ofstream fout_imu;')

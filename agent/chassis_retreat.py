@@ -108,6 +108,7 @@ class ChassisRetreatStep:
         self.reader=None;self.transport=None;self.target=None;self.route=None
         self.previous=np.zeros(3);self.last=None;self.stop=None;self.done=False
         self.pose_wait=None;self.moved=False
+        self.pose_watch=None
 
     def start(self):
         # Finish ROS discovery before WebChassis timestamps its first source-stamped command.
@@ -119,10 +120,17 @@ class ChassisRetreatStep:
         self.reader=_PoseReader();self.pose_wait=PoseWait(self.transport)
 
     def poll(self):
-        try:return self._poll()
+        from .recovery_watch import RetryWatch
+        if self.pose_watch is None:self.pose_watch=RetryWatch(None,'抓取后退定位',max_attempts=10000,max_s=45.)
+        try:
+            result=self._poll()
+            if result.get('waiting_for_pose'):self.pose_watch.fail('后退已停车，等待雷达位姿恢复')
+            else:self.pose_watch.reset()
+            return result
         except Exception as exc:
             if not pose_unavailable(exc):raise
             self.pose_wait.begin(self.moved);self.pose_wait.hold()
+            self.pose_watch.fail('后退已停车，定位不可用：'+str(exc))
             return dict(status='backing_chassis',waiting_for_pose=True)
 
     def _poll(self):

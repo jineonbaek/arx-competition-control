@@ -2,6 +2,7 @@
 import copy,json,math,os,secrets,threading,time,uuid
 from pathlib import Path
 from route_readiness import route_readiness
+from task_deadline import T2_TIMEOUT_S
 
 class ProtocolError(ValueError):pass
 
@@ -23,7 +24,7 @@ def strict_json(raw):
 class HandoffHub:
  def __init__(self,journal,clock=time.monotonic):
   self.path=Path(journal);self.clock=clock;self.lock=threading.RLock();self.worker=None;self.active=None;self.requests={};self.began=0.
-  self.events=[];self.navigation_check=None;self.route=None
+  self.events=[];self.navigation_check=None;self.route=None;self.task_started=None
   if self.path.exists():
    value=strict_json(self.path.read_bytes());self.active=value.get('active');self.requests=value.get('requests',{});self.events=value.get('events',[])[-128:]
    if self.active and self.active['status']!='acknowledged':
@@ -84,7 +85,7 @@ class HandoffHub:
    for key in ('goal_pose','arrival_pose'):
     if not isinstance(value[key],list) or len(value[key])!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in value[key]):raise ProtocolError('invalid arrival pose')
    self.active=copy.deepcopy(value);self.active.update(visit_id=str(uuid.uuid4()),status='notified',revision=1,navigation_ready=False,control_released=False,error=None)
-   self.began=self.clock();self._record('notified');self._save();return copy.deepcopy(self.active)
+   self.began=self.clock();self.task_started=None;self._record('notified');self._save();return copy.deepcopy(self.active)
  def poll(self,token):
   with self.lock:
    self._valid(token)
@@ -106,11 +107,16 @@ class HandoffHub:
    a=self.active
    if a is None or any(value[k]!=a[k] for k in ('mission_id','visit_id','point_id')):raise ProtocolError('stale or wrong visit')
    status=a['status'];event=value['event']
-   if event=='accept' and status=='notified':a['status']='running'
+   if event=='accept' and status=='notified':a['status']='running';self.task_started=self.clock()
    elif event=='heartbeat' and status in ('notified','running'):pass
    elif event=='complete' and status=='running':
     if value.get('navigation_ready') is not True or value.get('control_released') is not True:raise ProtocolError('completion requires released control and navigation readiness')
     a.update(status='resume_pending',control_released=True,navigation_ready=True)
+   elif event=='timeout' and status in ('running','needs_attention'):
+    if (a['point_id']!='point_2' or self.task_started is None or self.clock()-self.task_started<T2_TIMEOUT_S
+        or value.get('navigation_ready') is not True or value.get('control_released') is not True):
+     raise ProtocolError('T2 timeout requires180 seconds, confirmed recovery and released control')
+    a.update(status='resume_pending',outcome='timed_out',control_released=True,navigation_ready=True,error='t2_task_timeout_180s')
    elif event=='fail' and status in ('notified','running'):
     a.update(status='needs_attention',error=str(value.get('error','task_failed'))[:300])
    elif event=='cancelled' and status=='cancelling' and value.get('control_released') is True:a.update(status='cancelled',control_released=True)
@@ -137,5 +143,5 @@ class HandoffHub:
  def acknowledge(self,visit_id):
   with self.lock:
    if not self.active or visit_id!=self.active['visit_id'] or self.active['status'] not in ('resume_pending','cancelled'):raise ProtocolError('visit cannot be acknowledged')
-   outcome='completed' if self.active['status']=='resume_pending' else 'cancelled'
+   outcome=self.active.get('outcome','completed') if self.active['status']=='resume_pending' else 'cancelled'
    self.active.update(status='acknowledged',outcome=outcome,revision=self.active['revision']+1);self._record('acknowledged');self._save()

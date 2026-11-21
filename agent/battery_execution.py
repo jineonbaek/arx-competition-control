@@ -4,6 +4,7 @@ import hashlib
 import json
 import numpy as np
 from .coarse_execution import CoarseAlignmentStep
+from .fast_pick import direct_plan
 from .gripper_open import OpenThenApproachStep
 from .grasp_geometry import rigid
 from .grasp_path import TimedJointPath
@@ -74,7 +75,9 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if not np.array_equal(tcp,plan['T_wrist_from_tool']):raise ValueError('Plan TCP changed')
     model=controller.models['right'];reach=model.reach+np.linalg.norm(tcp[:3,3])
     approach=operation=='execute_battery_approach'
-    if (not approach and plan.get('vision_mode') not in ('d435','fixed')
+    direct = not approach and direct_plan(plan)
+    if (not approach and not direct and not plan.get('cached_target')
+            and plan.get('vision_mode') not in ('d435','fixed')
             and plan.get('refinement',{}).get('status')!='aligned'):
         raise ValueError('Post-approach fresh observation and alignment required')
     points=np.asarray(plan['joint_waypoints_rad'],float)
@@ -118,6 +121,8 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
                         started_at=controller.clock(),**p)
     if approach and correction is None:
         monitor.arm_policy['tolerance']=[10.,10.,10.,3.,3.,3.]
+    elif correction is not None:
+        monitor.arm_policy['tolerance']=p['arm_policy']['tolerance'][:3]+[3.,3.,3.]
     if stationary:
         step=StationaryApproachStep(controller,token,monitor,preflight=guard)
     else:
@@ -125,4 +130,4 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
             tcp_position=lambda angles:(model.wrist_transform(angles,plan['lift_rad'])@tcp)[:3,3])
         cls=ApproachTrajectoryStep if approach else PickTrajectoryStep
         step=cls(controller,token,monitor,trajectory,preflight=guard)
-    return OpenThenApproachStep(step,start) if approach and correction is None else step
+    return OpenThenApproachStep(step,start,close_at_target=direct) if (direct or approach and correction is None) else step

@@ -19,7 +19,9 @@ class PreviewTests(unittest.TestCase):
     def test_deprojection_metres_and_invalid_zero(self):
         raw=np.array([[0,250],[500,5000]],dtype=np.uint16)
         k=dict(width=2,height=2,fx=10,fy=10,cx=0,cy=0,model='distortion.none',coeffs=[0]*5)
+        from grasp_preview import live_xyz
         xyz=xyz_image(raw,.001,k)
+        np.testing.assert_allclose(live_xyz(raw,.001,k,1.5),xyz,atol=1e-7)
         np.testing.assert_allclose(xyz[0,1],[.025,0,.25],atol=1e-6)
         np.testing.assert_allclose(xyz[1,0],[0,.05,.5],atol=1e-6)
         self.assertFalse(xyz[0,0].any() or xyz[1,1].any())

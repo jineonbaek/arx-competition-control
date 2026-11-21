@@ -12,6 +12,7 @@ import time
 import numpy as np
 from PIL import Image
 from .contracts import AgentError
+from .fast_pick import fast_requested, handle_support
 from .storage import atomic_json
 from .grasp_scene import frame_path
 from .grasp_geometry import ROOT,PROFILE,preview_geometry
@@ -191,9 +192,19 @@ def pipeline(store,ident,clearance_mm,output,progress=lambda stage:None,*,head_o
                         result['camera_handoff_warning']='D435/D405 跨相机质量仅作警告，D405 位姿仍须通过检查'
                 progress("pointcloud_path")
                 with np.load(frame,allow_pickle=False) as f:
-                    geometry=preview_geometry(f,np.asarray(Image.open(output/"mask.png").convert("L")),pose,clearance_mm)
-                result.update(status="preview_complete",geometry=geometry,
-                    message="识别、位姿表面核对、点云与接触点路径已串联；等待 TCP 与运动验证。")
+                    mask=np.asarray(Image.open(output/"mask.png").convert("L"))
+                    geometry=preview_geometry(f,mask,pose,clearance_mm)
+                    if fast_requested(store):
+                        support = handle_support(f, mask, pose, profile)
+                        stopped_at = store.state['fast_dock']['stopped_at']
+                        support['after_stop'] = float(f['image_time']) > stopped_at
+                        support['confirmed'] = support['confirmed'] and support['after_stop']
+                        result['handle_support'] = support
+                if fast_requested(store) and not result['handle_support']['confirmed']:
+                    result.update(status='pose_rejected', message='需要停稳后的 D405 画面，且提手横梁两侧均有实体深度')
+                else:
+                    result.update(status="preview_complete",geometry=geometry,
+                        message="识别、位姿表面核对、点云与接触点路径已串联；等待 TCP 与运动验证。")
         if head and result.get('pose',{}).get('camera_handoff'):
             result['camera_handoff']={**pose['camera_handoff'],'head_observation_id':head['observation_id'],
                 'wrist_observation_id':ident}

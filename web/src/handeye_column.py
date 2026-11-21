@@ -125,6 +125,10 @@ class ColumnModel:
 
     def inverse_wrist(self, q, lift, xyz_mm, rpy_deg, limits_deg):
         """Local, bounded IK of the URDF wrist in base_link; XYZ Euler angles are RPY."""
+        solution,_=self.inverse_wrist_with_clearance(q,lift,xyz_mm,rpy_deg,limits_deg)
+        return solution
+
+    def inverse_wrist_with_clearance(self,q,lift,xyz_mm,rpy_deg,limits_deg,*,adaptive_intervals=False):
         target = np.asarray(xyz_mm, float) / 1000
         shoulder = (self.lift @ self.parts[0][0])[:3,3].copy()
         shoulder[2] += lift / NOMINAL_RAD_PER_M
@@ -143,16 +147,24 @@ class ColumnModel:
             difference = orientation.inv() * Rotation.from_matrix(wrist[:3,:3])
             return np.r_[wrist[:3,3] - target, difference.as_rotvec()]
 
-        fit = least_squares(residual, q, bounds=(lo, hi), max_nfev=100,
-                            ftol=1e-11, xtol=1e-11, gtol=1e-11)
-        error = fit.fun
-        if (not fit.success or not np.isfinite(error).all()
-                or np.linalg.norm(error[:3]) > .0005
-                or np.linalg.norm(error[3:]) > math.radians(.2)):
-            raise ValueError("当前姿态和关节限位内未找到足够精确的逆解")
-        if not self.check(q, fit.x, lift)["clear"]:
-            raise ValueError("腕部目标路径的 CAD 几何与底座/立柱相交或无法分离")
-        return fit.x.tolist()
+        def solve(seed):
+            fit = least_squares(residual, seed, bounds=(lo, hi), max_nfev=100,
+                                ftol=1e-11, xtol=1e-11, gtol=1e-11)
+            error = fit.fun
+            if (not fit.success or not np.isfinite(error).all()
+                    or np.linalg.norm(error[:3]) > .0005
+                    or np.linalg.norm(error[3:]) > math.radians(.2)):
+                raise ValueError("当前姿态和关节限位内未找到足够精确的逆解")
+            clearance=(self.check(q,fit.x,lift,adaptive_intervals=True) if adaptive_intervals
+                       else self.check(q,fit.x,lift))
+            if not clearance["clear"]:
+                raise ValueError("腕部目标路径的 CAD 几何与底座/立柱相交或无法分离")
+            return fit.x.tolist(),clearance
+        from agent.codex_recovery import CURRENT,alternate_ik
+        ctx=CURRENT.get() if self.side=='right' else None
+        if ctx is None:return solve(q)
+        return alternate_ik(solve,q,lo,hi,[*map(float,xyz_mm),*map(float,rpy_deg),float(lift)],ctx)
+
 
     def pose(self, q, lift):
         parent = self.lift.copy()
@@ -183,15 +195,34 @@ class ColumnModel:
             closest = min(closest,(distance, f"{self.side}_link{i+self.first}"))
         return closest, wrist
 
-    def check(self, start, end, lift):
+    def check_rail_path(self, points, lift):
+        """Certify the shifted joint curve at one lift height. Share exact CAD samples only within this call."""
+        @lru_cache(maxsize=256)
+        def gap_at(angles):
+            return self.pose(angles, lift)[0]
+
+        def gap(q):
+            return gap_at(tuple(q))
+
+        return all(self._check_interval(a, b, lift, True, gap)['clear']
+                   for a, b in zip(points, points[1:]))
+
+    def check(self, start, end, lift, *, adaptive_intervals=False):
+        return self._check_interval(start, end, lift, adaptive_intervals, lambda q: self.pose(q, lift)[0])
+
+    def _check_interval(self, start, end, lift, adaptive_intervals, gap_at):
         a,b = np.asarray(start,float),np.asarray(end,float)
         if a.shape != (6,) or b.shape != (6,) or not np.isfinite(np.r_[a,b,lift]).all():
             raise ValueError("无效关节或升降反馈")
         delta = b-a
-        steps = max(1,math.ceil(np.max(np.abs(delta))/math.radians(.5)))
+        # A positive Lipschitz lower bound certifies the complete interval.
+        # The fast stroke needs separation only; refine whenever that proof is inconclusive.
+        steps = 1 if adaptive_intervals else max(1,math.ceil(np.max(np.abs(delta))/math.radians(.5)))
         samples={}
         def sample(t):
-            if t not in samples:samples[t]=self.pose(a+t*delta,lift)[0]
+            if t not in samples:
+                q = a if t == 0. else b if t == 1. else a + t * delta
+                samples[t] = gap_at(q)
             return samples[t]
         def interval(left,right,depth=0):
             gl,ll=sample(left);gr,lr=sample(right)

@@ -59,4 +59,26 @@ class GeometryTests(unittest.TestCase):
         points=np.asarray(result['tool_points_mm']);np.testing.assert_allclose(points@up,np.full(len(points),points[0]@up),atol=1e-10)
         with self.assertRaises(ValueError):plan_insert(Model(),q,0.,q[:3]*1000,q[:3]*1000+160.*axis,np.eye(3),np.eye(4),[[-180.,180.]]*6,fixed_z_axis=axis)
 
+    def test_measured_approach_and_full_insertion_share_one_checked_path(self):
+        from agent.held_insertion_path import plan_insert
+        class Model:
+            reach=.7
+            def wrist_transform(self,q,h):
+                result=np.eye(4);result[:3,3]=q[:3];return result
+            def inverse_wrist(self,q,h,xyz,rpy,limits):
+                result=np.array(q);result[:3]=np.asarray(xyz)/1000;return result
+            def check(self,a,b,h):return {'clear':True,'lower_mm':100.}
+        axis=np.array([1.,0.,0.])
+        args=(Model(),np.zeros(6),0.,np.zeros(3),axis*273.,np.eye(3),np.eye(4),[[-180.,180.]]*6)
+        plan=plan_insert(*args,fixed_z_axis=axis,measured_gap_mm=123.)
+        x=np.asarray(plan['tool_points_mm'])[:,0]
+        self.assertIn(123.,x)
+        self.assertAlmostEqual(x[-1],273.)
+        self.assertLessEqual(np.diff(x).max(),2.000001)
+        self.assertTrue((np.diff(x)>0).all())
+        for gap in [None,0.,12.,202.,float('nan')]:
+            with self.assertRaises(ValueError):plan_insert(*args,fixed_z_axis=axis,measured_gap_mm=gap)
+        with self.assertRaises(ValueError):
+            plan_insert(*args[:4],axis*301.,*args[5:],fixed_z_axis=axis,measured_gap_mm=151.)
+
 if __name__=='__main__':unittest.main()

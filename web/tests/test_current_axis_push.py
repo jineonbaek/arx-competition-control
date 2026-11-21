@@ -6,6 +6,66 @@ import numpy as np
 from current_axis_push import CurrentAxisPush,measured_progress,require_arrival,validate_request
 
 class PushTests(unittest.TestCase):
+    def test_full_stroke_uses_fewer_stops_with_bounded_joint_interpolation(self):
+        from agent.held_insertion_path import plan_insert
+        class Model:
+            reach=.8
+            def wrist_transform(self,q,h):
+                T=np.eye(4);T[:3,3]=[.35*np.sin(q[0]),q[1]+.35*(1.-np.cos(q[0])),q[2]];return T
+            def inverse_wrist(self,q,h,xyz,rpy,limits):
+                end=np.array(q);end[:3]=np.array(xyz)/1000.;end[0]=np.arcsin(end[0]/.35)
+                end[1]-=.35*(1.-np.cos(end[0]));return end
+            def check(self,a,b,h):return {'clear':True,'lower_mm':20.}
+        model=Model();initial=np.zeros(6);limits=[[-180,180]]*6
+        timing=dict(tcp_speed_mm_s=8.,tcp_acceleration_mm_s2=4.,joint_speed_deg_s=[15.]*6,joint_acceleration_deg_s2=[18.]*6)
+        args=(model,initial,0.,np.zeros(3),np.array([150.,0.,0.]),np.eye(3),np.eye(4),limits)
+        opts=dict(fixed_z_axis=[1.,0.,0.],timing_limits=timing)
+        old=plan_insert(*args,**opts);new=plan_insert(*args,adaptive_stroke=True,**opts)
+        knots=np.array(new['joint_waypoints_rad']);pts=np.array(new['tool_points_mm'])
+        np.testing.assert_allclose(pts[[0,-1]],[[0.,0.,0.],[150.,0.,0.]],atol=1e-6)
+        self.assertLess(len(knots),len(old['joint_waypoints_rad'])//2)
+        self.assertLess(new['timing']['duration_s'],old['timing']['duration_s'])
+        for i,(a,b) in enumerate(zip(knots,knots[1:])):
+            self.assertLessEqual(np.max(abs(b-a)),np.deg2rad(5.)+1e-10)
+            for t in np.linspace(0.,1.,101):
+                T=model.wrist_transform(a+t*(b-a),0.)
+                self.assertLessEqual(np.linalg.norm(T[:3,3]*1000-(pts[i]+t*(pts[i+1]-pts[i]))),
+                                     new['interpolation_position_bound_mm']+1e-8)
+        class Blocked(Model):
+            def check(self,a,b,h):return {'clear':max(a[0],b[0])<.08,'lower_mm':0.}
+        with self.assertRaisesRegex(ValueError,'column'):
+            plan_insert(Blocked(),*args[1:],adaptive_stroke=True,**opts)
+
+    def test_adaptive_cad_sweep_refines_interior_even_if_endpoints_are_clear(self):
+        from handeye_column import ColumnModel
+        model=object.__new__(ColumnModel);model.reach=.8
+        model.pose=lambda q,h:((max(0.,.8*abs(q[0]-.04)-.001),'right link'),None)
+        start=np.zeros(6);end=start.copy();end[0]=.08
+        result=model.check(start,end,0.,adaptive_intervals=True)
+        self.assertFalse(result['clear'])
+        self.assertGreater(result['steps'],2)
+        model.pose=lambda q,h:((.10,'right link'),None)
+        result=model.check(start,end,0.,adaptive_intervals=True)
+        self.assertTrue(result['clear'])
+        self.assertGreater(result['lower_mm'],0.)
+
+    def test_loaded_rail_path_shares_only_identical_poses_within_one_sweep(self):
+        from handeye_column import ColumnModel
+        model=object.__new__(ColumnModel)
+        model.reach=.8
+        calls=[]
+        def pose(q,height):
+            calls.append((q[0],height))
+            return ((.10,'right link'),None)
+        model.pose=pose
+        points=np.zeros((4,6));points[:,0]=[0.,0.,.03,.08]
+        self.assertTrue(model.check_rail_path(points,.4))
+        self.assertEqual(calls,[(0.,.4),(.03,.4),(.08,.4)])
+        model.pose=lambda q,h:((max(0.,.8*abs(q[0]-.055)-.001),'link'),None)
+        self.assertFalse(model.check_rail_path(points,.4))
+        model.pose=lambda q,h:((0.,'link'),None)
+        self.assertFalse(model.check_rail_path(points,.5))
+
     def test_distance_is_travel_not_depth(self):
         a=np.eye(4);b=a.copy();b[0,3]=.021
         self.assertAlmostEqual(measured_progress(a,b),21.)
@@ -14,9 +74,9 @@ class PushTests(unittest.TestCase):
 
     def test_sideways_sag_and_rotation_rejected(self):
         a=np.eye(4);b=a.copy();b[2,3]=.004
-        with self.assertRaisesRegex(ValueError,'corridor'):measured_progress(a,b)
+        with self.assertRaisesRegex(ValueError,'偏离推进轴'):measured_progress(a,b)
         b=a.copy();b[:3,:3]=[[1,0,0],[0,0,-1],[0,1,0]]
-        with self.assertRaisesRegex(ValueError,'rotation'):measured_progress(a,b)
+        with self.assertRaisesRegex(ValueError,'末端姿态'):measured_progress(a,b)
 
     def test_visual_axis_preserves_world_height_on_tilted_base(self):
         axis=np.array([np.cos(.04),0.,-np.sin(.04)])
@@ -101,11 +161,17 @@ if __name__=='__main__':unittest.main()
 class VerifiedPushTests(unittest.TestCase):
     def test_verified_and_unverified_attempts_release_exit_once_without_replaying(self):
         root=Path(__file__).resolve().parents[2]
-        for depths,expected in (([-10.,142.,150.],'completed_verified'),([-10.,120.,130.,140.],'completed_unverified')):
+        for depths,expected in (([-10.,142.,150.],'completed_verified'),([-10.,120.,130.,140.],'completed_unverified'),([23.],'fixed_success'),([23.],'fixed_unknown'),([0.],'fixed_probe')):
+            yaw,pitch=np.deg2rad([8.,-4.] if expected=='fixed_probe' else [0.,0.])
+            heading=np.array([np.cos(yaw)*np.cos(pitch),np.sin(yaw)*np.cos(pitch),np.sin(pitch)])
+            lateral=np.array([-np.sin(yaw),np.cos(yaw),0.])
+            rotation=np.column_stack((heading,lateral,np.cross(heading,lateral)))
             class Model:
                 reach=.7
                 def wrist_transform(self,q,h):
-                    T=np.eye(4);T[0,3]=q[0];return T
+                    from scipy.spatial.transform import Rotation
+                    T=np.eye(4);T[:3,:3]=rotation@Rotation.from_euler('x',q[3]).as_matrix()
+                    T[:3,3]=heading*q[0]+lateral*q[1];return T
             class Ctrl:
                 config=json.loads((root/'web/config/control.json').read_text());models={'right':Model()}
                 def __init__(self):self.adapter=self;self.token=None;self.q=[0.]*6;self.grip=-.5;self.target=0 if expected=='completed_verified' else -1.247;self.commands=[]
@@ -123,10 +189,20 @@ class VerifiedPushTests(unittest.TestCase):
             class Motion:
                 handoffs=[]
                 def __init__(self,ctrl,*args,**kwargs):self.ctrl=ctrl
-                def arm(self,parts,*args,**kwargs):self.ctrl.q=list(parts[-1]['joint_waypoints_rad'][-1]);return self.ctrl.snapshot()
+                def settled_arm(self,guard):guard();return self.ctrl.snapshot()
+                def arm(self,parts,guard,**kwargs):
+                    self.ctrl.q=list(parts[-1]['joint_waypoints_rad'][-1])
+                    if expected=='fixed_success' and self.ctrl.q[0]>.1:
+                        self.ctrl.q[3]=np.radians(42.)
+                        guard()
+                    if expected in ('fixed_probe','fixed_unknown'):
+                        self.ctrl.q[1]=.00267
+                        guard()
+                    return self.ctrl.snapshot()
                 def hold(self):pass
             def plan(*args,**kwargs):
-                q=list(args[1]);end=q.copy();end[0]+=(args[4][0]-args[3][0])/1000
+                q=list(args[1]);end=q.copy();delta=args[4]-args[3];end[0]+=float(delta@heading)/1000
+                if expected=='fixed_probe':np.testing.assert_allclose(delta,5.*heading,atol=1e-10)
                 return dict(joint_waypoints_rad=[q,end],timing={'time_from_start_s':[0.,1.]})
             values=iter(depths);index=[0]
             def observe(reference):
@@ -138,10 +214,47 @@ class VerifiedPushTests(unittest.TestCase):
                 for name in ('right-grip-tcp.json','battery-execution.json'):(folder/'config'/name).write_bytes((root/'config'/name).read_bytes())
                 ctrl=Ctrl();task=CurrentAxisPush(ctrl,folder,observer=observe)
                 data=dict(op='start',request_id='verified',expected_epoch=1,verify_insertion=True,cabinet_depth_mm=150.)
+                fixed=expected.startswith('fixed_')
+                if fixed:
+                    def unexpected_observation(*args):
+                        self.fail('Full stroke or probe attempted to measure the approach')
+                    task.mouth_observer=unexpected_observation
+                    def verify_at_end(obs,guard):
+                        self.assertNotEqual(expected,'fixed_probe')
+                        self.assertAlmostEqual(ctrl.q[0],.150)
+                        self.assertNotIn('mouth',obs)
+                        confirmed=expected=='fixed_success'
+                        return dict(insertion_depth_verified=confirmed,verified_depth_mm=150. if confirmed else None,
+                                    handle_outside_mm=45.,verification_frame_ids=['after'],verification_image_time=__import__('time').time(),
+                                    verification_reason='视觉复查')
+                    task.check_fixed_depth=verify_at_end
+                    data=dict(op='start',request_id='fixed',expected_epoch=1,mouth_then_push=True)
+                    if expected=='fixed_probe':data['probe_only']=True
                 with patch('current_axis_push.plan_insert',side_effect=plan),patch('current_axis_push.DockingMotion',Motion):
                     task.action(data);task.thread.join(4.)
-                value=task.snapshot();self.assertEqual(value['status'],expected,value.get('reason'))
-                self.assertEqual(value['insertion_depth_verified'],expected=='completed_verified')
+                value=task.snapshot()
+                wanted={'fixed_probe':'completed_travel','fixed_success':'completed_verified','fixed_unknown':'held','completed_unverified':'held'}.get(expected,expected)
+                self.assertEqual(value['status'],wanted,value.get('reason'))
+                self.assertEqual(value['insertion_depth_verified'],wanted=='completed_verified')
+                if expected=='fixed_success':self.assertAlmostEqual(value['peak_rotation_drift_deg'],42.)
+                if fixed:
+                    stages=[(r['phase'],r['distance_mm']) for r in value['stages']]
+                    self.assertEqual(stages,[('direct_push',5.)] if expected=='fixed_probe' else [('seat_push',150.)])
+                if expected in ('fixed_probe','fixed_unknown'):
+                    self.assertAlmostEqual(value['peak_cross_track_mm'],2.67,places=6)
+                if expected=='fixed_probe':
+                    self.assertFalse(value['released']);self.assertAlmostEqual(ctrl.q[0],.005)
+                    self.assertAlmostEqual(value['axis_yaw_deg'],8.);self.assertAlmostEqual(value['axis_pitch_deg'],-4.)
+                    self.assertAlmostEqual(value['direct_travel_mm'],5.);self.assertNotIn('mouth_measurement',value)
+                    self.assertIsNone(ctrl.token);continue
+                if wanted=='held':
+                    self.assertFalse(value['released'])
+                    self.assertFalse(value.get('returned'))
+                    self.assertEqual([c['position'] for c in ctrl.commands],[0])
+                    if fixed:self.assertAlmostEqual(ctrl.q[0],.150)
+                    else:self.assertGreater(ctrl.q[0],.15)
+                    self.assertIsNone(ctrl.token)
+                    continue
                 self.assertTrue(value['returned'])
                 positions=[-3.14] if expected=='completed_verified' else [0,-3.14]
                 self.assertEqual([c['position'] for c in ctrl.commands],positions)

@@ -108,12 +108,32 @@ function show(data){
   pre.textContent=JSON.stringify(t.data||{},null,2);details.append(summary,pre);li.append(details);return li;
  }));
 }
+let actionBusy=false;
 function executionButtons(){
  const running=execution?.status==='running';
- const mode=el('vision-mode').value,planD=mode==='plan_d',planF=mode==='plan_f';
+ if(running){
+  const activeFast=execution.settings?.pickup_flow==='fast';
+  el(activeFast?'flow-fast':'flow-stable').checked=true;
+ }
+ const fast=el('flow-fast').checked,mode=el('vision-mode').value;
+ const planD=!fast&&mode==='plan_d',planF=mode==='plan_f';
+ const start=execution?.settings?.fast_start,policy=execution?.settings?.fast_dock_policy;
+ el('flow-switch').disabled=running||actionBusy||planDBusy;
+ el('stable-settings').hidden=fast;
+ el('fast-settings').hidden=!fast;
  el('plan-d-panel').hidden=!planD;
- el('execute').disabled=planD||running||!execution?.available||!el('environment-clear').checked;
- el('plan-d-capture').disabled=running||planDBusy;
+ el('execute').textContent=fast?'启动快模式':'启动稳模式';
+ el('execute').disabled=actionBusy||planDBusy||running||!execution?.available||
+  !el('environment-clear').checked||(fast?(!start||!policy):planD);
+ const paths={plan_f:'D405 粗定位、精定位后夹取',d405:'D435 粗定位、D405 精定位后夹取',
+  d435:'D435 单帧定位后夹取',fixed:'按预录关节位置夹取'};
+ el('flow-summary').textContent=fast?
+  'T1 低速贴靠 0.2 秒 → 雷达确认停稳 → D405 确认把手 → 夹取 → 后退 200 mm。'+
+  (execution&&!policy?' 等待配置平台停车信号。':''):
+  planD?'Plan D 仅预览 D435 电池识别结果。':(paths[mode]||'按所选方案夹取')+' → 后退 200 mm → 返回运输姿态。';
+ el('fast-reference').textContent=start?'地图出发点  X '+start.pose[0].toFixed(3)+' m  Y '+start.pose[1].toFixed(3)+' m  朝向 '+(start.pose[2]*180/Math.PI).toFixed(2)+'°':'尚未记录快流程出发点';
+ el('fast-record').disabled=!execution?.available||actionBusy;
+ el('plan-d-capture').disabled=running||planDBusy||actionBusy;
  el('stop-task').disabled=!running;
  el('vision-mode').disabled=running;
  el('lift-target-rad').disabled=running;el('observer-z-mm').disabled=running||planF;
@@ -122,7 +142,7 @@ function executionButtons(){
  for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','reference-first','reference-reobserve','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
  el('delete-recognition-profile').disabled=running||!el('recognition-profile').value.startsWith('custom-');
 }
-const executionNames={run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
+const executionNames={fast_dock:'快流程贴靠',run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
 function executionLog(){
  const list=el('execution-log'),logs=execution?.logs||[];
  if(!logs.length){list.replaceChildren(Object.assign(document.createElement('li'),{textContent:'等待任务启动。'}));return;}
@@ -140,18 +160,41 @@ el('recognition-profile').onchange=async()=>{
 el('save-recognition-profile').onclick=()=>saveRecognitionProfile(false);
 el('save-as-recognition-profile').onclick=()=>saveRecognitionProfile(true);
 el('delete-recognition-profile').onclick=()=>manageRecognitionProfile('delete_recognition_profile');
-el('execute').onclick=async()=>{
+try{
+ if(sessionStorage.getItem('pickup-flow')==='fast')el('flow-fast').checked=true;
+}catch{}
+el('flow-switch').onchange=()=>{
+ try{sessionStorage.setItem('pickup-flow',el('flow-fast').checked?'fast':'stable');}catch{}
+ executionButtons();
+};
+el('fast-record').onclick=async()=>{
+ if(actionBusy||el('fast-record').disabled)return;
+ actionBusy=true;executionButtons();
  try{
-  if(el('vision-mode').value==='plan_d')return;
-  const lift=el('lift-target-rad'),observer=el('observer-z-mm'),planCLift=el('plan-c-lift-target-rad');
-  if(!lift.reportValidity()||!observer.reportValidity()||!planCLift.reportValidity())return;
-  for(const id of ['recognition-profile-name','dino-prompt','qwen-task'])if(!el(id).reportValidity())return;
-  const mode=el('vision-mode').value,payload={action:'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true,lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:mode,recognition_profile:recognitionProfileFromForm()};
-  if(mode==='fixed')payload.plan_c_lift_target_rad=planCLift.valueAsNumber;
+  execution=await request('/api/battery-task',{action:'record_fast_start',request_id:requestId()});
+  el('execution-status').textContent='快流程出发点已保存。';
+ }catch(e){el('execution-status').textContent=e.message;}
+ finally{actionBusy=false;executionButtons();}
+};
+el('execute').onclick=async()=>{
+ if(actionBusy||el('execute').disabled)return;
+ const fast=el('flow-fast').checked;
+ actionBusy=true;executionButtons();
+ try{
+  const payload={action:fast?'start_fast':'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true};
+  if(!fast){
+   const lift=el('lift-target-rad'),observer=el('observer-z-mm'),planCLift=el('plan-c-lift-target-rad');
+   const mode=el('vision-mode').value;
+   const invalid=[lift,observer,planCLift,...['recognition-profile-name','dino-prompt','qwen-task'].map(el)].find(field=>!field.checkValidity());
+   if(invalid){el('stable-settings').open=true;invalid.closest('details').open=true;invalid.reportValidity();return;}
+   Object.assign(payload,{lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:mode,recognition_profile:recognitionProfileFromForm()});
+   if(mode==='fixed')payload.plan_c_lift_target_rad=planCLift.valueAsNumber;
+  }
   execution=await request('/api/battery-task',payload);
   revision='';show({run_id:execution.run_id});
-  el('execution-status').textContent='自动任务已启动。';
- }catch(e){el('execution-status').textContent=e.message;}executionButtons();
+  el('execution-status').textContent=fast?'快模式已启动。':'稳模式已启动。';
+ }catch(e){el('execution-status').textContent=e.message;}
+ finally{actionBusy=false;executionButtons();}
 };
 async function recordPlanC(point){
  try{
