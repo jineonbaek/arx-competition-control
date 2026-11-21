@@ -114,11 +114,24 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     target=np.eye(4);target[:3,:3]=np.asarray(plan['R_base_from_tool'],float)
     target[:3,3]=np.asarray(plan['contact_path']['pre_mm' if approach else 'end_mm'],float)/1000
     if correction is not None:target=rigid(correction['target_base_from_tool'])
+    # Lift offset is advisory in Plan F, but the original CAD clearance must
+    # remain valid at the measured height. Recheck the route if its bound is used.
+    if plan.get('arrival_mode')=='reference_settled':
+        original_guard=guard;certificate=[None,0.]
+        def guard(snapshot,now):
+            if original_guard(snapshot,now) is not True:return False
+            height=float(snapshot['body']['height'])
+            if (certificate[0] is None or abs(height-certificate[0])/NOMINAL_RAD_PER_M*1000
+                    >=max(0.,certificate[1]/2)):
+                checks=[model.check(a,b,height) for a,b in zip(points,points[1:])]
+                if any(c.get('clear') is not True for c in checks):return False
+                certificate[:]=[height,min(float(c['lower_mm']) for c in checks)]
+            return True
     p=policies['pick']
     low,high=controller.config['arms']['right']['gripper_limits_raw']
     if not low<=p['gripper_target']<=high:raise ValueError('Gripper target outside configured limits')
     monitor=PickMonitor(model,tcp,target,expected_lift_rad=plan['lift_rad'],
-                        started_at=controller.clock(),**p)
+                        started_at=controller.clock(),arrival_mode=plan.get("arrival_mode","strict"),**p)
     if approach and correction is None:
         monitor.arm_policy['tolerance']=[10.,10.,10.,3.,3.,3.]
     elif correction is not None:

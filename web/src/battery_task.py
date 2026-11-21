@@ -235,6 +235,8 @@ class BatteryTask:
                 'recovery_required':state['recovery_required'],
                 'phase':state['store'].state.get('battery_flow',{}).get('phase','starting'),
                 'mission_stage':state['store'].state.get('mission',{}).get('stage','IDLE'),
+                'grasp_recovery':{k:copy.deepcopy(v) for k,v in state['store'].state.get('grasp_recovery',{}).items()
+                                  if k in ('point2','attempt','status','last_recovery')},
                 'settings':self._settings_view(state['store'].state.get('battery_task_settings',{})),
                 'logs':self._logs(state['store'])}
 

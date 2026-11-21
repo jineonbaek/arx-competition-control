@@ -9,7 +9,7 @@ from .perception_session import PerceptionSession
 def build_workflow(config,store,controller,token,*,policies,refinement_policy,
                    timing_limits,alignment_tolerance_deg,j6_tolerance_deg,
                    preflight,review_plan,timeout_s,observations=None,
-                   clearance_mm=50.,vision_mode='d405'):
+                   clearance_mm=50.,vision_mode='d405',recovery_environment_clear=False):
     setup=load_pick_setup(timing_limits=timing_limits,alignment_tolerance_deg=alignment_tolerance_deg,
                           j6_tolerance_deg=j6_tolerance_deg)
     backend=BatteryControllerBackend(controller,token,store,policies=policies|{'refinement':refinement_policy},pick_setup=setup,
@@ -18,5 +18,9 @@ def build_workflow(config,store,controller,token,*,policies,refinement_policy,
                                pick_setup=setup,refinement_policy=refinement_policy)
     if vision_mode!='fixed' and not hasattr(store,'perception_session'):
         store.perception_session=PerceptionSession(store.path)
+    recovery=None
+    if vision_mode=='plan_f':
+        from .grasp_recovery import GraspRecovery
+        recovery=GraspRecovery(backend,environment_clear=recovery_environment_clear)
     return BatteryFlow(tools,review_plan=review_plan,clearance_mm=clearance_mm,
-                       receipt_timeout_s=max(timeout_s.values())+5.,vision_mode=vision_mode)
+                       receipt_timeout_s=max(timeout_s.values())+5.,vision_mode=vision_mode,recovery=recovery)

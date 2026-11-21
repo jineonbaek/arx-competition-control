@@ -11,7 +11,8 @@ class ArrivalMonitor:
     inferred from a model response. A terminal receipt cannot restart this monitor.
     stop_required requests a future executor stop; it does not mean hardware stopped.
     """
-    def __init__(self,target,tolerance,*,started_at,settle_s,timeout_s,stall_s,max_age_s,max_speed,minimum=None):
+    def __init__(self,target,tolerance,*,started_at,settle_s,timeout_s,stall_s,max_age_s,max_speed,minimum=None,position_required=True):
+        self.position_required=position_required
         self.target=np.asarray(target,float).copy()
         self.tolerance=np.asarray(tolerance,float).copy()
         self.max_speed=np.asarray(max_speed,float).copy()
@@ -60,7 +61,7 @@ class ArrivalMonitor:
         if normalized<self.best_error-.1:
             self.best_error=normalized;self.progress_at=float(sample_time)
         def accepted(value):
-            return np.all(value>=self.minimum) if self.minimum is not None else np.all(np.abs(value-self.target)<=self.tolerance)
+            return (not self.position_required or (np.all(value>=self.minimum) if self.minimum is not None else np.all(np.abs(value-self.target)<=self.tolerance)))
         inside=bool(accepted(value))
         continuous=self.previous_time is not None and sample_time-self.previous_time<=self.max_age
         stationary=continuous and np.all(np.abs(value-self.previous)/(sample_time-self.previous_time)<=self.max_speed)
@@ -76,7 +77,7 @@ class ArrivalMonitor:
 
 
 def tool_feedback(snapshot,model,wrist_from_tool,target_base_tool,*,now,max_age_s,
-                  max_pair_skew_s,expected_lift_rad,lift_tolerance_rad):
+                  max_pair_skew_s,expected_lift_rad,lift_tolerance_rad,enforce_lift=True):
     """Compute measured TCP error from the existing console snapshot, not SDK-zero XYZ."""
     if wrist_from_tool is None:raise ValueError('TCP pending')
     tcp,target=rigid(wrist_from_tool),rigid(target_base_tool)
@@ -93,14 +94,14 @@ def tool_feedback(snapshot,model,wrist_from_tool,target_base_tool,*,now,max_age_
                 or arm.get('fresh') is not True or body.get('fresh') is not True
                 or np.any(stamps>now) or np.any(now-stamps>max_age_s)
                 or np.ptp(stamps)>max_pair_skew_s):raise ValueError(f'右臂/升降反馈时效或配对无效: arm_age={now-stamps[0]:.4f}s, lift_age={now-stamps[1]:.4f}s, skew={np.ptp(stamps):.4f}s; max_age={max_age_s}s, max_skew={max_pair_skew_s}s; arm_fresh={arm.get("fresh")}, lift_fresh={body.get("fresh")}; q={q.tolist()}, lift={height}')
-        if abs(height-expected_lift_rad)>lift_tolerance_rad:raise ValueError(f'升降高度变化: actual={height:.5f}rad, expected={expected_lift_rad:.5f}rad, limit={lift_tolerance_rad}rad')
+        if enforce_lift and abs(height-expected_lift_rad)>lift_tolerance_rad:raise ValueError(f'升降高度变化: actual={height:.5f}rad, expected={expected_lift_rad:.5f}rad, limit={lift_tolerance_rad}rad')
     except (KeyError,TypeError) as error:raise ValueError('Invalid robot feedback') from error
     actual=rigid(model.wrist_transform(q,height)@tcp)
     rotation=Rotation.from_matrix(target[:3,:3].T@actual[:3,:3])
     angle=np.degrees(rotation.magnitude())
     return dict(base_from_tool=actual.tolist(),position_error_mm=((actual[:3,3]-target[:3,3])*1000).tolist(),
                 orientation_error_deg=float(angle),orientation_error_rotvec_deg=np.degrees(rotation.as_rotvec()).tolist(),
-                joints_rad=q.tolist(),sample_time=float(stamps.min()))
+                joints_rad=q.tolist(),lift_offset_rad=height-expected_lift_rad,sample_time=float(stamps.min()))
 
 
 class PickMonitor:
@@ -112,17 +113,19 @@ class PickMonitor:
     """
     def __init__(self,model,wrist_from_tool,target_base_tool,*,expected_lift_rad,
                  lift_tolerance_rad,max_pair_skew_s,started_at,arm_policy,
-                 gripper_target,gripper_policy,hold_gripper_range):
+                 gripper_target,gripper_policy,hold_gripper_range,arrival_mode="strict"):
         if wrist_from_tool is None:raise ValueError('TCP pending')
         if (not np.isfinite([expected_lift_rad,lift_tolerance_rad,max_pair_skew_s]).all()
                 or not 0<=expected_lift_rad<=18 or min(lift_tolerance_rad,max_pair_skew_s)<=0):
             raise ValueError('Invalid lift or pairing policy')
+        if arrival_mode not in ('strict','reference_settled'):raise ValueError('Unknown arrival mode')
+        self.arrival_mode=arrival_mode;self.latest_measured=None
         self.model=model;self.tcp=rigid(wrist_from_tool).copy()
         self.target=rigid(target_base_tool).copy()
         self.feedback_policy=dict(expected_lift_rad=expected_lift_rad,
             lift_tolerance_rad=lift_tolerance_rad,max_pair_skew_s=max_pair_skew_s,
-            max_age_s=arm_policy['max_age_s'])
-        self.arm_policy=dict(arm_policy)
+            max_age_s=arm_policy['max_age_s'],enforce_lift=arrival_mode=='strict')
+        self.arm_policy=dict(arm_policy,position_required=arrival_mode=="strict")
         self.arm=ArrivalMonitor(np.zeros(6),started_at=started_at,**self.arm_policy)
         self.settling_started=False
         if self.arm.tolerance.shape!=(6,):raise ValueError('Arm policy needs XYZ and rotation-vector tolerances')
@@ -149,7 +152,16 @@ class PickMonitor:
     def _receipt(self,close=False):
         return dict(status=self.failure or self.stage,close_permitted=close,
                     stop_required=self.failure is not None,grasp_confirmed=False,
-                    failure_detail=self.failure_detail)
+                    failure_detail=self.failure_detail,**self.arrival_evidence())
+
+    def arrival_evidence(self):
+        measured=self.latest_measured or {}
+        settled=self.stage!='inserting' and self.failure is None
+        reached=settled and self.last_value is not None and bool(np.all(np.abs(self.last_value)<=self.arm.tolerance))
+        return dict(arrival_mode=self.arrival_mode,reference_settled=bool(settled and self.settling_started),
+            pose_reached=bool(reached),position_error_mm=measured.get('position_error_mm'),
+            orientation_error_deg=measured.get('orientation_error_deg'),
+            lift_offset_rad=measured.get('lift_offset_rad'))
 
     def abort(self,reason):
         if self.failure is None:
@@ -174,11 +186,18 @@ class PickMonitor:
         self.last_poll=now
         try:
             measured=tool_feedback(snapshot,self.model,self.tcp,self.target,now=now,**self.feedback_policy)
+            self.latest_measured=measured
             value=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
             stamp=measured['sample_time']
             if self.last_sample is not None and stamp<self.last_sample:raise ValueError(f'反馈时间倒退: sample={stamp:.6f}, previous={self.last_sample:.6f}')
+            if self.stage=='ready_to_close' and self.arrival_mode=='reference_settled':
+                if self.last_sample is not None and stamp==self.last_sample and not np.allclose(value,self.last_value,atol=1e-6,rtol=0):
+                    raise ValueError('Pose changed without advancing paired feedback time')
+                if (self.last_sample is not None and stamp>self.last_sample and
+                        np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
+                    raise ValueError('Measured motion resumed before closure')
             if self.stage!='inserting':
-                if self.stage!='closing' and np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
+                if self.arrival_mode=='strict' and self.stage!='closing' and np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
                 if self.last_sample is not None and stamp-self.last_sample>self.arm.max_age:
                     raise ValueError(f'到位后反馈间隔过长: gap={stamp-self.last_sample:.4f}s, limit={self.arm.max_age}s')
             return value,stamp
@@ -192,6 +211,7 @@ class PickMonitor:
         value,stamp=sample
         self.last_value=value.copy();self.last_sample=stamp
         if self.stage=='inserting':
+            if self.arrival_mode=='reference_settled' and not self.settling_started:return self._receipt()
             r=self.arm.update(value,stamp,now,ready=ready,cancelled=cancelled)
             if r['stop_required']:return self.abort(r['status'])
             if r['arrived']:self.stage='ready_to_close';self.arrival_sample=stamp
@@ -215,6 +235,9 @@ class PickMonitor:
         if sample is None:return self._receipt()
         value,stamp=sample
         if stamp<=self.arrival_sample:return self._receipt()
+        if (self.arrival_mode=='reference_settled' and self.last_sample is not None
+                and stamp>self.last_sample and np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
+            return self.abort('motion_before_close')
         self.last_value=value.copy();self.last_sample=stamp
         self.gripper=ArrivalMonitor([self.gripper_target],started_at=now,**self.gripper_policy)
         self.stage='closing'

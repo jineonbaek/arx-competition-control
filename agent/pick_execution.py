@@ -26,7 +26,8 @@ class PickCloseStep:
             # A failed stop cannot make the interrupted task resumable.
             self.stop_request = 'failed'
             try:
-                gravity_timeout = receipt.get('status') == 'timeout' and self.monitor.stage == 'inserting'
+                gravity_timeout = (receipt.get('status') == 'timeout' and self.monitor.stage == 'inserting'
+                                   and self.monitor.arrival_mode == 'strict')
                 if gravity_timeout:
                     result = self.controller.submit({'type': 'arm.mode', 'arm': 'right', 'mode': 3}, self.token)
                     self.controller.interrupt_motion(self.token)
@@ -118,7 +119,12 @@ class PickTrajectoryStep(PickCloseStep):
             if self.started or self.monitor.failure:raise ValueError('Insertion cannot be replayed or resumed')
             self.started=True
             try:
-                self.controller.start_trajectory('right',self.plan,self.token,preflight=self.preflight)
+                def start_guard(snapshot,now):
+                    if self.preflight(snapshot,now) is not True:return False
+                    if self.monitor.arrival_mode!='reference_settled':return True
+                    return self.monitor.model.check(snapshot['arms']['right']['joints'],
+                        self.plan['joint_waypoints_rad'][0],snapshot['body']['height']).get('clear') is True
+                self.controller.start_trajectory('right',self.plan,self.token,preflight=start_guard)
                 return dict(status='awaiting_trajectory',close_permitted=False,
                             stop_required=False,grasp_confirmed=False)
             except Exception as error:
@@ -152,14 +158,33 @@ class PickTrajectoryStep(PickCloseStep):
 
 class ApproachTrajectoryStep(PickTrajectoryStep):
     """Stop at measured pregrasp arrival; observation precedes any insertion."""
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.return_trace_rad=[]
+        original=self.preflight
+        def traced(snapshot,now):
+            if original(snapshot,now) is not True:return False
+            if self.monitor.arrival_mode=='reference_settled':
+                import numpy as np
+                arm=snapshot.get('arms',{}).get('right',{});q=np.asarray(arm.get('joints'),float)
+                if q.shape!=(6,) or not np.isfinite(q).all() or arm.get('fresh') is not True:return False
+                if not self.return_trace_rad or np.max(np.abs(q-self.return_trace_rad[-1]))>np.radians(.1):
+                    if len(self.return_trace_rad)>=10000:raise ValueError('Measured approach trace limit exceeded')
+                    self.return_trace_rad.append(q.tolist())
+            return True
+        self.preflight=traced
+
     def _ready(self, snapshot):
         return (self.controller.motion_valid(self.token)
                 and snapshot.get('capabilities', {}).get('right:arm.wrist') == ''
                 and self.preflight(snapshot, self.controller.clock()) is True)
 
     def _on_arrived(self, receipt):
+        trace=list(getattr(self,'return_trace_rad',[]))
+        measured=self.monitor.latest_measured
+        if measured is not None:trace.append(measured['joints_rad'])
         return dict(receipt, status='ready_to_reobserve', close_permitted=False,
-                    new_observation_required=True)
+                    new_observation_required=True,return_trace_rad=trace)
 
 
 class StationaryApproachStep(PickCloseStep):

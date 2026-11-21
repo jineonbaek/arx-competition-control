@@ -22,6 +22,12 @@ OPERATIONS = {
 }
 
 
+def arrival_confirmed(data, arguments):
+    if (arguments.get('plan') or {}).get('arrival_mode')=='reference_settled':
+        return data.get('arrival_mode')=='reference_settled' and data.get('reference_settled') is True
+    return data.get('pose_reached') is True
+
+
 class Mission:
     def __init__(self, state):
         self.data = state
@@ -39,7 +45,7 @@ class Mission:
         if not isinstance(data, dict):
             raise AgentError("invalid_backend_result", "Backend data must be an object")
         if operation == "execute_battery_approach":
-            if data.get('pose_reached') is not True or data.get('new_observation_required') is not True:
+            if not arrival_confirmed(data,arguments) or data.get('new_observation_required') is not True:
                 raise AgentError('operation_not_confirmed','Measured pregrasp arrival and reobservation required')
             plan=arguments.get('plan') or {}
             if not plan.get('plan_id') or plan.get('arm')!='right':
@@ -109,7 +115,8 @@ class Mission:
                         "return_to_carry": ("carry_ready",),
                         "navigate_to_area": ("arrived",), "align_battery_to_slot": ("aligned",),
                         "insert_battery": ("inserted",), "release_and_withdraw": ("released", "withdrawn")}[operation]
-            if any(data.get(key) is not True for key in evidence):
+            if (not arrival_confirmed(data,arguments) if operation=="execute_pick"
+                    else any(data.get(key) is not True for key in evidence)):
                 raise AgentError("operation_not_confirmed", "The backend did not confirm the required execution condition")
         self.data["stage"] = OPERATIONS[operation][1]
         return data

@@ -106,7 +106,8 @@ def workflow_factory(policy_path,*,console_url,gripper_limits):
             alignment_tolerance_deg=run_policy['alignment_tolerance_deg'],
             j6_tolerance_deg=run_policy['j6_tolerance_deg'],preflight=preflight,
             review_plan=reviewer,timeout_s=run_policy['timeout_s'],
-            clearance_mm=run_policy['clearance_mm'],vision_mode=settings.get('vision_mode','d405'))
+            clearance_mm=run_policy['clearance_mm'],vision_mode=settings.get('vision_mode','d405'),
+            recovery_environment_clear=environment_clear)
     factory.task_settings={'lift_target_rad':policy['coarse']['fixed_lift_target_rad'],
         'lift_acceptance_rad':policy['coarse']['lift_acceptance_rad'],
         'observer_z_mm':policy['coarse']['observer_search']['start_z_mm'],'vision_mode':'plan_f'}

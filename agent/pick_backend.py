@@ -150,6 +150,14 @@ class _PreparedExecutionBackend:
         return self.thread is None or self.wait(timeout)
 
 
+def arrival_evidence(receipt):
+    if receipt.get('arrival_mode')!='reference_settled':return dict(pose_reached=True)
+    if receipt.get('reference_settled') is not True:
+        raise ValueError('Measured rest after driver reference required')
+    return {key:receipt.get(key) for key in ('arrival_mode','reference_settled','pose_reached',
+        'position_error_mm','orientation_error_deg','lift_offset_rad')}
+
+
 class PickExecutionBackend(_PreparedExecutionBackend):
     operation='execute_pick'
     stage_key='pick_stage'
@@ -159,7 +167,7 @@ class PickExecutionBackend(_PreparedExecutionBackend):
 
     @staticmethod
     def _completed_data(receipt):
-        return dict(pose_reached=True,gripper_settled=True)
+        return dict(**arrival_evidence(receipt),gripper_settled=True)
 
 
 class CoarseExecutionBackend(_PreparedExecutionBackend):
@@ -187,7 +195,8 @@ class ApproachExecutionBackend(_PreparedExecutionBackend):
     def _completed_data(receipt):
         if receipt.get('new_observation_required') is not True or receipt.get('close_permitted') is not False:
             raise ValueError('Measured arrival and mandatory reobservation required')
-        return dict(pose_reached=True,new_observation_required=True)
+        return dict(**arrival_evidence(receipt),new_observation_required=True,
+                    return_trace_rad=receipt.get("return_trace_rad",[]))
 
 
 class ExtractionExecutionBackend(_PreparedExecutionBackend):

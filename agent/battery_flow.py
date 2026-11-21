@@ -15,7 +15,7 @@ def plan_digest(plan):
     return hashlib.sha256(json.dumps(plan,sort_keys=True,allow_nan=False).encode()).hexdigest()
 
 class BatteryFlow:
-    def __init__(self,tools,*,review_plan,clearance_mm=50.,receipt_timeout_s=240.,vision_mode='d405'):
+    def __init__(self,tools,*,review_plan,clearance_mm=50.,receipt_timeout_s=240.,vision_mode='d405',recovery=None):
         if (not callable(review_plan) or type(clearance_mm) not in (int,float)
                 or not math.isfinite(clearance_mm) or not 1<=clearance_mm<=200
                 or type(receipt_timeout_s) not in (int,float) or not math.isfinite(receipt_timeout_s)
@@ -30,6 +30,7 @@ class BatteryFlow:
         if self.flow['clearance_mm']!=clearance_mm:raise ValueError('Cannot change a persisted flow')
         if self.flow.get('vision_mode','d405')!=vision_mode:raise ValueError('Cannot change a persisted vision mode')
         self.vision_mode=vision_mode
+        self.recovery=recovery if vision_mode=="plan_f" else None
         self.store.save()
 
     def _finish(self,status,reason=''):
@@ -43,7 +44,7 @@ class BatteryFlow:
         self.flow.pop('pending_since',None);self.flow.pop('command',None);self.store.save()
 
     def _cache_target(self,plan):
-        if self.vision_mode!='plan_f' or fast_requested(self.store) or plan.get('status')!='kinematic_preview':return
+        if self.recovery is not None or self.vision_mode!='plan_f' or fast_requested(self.store) or plan.get('status')!='kinematic_preview':return
         source='B' if self.store.state['mission'].get('approach_plan') else 'A'
         cache=self.flow.setdefault('target_cache',{})
         if source not in cache:
@@ -59,6 +60,14 @@ class BatteryFlow:
                 raise AgentError('vision_failed',data.get('message') or data.get('status','vision_failed'))
             return data
         except Exception as error:
+            if self.recovery is not None:
+                from .grasp_recovery import RECOVERABLE
+                if (not isinstance(error,AgentError) or error.code not in RECOVERABLE
+                        or self.store.cancelled or self.store.state.get('pending')):raise
+                self.flow['recovery_reason']=str(error)[:300]
+                self.store.event('grasp_pose_retry',dict(name='视觉/规划失败，返回观察点换姿态',reason=str(error)[:300]))
+                self._next('recover_pose')
+                return None
             if (self.vision_mode!='plan_f' or fast_requested(self.store) or self.store.cancelled
                     or self.store.state.get('pending') or not self.store.state['mission'].get('approach_plan')
                     or not self.flow.get('target_cache')
@@ -133,6 +142,7 @@ class BatteryFlow:
     def _run(self):
         if self.flow['status']!='running':return copy.deepcopy(self.flow)
         try:
+            if self.recovery is not None:self.recovery.capture()
             while (self.flow['index']<self.tools.config.max_tool_calls
                    or self.store.state['mission'].get('approach_plan')):
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled')
@@ -151,7 +161,9 @@ class BatteryFlow:
                     if fast_requested(self.store) and not stopped_for_fast_pick(self.store):
                         raise AgentError('dock_incomplete','等待本轮底盘贴靠停车回执')
                     camera='d405' if self.vision_mode=='plan_f' else 'd435'
-                    data=self._call('observe_battery',{'camera':camera})
+                    data=(self._visual_call('observe_battery',{'camera':camera},'localized')
+                          if self.recovery is not None else self._call('observe_battery',{'camera':camera}))
+                    if data is None:continue
                     if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','head_failed'))
                     self.flow['head']=data['observation_id']
                     self.store.state['mission']['target']=dict(target_id=data['observation_id'],camera=camera,observation_id=data['observation_id'])
@@ -165,9 +177,17 @@ class BatteryFlow:
                 elif phase in ('coarse_execute','approach_execute','insert'):
                     operation={'coarse_execute':'execute_coarse_alignment','approach_execute':'execute_battery_approach','insert':'execute_pick'}[phase]
                     # After restart, resolve the existing request before any new review or action.
-                    if not self.store.state.get('pending') and not self.flow.get('command'):self._review(operation)
+                    if not self.store.state.get('pending') and not self.flow.get('command'):
+                        try:self._review(operation)
+                        except AgentError as error:
+                            if self.recovery is None or error.code!='plan_not_verified':raise
+                            self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     plan=self.store.state['mission'].get('plan') or {}
-                    self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
+                    receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
+                    if self.recovery is not None and phase=='approach_execute':
+                        if self.recovery.record_approach(receipt) is False:
+                            self.flow['recovery_reason']='连续两次接近/修正没有实际进展'
+                            self._next('recover_pose');continue
                     self._next('verify_hold' if phase=='insert' else
                                'fixed_pick_plan' if self.vision_mode=='fixed' else
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
@@ -189,8 +209,27 @@ class BatteryFlow:
                     stage=self.store.state['mission']['stage']
                     if stage=='PICK_PLANNED':self._next('insert')
                     elif stage in ('PICK_APPROACH_PLANNED','PICK_CORRECTION_PLANNED'):self._next('approach_execute')
-                    elif data.get('refinement',{}).get('status')=='reacquire_required':self._next('wrist')
+                    elif data.get('refinement',{}).get('status')=='reacquire_required':
+                        self.flow['recovery_reason']='当前姿态无法完成视觉修正'
+                        self._next('recover_pose' if self.recovery is not None else 'wrist')
                     else:return self._finish('needs_attention',data.get('status','planning_incomplete'))
+                elif phase=='recover_pose':
+                    if self.recovery is None:raise AgentError('invalid_flow','Recovery adapter missing')
+                    recovered=self.recovery.recover(self.flow.get('recovery_reason','vision_failed'),
+                                                    request_id='flow_'+str(self.flow['index']))
+                    mission=self.store.state['mission']
+                    for key in ('plan','approach_plan','target','pick_corrections','pick_correction_mm','evidence_barriers'):
+                        mission.pop(key,None)
+                    mission['stage']='IDLE'
+                    mission['evidence_barriers']={'GRASP_RECOVERY':dict(
+                        completed_at=recovered['completed_at'],
+                        previous_observation_ids=list(self.store.state.get('observations',{})))}
+                    for key in ('grasp_preview','grasp_preview_sha256','battery_pick_plan','battery_pick_plan_sha256',
+                                'latest_battery_observations','battery_observation_attempts'):
+                        self.store.state.pop(key,None)
+                    for key in ('head','wrist','plan_id','reviewed_plan','target_cache','fallback_attempts'):
+                        self.flow.pop(key,None)
+                    self._next('head')
                 elif phase=='cached_replan':
                     attempt=self.flow.get('fallback_attempts',0)+1
                     if attempt>3:

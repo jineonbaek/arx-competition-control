@@ -73,6 +73,8 @@ def plan(registry,observation_id,call_id,setup=None,*,cached=None):
         control_config_sha256=hashlib.sha256(config_blob).hexdigest(),
         arm='right',frame='base_link',unit='mm',vision_mode=camera,contact_path=line,
         start_joints_rad=q.tolist(),lift_rad=lift,calibration_id=None)
+    if plan_f and store.state.get('grasp_recovery'):
+        binding['arrival_mode']='reference_settled'
     if setup is None:
         result=plan_insert(None,None,None,None,None,None,None,None)
     else:

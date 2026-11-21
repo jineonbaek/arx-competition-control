@@ -148,6 +148,11 @@ class BatteryExecutionTools(WorkflowTools):
                 raise AgentError('plan_not_verified','固定升降或观察姿态缺少立柱、现场清空或执行适配证据')
         return super()._operation(name,arguments,call_id,mission)
 
+    def _recovery_frame(self,observation_id):
+        if (self.vision_mode=='plan_f' and observation_id and
+                self.store.state['mission'].get('evidence_barriers',{}).get('GRASP_RECOVERY')):
+            self._post_stage_observation(observation_id,'GRASP_RECOVERY','d405')
+
     def _perception(self,name,a,call_id):
         if name not in ('observe_battery','preview_battery_grasp'):
             return super()._dispatch(name,a,call_id)
@@ -164,7 +169,9 @@ class BatteryExecutionTools(WorkflowTools):
         current=dict(a);attempt_id=call_id
         while True:
             if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
+            if name=='preview_battery_grasp':self._recovery_frame(current['observation_id'])
             result=super()._dispatch(name,current,attempt_id)
+            if camera=='d405' and result.get('observation_id'):self._recovery_frame(result['observation_id'])
             attempts.append(dict(status=result.get('status'),observation_id=result.get('observation_id'),
                                  message=result.get('message','')))
             if self.store.cancelled:raise AgentError('cancelled','观察定位已取消')
@@ -201,6 +208,7 @@ class BatteryExecutionTools(WorkflowTools):
         state=self.store.state;mission=Mission(state['mission'])
         plan_b=self.vision_mode=='d435'
         plan_f=self.vision_mode=='plan_f'
+        if name in ('preview_battery_grasp','plan_battery_pick'):self._recovery_frame(a['observation_id'])
         head=(name=='observe_battery' and (a['camera']=='d435' or
               (plan_f and a['camera']=='d405' and mission.stage in ('IDLE','HEAD_LOCALIZED','COARSE_PLANNED'))))
         wrist=name=='observe_battery' and a['camera']=='d405' and not head
@@ -278,6 +286,8 @@ class BatteryExecutionTools(WorkflowTools):
             self.store.save()
         result=self._perception(name,a,call_id)
         if head and result.get('status')=='localized':
+            if plan_f and mission.data.get('evidence_barriers',{}).get('GRASP_RECOVERY'):
+                self._post_stage_observation(result['observation_id'],'GRASP_RECOVERY','d405')
             mission.data['stage']='HEAD_LOCALIZED'
         elif name=='plan_coarse_alignment':
             ident=hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
