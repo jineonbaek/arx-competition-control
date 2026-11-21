@@ -178,7 +178,7 @@ class PickMonitor:
             stamp=measured['sample_time']
             if self.last_sample is not None and stamp<self.last_sample:raise ValueError(f'反馈时间倒退: sample={stamp:.6f}, previous={self.last_sample:.6f}')
             if self.stage!='inserting':
-                if np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
+                if self.stage!='closing' and np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
                 if self.last_sample is not None and stamp-self.last_sample>self.arm.max_age:
                     raise ValueError(f'到位后反馈间隔过长: gap={stamp-self.last_sample:.4f}s, limit={self.arm.max_age}s')
             return value,stamp

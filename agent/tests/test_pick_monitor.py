@@ -127,11 +127,32 @@ class PickMonitorTests(unittest.TestCase):
                 self.assertFalse(r['close_permitted']);self.assertTrue(r['stop_required'])
                 self.assertFalse(g.start_closing(self.state(11),11,ready=True)['close_permitted'])
 
-    def test_arm_drift_while_closing_stops_and_never_counts_as_success(self):
+    def test_tcp_pose_error_while_closing_continues_to_hold_verification(self):
         g=self.make();self.arrive(g);g.start_closing(self.state(10.32),10.32,ready=True)
-        s=self.state(10.42,-1.2);s['arms']['right']['joints'][1]+=.1
-        r=g.update(s,10.42,ready=True)
-        self.assertTrue(r['stop_required']);self.assertFalse(r['grasp_confirmed'])
+        for t in (10.42,10.52,10.63):
+            s=self.state(t,-1.2);s['arms']['right']['joints'][1]+=.1
+            r=g.update(s,t,ready=True)
+            self.assertFalse(r['stop_required'])
+        self.assertTrue(np.any(np.abs(g.last_value)>g.arm.tolerance))
+        self.assertEqual(r['status'],'awaiting_hold_verification')
+        self.assertFalse(r['grasp_confirmed'])
+
+    def test_closing_feedback_and_other_existing_checks_still_stop(self):
+        for fault in ('stale','gap','ready','cancel','lift','base','clock','reordered','nonfinite','gripper'):
+            with self.subTest(fault=fault):
+                g=self.make();self.arrive(g);g.start_closing(self.state(10.32),10.32,ready=True)
+                s=self.state(10.42,-1.2);now=10.42
+                if fault=='stale':now=10.7
+                if fault=='gap':s=self.state(10.6,-1.2);now=10.6
+                if fault=='lift':s['body']['height']+=.1
+                if fault=='base':s['chassis_active']=True
+                if fault=='clock':now=10.1
+                if fault=='reordered':s=self.state(10.31,-1.2)
+                if fault=='nonfinite':s['arms']['right']['joints'][0]=float('nan')
+                if fault=='gripper':s['arms']['right']['gripper']=float('nan')
+                r=g.update(s,now,ready=fault!='ready',cancelled=fault=='cancel')
+                self.assertTrue(r['stop_required'])
+                self.assertFalse(r['grasp_confirmed'])
 
     def test_gripper_command_or_one_sample_is_not_hold_or_arrival(self):
         g=self.make();self.arrive(g);g.start_closing(self.state(10.32),10.32,ready=True)

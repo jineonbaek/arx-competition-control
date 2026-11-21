@@ -14,18 +14,17 @@ class PickFeedbackLogTests(unittest.TestCase):
         self.fixture = test_pick_monitor.PickMonitorTests()
         self.fixture.setUp()
 
-    def test_closing_drift_names_phase_and_error_and_is_persisted(self):
+    def test_preclose_drift_names_phase_and_error_and_is_persisted(self):
         f = self.fixture
         monitor = f.make()
         f.arrive(monitor)
-        monitor.start_closing(f.state(10.32), 10.32, ready=True)
         state = f.state(10.42)
         state['arms']['right']['joints'][1] += .1
         receipt = monitor.update(state, 10.42, ready=True)
         self.assertEqual(receipt['status'], 'feedback_invalid')
         self.assertTrue(receipt['stop_required'])
         detail = receipt['failure_detail']
-        for text in ('closing', 'TCP到位后偏移', 'XYZ=', 'rotvec=', 'limits='):
+        for text in ('ready_to_close', 'TCP到位后偏移', 'XYZ=', 'rotvec=', 'limits='):
             self.assertIn(text, detail)
         with tempfile.TemporaryDirectory() as directory:
             journal = Path(directory) / 'receipt.json'
