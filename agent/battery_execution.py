@@ -120,6 +120,8 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
                         started_at=controller.clock(),**p)
     if approach and correction is None:
         monitor.arm_policy['tolerance']=[10.,10.,10.,3.,3.,3.]
+    elif correction is not None:
+        monitor.arm_policy['tolerance']=p['arm_policy']['tolerance'][:3]+[3.,3.,3.]
     if stationary:
         step=StationaryApproachStep(controller,token,monitor,preflight=guard)
     else:

@@ -1,4 +1,4 @@
-"""Only initial pregrasp acceptance changes; insertion/correction keep their policy."""
+"""Initial pregrasp and correction arrival are scoped independently of final insertion."""
 import copy
 import unittest
 
@@ -11,7 +11,7 @@ class PregraspToleranceTests(unittest.TestCase):
     def setUp(self):
         self.f = fixtures.PreparationTests()
         self.f.setUp()
-        self.f.policies['pick']['arm_policy']['tolerance'] = [5., 5., 5., 1.5, 1.5, 1.5]
+        self.f.policies['pick']['arm_policy']['tolerance'] = [5., 5., 5., 2., 2., 2.]
 
     def test_stationary_and_moving_pregrasp_use_10mm_3deg_without_mutating_policy(self):
         f = self.f
@@ -21,18 +21,40 @@ class PregraspToleranceTests(unittest.TestCase):
                 f.plan['start_joints_rad'][0] -= .001
                 f.plan['approach']['start_rad'] = f.plan['start_joints_rad'][:]
             step = f.prepare().approach
-            np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 1.5, 1.5, 1.5])
+            np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 2., 2., 2.])
             step.monitor.begin_settling(f.c.clock())
             np.testing.assert_array_equal(step.monitor.arm.tolerance, [10., 10., 10., 3., 3., 3.])
             self.assertEqual(f.policies, original)
         self.assertEqual(f.f.adapter.calls, [])
 
-    def test_final_insertion_retains_5mm_1point5deg(self):
+    def test_final_insertion_retains_5mm_2deg(self):
         step = self.f.prepare('execute_pick')
-        np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 1.5, 1.5, 1.5])
+        np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 2., 2., 2.])
         self.assertEqual(self.f.f.adapter.calls, [])
 
-    def test_visual_correction_retains_original_tolerance(self):
+    def test_visual_correction_changes_only_arrival_orientation_to_3deg(self):
+        f = self.f
+        end = np.asarray(f.plan['joint_waypoints_rad'][-1])
+        target = f.c.models['right'].wrist_transform(end, 12.) @ f.f.tcp
+        f.plan['correction'] = dict(joint_waypoints_rad=f.plan['joint_waypoints_rad'],
+            target_base_from_tool=target.tolist(), column_checked=True,
+            timing={'status': 'timed_preview'})
+        f.plan['refinement'] = dict(status='correction_required',
+            correction_target_base_from_tool=target.tolist())
+        original = copy.deepcopy(f.policies)
+        step = f.prepare()
+        np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 2., 2., 2.])
+        step.monitor.begin_settling(f.c.clock())
+        np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 3., 3., 3.])
+        for key in ('max_speed', 'settle_s', 'timeout_s', 'stall_s', 'max_age_s'):
+            self.assertEqual(step.monitor.arm_policy[key], original['pick']['arm_policy'][key])
+        self.assertEqual(f.policies, original)
+        self.assertEqual(f.f.adapter.calls, [])
+
+
+    def test_correction_accepts_recorded_2point016deg_residual(self):
+        from scipy.spatial.transform import Rotation
+        from unittest.mock import patch
         f = self.f
         end = np.asarray(f.plan['joint_waypoints_rad'][-1])
         target = f.c.models['right'].wrist_transform(end, 12.) @ f.f.tcp
@@ -42,9 +64,19 @@ class PregraspToleranceTests(unittest.TestCase):
         f.plan['refinement'] = dict(status='correction_required',
             correction_target_base_from_tool=target.tolist())
         step = f.prepare()
-        np.testing.assert_array_equal(step.monitor.arm.tolerance, [5., 5., 5., 1.5, 1.5, 1.5])
+        step.monitor.begin_settling(f.c.clock())
+        actual = target.copy()
+        actual[:3, 3] += np.array([-.574, -1.662, 1.442]) / 1000
+        actual[:3, :3] = target[:3, :3] @ Rotation.from_rotvec(
+            np.radians([-2.016, -.264, -.598])).as_matrix()
+        with patch.object(f.c.models['right'], 'wrist_transform',
+                          return_value=actual @ np.linalg.inv(f.f.tcp)):
+            for t in (10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8):
+                f.f.feedback(t)
+                receipt = step.monitor.update(f.c.snapshot(), t, ready=True)
+        self.assertEqual(receipt['status'], 'ready_to_close')
+        self.assertFalse(receipt['stop_required'])
         self.assertEqual(f.f.adapter.calls, [])
-
 
 if __name__ == '__main__':
     unittest.main()
