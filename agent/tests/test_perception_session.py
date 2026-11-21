@@ -114,7 +114,7 @@ class PerceptionTests(unittest.TestCase):
         row=dict(candidate_id=1,bbox_xyxy=[2,3,20,30],score=.8)
         mask=np.zeros((100,100),bool);mask[21:40,30:50]=True
         for local,qwen_ok,region in ((True,False,True),(False,True,True),
-                                     (False,False,True),(False,False,False)):
+                                     (False,False,True),(False,False,False),(False,'error',True),(False,'error',False)):
             with self.subTest(local=local,qwen_ok=qwen_ok,region=region), tempfile.TemporaryDirectory() as td:
                 root=Path(td);Image.new('RGB',(100,100)).save(root/'rgb.jpg')
                 np.savez(root/'frame.npz',camera_id='d405')
@@ -125,6 +125,9 @@ class PerceptionTests(unittest.TestCase):
                 pipeline.QwenJudge=Mock(return_value=SimpleNamespace(records=[]))
                 def qwen(*args,**kwargs):
                     calls.append('qwen')
+                    if qwen_ok=='error':
+                        from agent.contracts import AgentError
+                        raise AgentError('model_protocol_error','Invalid visual report')
                     return dict(status='perception_accepted' if qwen_ok else 'needs_new_observation',
                                 selection=dict(status='selected' if qwen_ok else 'not_found'))
                 pipeline.run_frame=Mock(side_effect=qwen)
@@ -143,12 +146,39 @@ class PerceptionTests(unittest.TestCase):
                      patch('agent.perception_worker.validate_frame'), \
                      patch('agent.perception_worker.local_choice',side_effect=choose):
                     report=worker.segment(params)
-                expected='local_candidate' if local else ('qwen_fallback' if qwen_ok or not region else 'codex_region_local_detection')
+                expected='local_candidate' if local else ('qwen_fallback' if qwen_ok is True or not region else 'codex_region_local_detection')
                 self.assertEqual(report['path'],expected)
-                self.assertEqual(calls,['detect'] if local else (['detect','qwen'] if qwen_ok or not region else ['detect','qwen','detect']))
+                self.assertEqual(calls,['detect'] if local else (['detect','qwen'] if qwen_ok is True or not region else ['detect','qwen','detect']))
                 if not local:
                     self.assertEqual(pipeline.run_frame.call_args.args[4],'chosen task')
                     self.assertFalse(pipeline.run_frame.call_args.kwargs['review_mask'])
+
+    def test_qwen_requires_named_report_and_retains_invalid_reply_diagnostics(self):
+        import importlib.util,sys,types
+        from agent.contracts import AgentError
+        from agent.perception_worker import VISION
+        target=types.ModuleType('target');target.DINO_PROMPT=target.TASK='fixture'
+        target.shape_view=lambda im:im;target.load_reference=lambda:None
+        spec=importlib.util.spec_from_file_location('structured_qwen_pipeline',VISION/'pipeline.py')
+        pipeline=importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules,target=target):spec.loader.exec_module(pipeline)
+        judge=pipeline.QwenJudge.__new__(pipeline.QwenJudge)
+        judge.client=Mock();judge.records=[]
+        judge.client.complete.return_value={'role':'assistant','content':'plain response'}
+        with self.assertRaises(AgentError) as caught:
+            judge.ask('fixture',[],{'status':{'type':'string'}},['status'])
+        self.assertEqual(caught.exception.code,'model_protocol_error')
+        self.assertEqual(judge.client.complete.call_count,2)
+        self.assertEqual(judge.client.complete.call_args.kwargs['tool_name'],'report_visual_result')
+        self.assertEqual([r['tool_call_count'] for r in judge.records],[0,0])
+        judge.client.complete.return_value={'tool_calls':[{'function':{
+            'name':'report_visual_result','arguments':'{"status":"not_found"}'}}]}
+        self.assertEqual(judge.ask('fixture',[],{'status':{'type':'string'}},['status']),{'status':'not_found'})
+        judge.client.complete.return_value={'tool_calls':[{'function':{
+            'name':'report_visual_result','arguments':'{"status":123}'}}]}
+        with self.assertRaises(AgentError) as caught:
+            judge.ask('fixture',[],{'status':{'type':'string'}},['status'])
+        self.assertEqual(caught.exception.code,'model_protocol_error')
 
     def test_session_is_lazy_and_close_releases_the_task_child(self):
         with tempfile.TemporaryDirectory() as root:

@@ -38,15 +38,17 @@ class QwenClient:
     def __init__(self, config, profile='cloud'):
         self.config, self.profile_name = config, profile
 
-    def complete(self, messages, tools, *, parallel_tool_calls=None):
+    def complete(self, messages, tools, *, parallel_tool_calls=None, tool_name=None):
         if parallel_tool_calls is not None and type(parallel_tool_calls) is not bool:
             raise ValueError('Invalid tool calling policy')
+        if tool_name is not None and not any(t.get('function',{}).get('name')==tool_name for t in tools):
+            raise ValueError('Requested tool is not declared')
         profile = self.config.profile(self.profile_name)
         payload = {'model': profile['model'], 'messages': messages,
                    'stream': profile.get('stream', False), 'enable_thinking': profile.get('enable_thinking', False),
                    'max_tokens': self.config.max_output_tokens}
         if tools:
-            payload.update(tools=tools, tool_choice='auto',
+            payload.update(tools=tools, tool_choice=({'type':'function','function':{'name':tool_name}} if tool_name is not None else 'auto'),
                            parallel_tool_calls=(self.profile_name == 'cloud') if parallel_tool_calls is None else parallel_tool_calls)
         headers = {'Content-Type': 'application/json', 'Accept': 'text/event-stream' if payload['stream'] else 'application/json'}
         if profile['api_key']:

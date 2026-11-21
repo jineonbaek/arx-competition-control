@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 from .storage import atomic_json
+from .contracts import AgentError
 from .grasp_geometry import rigid,validate_frame
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -116,9 +117,15 @@ class Models:
                 self.head_target if camera=='d405' else None)
         if chosen is None:
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
-            report=run_frame(self.vision,judge,image,load_reference(),qwen_task,output,camera=camera,
-                             review_mask=False,dino_prompt=dino_prompt)
-            atomic_json(output/'qwen-reports.json',judge.records)
+            try:
+                report=run_frame(self.vision,judge,image,load_reference(),qwen_task,output,camera=camera,
+                                 review_mask=False,dino_prompt=dino_prompt)
+            except AgentError as error:
+                if error.code not in ('model_protocol_error','model_http_error','model_unavailable'):raise
+                report=dict(status='needs_new_observation',selection=dict(status='not_found'),
+                            qwen_error=dict(code=error.code,message=error.message),candidates=candidates)
+            finally:
+                atomic_json(output/'qwen-reports.json',judge.records)
             report['path']='qwen_fallback'
         if chosen is None and report.get('status')!='perception_accepted' and args.get('search_region'):
             from .codex_recovery import box,pixels

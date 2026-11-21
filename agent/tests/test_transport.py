@@ -125,9 +125,10 @@ class TransportTests(unittest.TestCase):
         with Server(lambda p,b:response(body)) as server:
             cfg=Config(profiles={'cloud':{'model':'fixture','base_url':server.url,'stream':False}})
             reply=QwenClient(cfg).complete([], [{'type':'function','function':{'name':'report_visual_result'}}],
-                                           parallel_tool_calls=False)
+                                           parallel_tool_calls=False,tool_name='report_visual_result')
             payload=json.loads(server.requests[0][2])
             self.assertFalse(payload['parallel_tool_calls'])
+            self.assertEqual(payload['tool_choice'],{'type':'function','function':{'name':'report_visual_result'}})
             self.assertEqual(reply['tool_calls'][0]['function']['name'],'report_visual_result')
 
     def test_partial_stream_is_not_a_complete_model_reply(self):
