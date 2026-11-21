@@ -76,7 +76,8 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     model=controller.models['right'];reach=model.reach+np.linalg.norm(tcp[:3,3])
     approach=operation=='execute_battery_approach'
     direct = not approach and direct_plan(plan)
-    if (not approach and not direct and plan.get('vision_mode') not in ('d435','fixed')
+    if (not approach and not direct and not plan.get('cached_target')
+            and plan.get('vision_mode') not in ('d435','fixed')
             and plan.get('refinement',{}).get('status')!='aligned'):
         raise ValueError('Post-approach fresh observation and alignment required')
     points=np.asarray(plan['joint_waypoints_rad'],float)

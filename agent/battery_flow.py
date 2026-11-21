@@ -42,6 +42,36 @@ class BatteryFlow:
         self.flow.update(phase=phase,index=self.flow['index']+1)
         self.flow.pop('pending_since',None);self.flow.pop('command',None);self.store.save()
 
+    def _cache_target(self,plan):
+        if self.vision_mode!='plan_f' or fast_requested(self.store) or plan.get('status')!='kinematic_preview':return
+        source='B' if self.store.state['mission'].get('approach_plan') else 'A'
+        cache=self.flow.setdefault('target_cache',{})
+        if source not in cache:
+            cache[source]=dict(plan=copy.deepcopy(plan),preview_file=self.store.state['grasp_preview'])
+            self.store.save()
+            self.store.event('target_cache_saved',dict(source=source,observation_id=plan['observation_id'],
+                plan_id=plan['plan_id'],name='保存缓存目标 '+source+'，观察 '+plan['observation_id']))
+
+    def _visual_call(self,name,args,success):
+        try:
+            data=self._call(name,args)
+            if success and data.get('status')!=success:
+                raise AgentError('vision_failed',data.get('message') or data.get('status','vision_failed'))
+            return data
+        except Exception as error:
+            if (self.vision_mode!='plan_f' or fast_requested(self.store) or self.store.cancelled
+                    or self.store.state.get('pending') or not self.store.state['mission'].get('approach_plan')
+                    or not self.flow.get('target_cache')
+                    or isinstance(error,AgentError) and error.code not in
+                       ('vision_failed','preview_failed','pick_plan_failed','observation_budget','stage_not_ready',
+                        'post_action_evidence_required','stale_observation','stale_snapshot','scene_changed')):
+                raise
+            self.flow['fallback_reason']=str(error)[:300]
+            self.store.event('target_cache_fallback',dict(phase=self.flow['phase'],reason=str(error)[:300],
+                name='视觉失败，转缓存兜底：'+str(error)[:300]))
+            self._next('cached_replan')
+            return None
+
     def _call(self,name,args):
         if self.store.cancelled:raise AgentError('cancelled','Task cancelled; no automatic resume')
         command=self.flow.setdefault('command',dict(name=name,arguments=copy.deepcopy(args)))
@@ -142,23 +172,46 @@ class BatteryFlow:
                                'fixed_pick_plan' if self.vision_mode=='fixed' else
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
                 elif phase=='wrist':
-                    data=self._call('observe_battery',{'camera':'d405'})
-                    if data.get('status')!='localized':return self._finish('needs_attention',data.get('status','wrist_failed'))
+                    data=self._visual_call('observe_battery',{'camera':'d405'},'localized')
+                    if data is None:continue
                     self.flow['wrist']=data['observation_id'];self._next('preview')
                 elif phase=='preview':
                     observation=self.flow['head'] if self.vision_mode=='d435' else self.flow['wrist']
-                    data=self._call('preview_battery_grasp',dict(observation_id=observation,clearance_mm=self.flow['clearance_mm']))
-                    if data.get('status')!='preview_complete':return self._finish('needs_attention',data.get('status','preview_failed'))
+                    data=self._visual_call('preview_battery_grasp',dict(observation_id=observation,clearance_mm=self.flow['clearance_mm']),'preview_complete')
+                    if data is None:continue
                     self.flow['wrist']=data['observation_id']
                     self._next('coarse_plan' if self.vision_mode=='d435' else 'pick_plan')
                 elif phase=='pick_plan':
-                    data=self._call('plan_battery_pick',{'observation_id':self.flow['wrist']})
+                    data=self._visual_call('plan_battery_pick',{'observation_id':self.flow['wrist']},None)
+                    if data is None:continue
+                    self._cache_target(data)
                     self.flow['plan_id']=data.get('plan_id')
                     stage=self.store.state['mission']['stage']
                     if stage=='PICK_PLANNED':self._next('insert')
                     elif stage in ('PICK_APPROACH_PLANNED','PICK_CORRECTION_PLANNED'):self._next('approach_execute')
                     elif data.get('refinement',{}).get('status')=='reacquire_required':self._next('wrist')
                     else:return self._finish('needs_attention',data.get('status','planning_incomplete'))
+                elif phase=='cached_replan':
+                    attempt=self.flow.get('fallback_attempts',0)+1
+                    if attempt>3:
+                        return self._finish('needs_attention','缓存兜底三次规划失败：'+self.flow.get('fallback_error','')+
+                                            '；原视觉错误：'+self.flow.get('fallback_reason',''))
+                    source='B' if attempt==1 and 'B' in self.flow['target_cache'] else 'A'
+                    self.flow['fallback_attempts']=attempt;self.store.save()
+                    self.store.event('target_cache_retry',dict(attempt=attempt,limit=3,source=source,status='planning',
+                        name=f'缓存兜底 {attempt}/3：使用 {source} 重新规划'))
+                    try:
+                        data=self.tools.replan_cached_target(source,'cached_'+str(attempt))
+                        self._review('execute_pick')
+                    except Exception as error:
+                        self.flow['fallback_error']=str(error)[:300]
+                        self.store.event('target_cache_retry',dict(attempt=attempt,source=source,status='failed',reason=str(error)[:300],
+                            name=f'缓存兜底 {attempt}/3，{source} 规划失败：'+str(error)[:300]))
+                        self._next('cached_replan');continue
+                    self.flow['plan_id']=data['plan_id']
+                    self.store.event('target_cache_retry',dict(attempt=attempt,source=source,status='planned',plan_id=data['plan_id'],
+                        name=f'缓存兜底 {attempt}/3，{source} 规划通过，进入原插入流程'))
+                    self._next('insert')
                 elif phase=='hold_capture':
                     # Compatibility for a run persisted by the earlier visual-verification flow.
                     self._next('verify_hold')

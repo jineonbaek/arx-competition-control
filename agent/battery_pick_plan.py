@@ -10,16 +10,17 @@ from .fast_pick import fast_requested
 from .storage import atomic_json
 
 
-def plan(registry,observation_id,call_id,setup=None):
+def plan(registry,observation_id,call_id,setup=None,*,cached=None):
     store=registry.store
     store.state.pop('battery_pick_plan',None)
     store.save()
-    relative=store.state.get('grasp_preview')
+    relative=cached['preview_file'] if cached else store.state.get('grasp_preview')
     if not relative:raise ValueError('本轮尚无已通过复核的位姿与点云预览')
     path=(store.path/relative).resolve()
     if not path.is_relative_to(store.path):raise ValueError('预览证据路径无效')
     blob=path.read_bytes();digest=hashlib.sha256(blob).hexdigest()
-    if digest!=store.state.get('grasp_preview_sha256'):raise ValueError('预览证据已变化，请重新计算')
+    expected=cached['plan']['preview_sha256'] if cached else store.state.get('grasp_preview_sha256')
+    if digest!=expected:raise ValueError('预览证据已变化，请重新计算')
     evidence=json.loads(blob)
     observation=store.observation(observation_id)
     camera=observation.get('camera_id','d405')
@@ -57,7 +58,7 @@ def plan(registry,observation_id,call_id,setup=None):
         if str(frame.get('camera_id','d405'))!=camera or geometry['snapshot_id']!=str(frame['id']):
             raise ValueError('预览与冻结 '+camera.upper()+' 快照不一致')
         q=np.asarray(frame['joints'],float);lift=float(frame['lift_rad'])
-    if camera=='d435':
+    if camera=='d435' or cached:
         snapshot=registry.backends.controller.snapshot()
         q=np.asarray(snapshot['arms']['right']['joints'],float)
         lift=float(snapshot['body']['height'])
@@ -103,6 +104,12 @@ def plan(registry,observation_id,call_id,setup=None):
             T_wrist_from_tool=tcp.tolist(),R_base_from_tool=tool_rotation.tolist(),
             actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
+    if cached:
+        # Keep the original target/evidence binding; only the measured start and trajectory change.
+        for key in ('observation_id','snapshot_id','scene_sha256','preview_sha256','profile_sha256',
+                    'handeye_sha256','urdf_sha256','control_config_sha256','pick_setup_sha256'):
+            if result.get(key)!=cached['plan'].get(key):
+                raise ValueError('缓存目标证据或标定已变化：'+key)
     if camera=='d405' and not plan_f and handoff.get('quality',{}).get('status')!='consistent':
         result['handoff_advisory']='D435/D405 跨相机质量仅为警告；执行仍依赖 D405 位姿和路径检查'
     output=store.path/'pick-plans'/call_id/'result.json'

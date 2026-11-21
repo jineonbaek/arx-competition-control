@@ -80,6 +80,16 @@ class BatteryExecutionTools(WorkflowTools):
         self.store.state['battery_pick_plan_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
         self.store.save()
 
+    def replan_cached_target(self,source,call_id):
+        cached=self.store.state['battery_flow']['target_cache'][source]
+        result=plan_battery_pick(self,cached['plan']['observation_id'],call_id,
+                                self.pick_setup,cached=cached)
+        result.update(plan_id='pick_'+hashlib.sha256((self.store.state['run_id']+':'+call_id).encode()).hexdigest()[:24],
+                      cached_target=dict(source=source,source_plan_id=cached['plan']['plan_id']))
+        self.store.state['mission'].update(stage='PICK_PLANNED',plan=copy.deepcopy(result))
+        self._save_pick_plan(result)
+        return result
+
     def _operation(self,name,arguments,call_id,mission):
         if name in ('stow_for_carry','return_to_carry') and arguments['plan_id']!=(mission.data.get('plan') or {}).get('plan_id'):
             raise AgentError('plan_missing','抽出和运输姿态动作必须使用本轮夹取计划')
@@ -100,16 +110,24 @@ class BatteryExecutionTools(WorkflowTools):
             except (OSError,ValueError,KeyError,TypeError) as error:
                 raise AgentError('plan_changed','计划或 TCP 已变化，必须重新观察和规划') from error
             fixed=plan.get('vision_mode')=='fixed'
+            cached=plan.get('cached_target')
+            if cached:
+                original=self.store.state['battery_flow']['target_cache'][cached['source']]['plan']
+                if (self.vision_mode!='plan_f' or cached['source_plan_id']!=original['plan_id']
+                        or plan['observation_id']!=original['observation_id']
+                        or plan['preview_sha256']!=original['preview_sha256']):
+                    raise AgentError('plan_changed','缓存目标不属于本轮已保存的结果')
             camera='d435' if plan.get('vision_mode')=='d435' else 'd405'
-            if not fixed and plan.get('observation_id')!=self._localized(camera):
+            if not fixed and not cached and plan.get('observation_id')!=self._localized(camera):
                 raise AgentError('stale_observation','计划不再对应最新 '+camera.upper()+' 观察')
-            if (not fixed and camera=='d405'
+            if (not fixed and not cached and camera=='d405'
                     and not (self.vision_mode=='plan_f' and self._wrist_stage()=='COARSE_ALIGNED')):
                 self._post_stage_observation(plan['observation_id'],self._wrist_stage(),camera)
             if (plan.get('arm')!='right' or any(plan.get(k) is not True for k in
                     ('executable','ik_checked','collision_checked','collision_free','environment_collision_checked'))):
                 raise AgentError('plan_not_verified','缺少完整路径、环境碰撞或执行适配证据')
             if (name=='execute_pick' and not fixed and camera=='d405'
+                    and not cached
                     and not (direct_plan(plan) and stopped_for_fast_pick(self.store))
                     and plan.get('refinement',{}).get('status')!='aligned'):
                 raise AgentError('reobservation_required','必须先到预抓位，再用新画面确认对位')
