@@ -124,4 +124,5 @@ class FastCompetitionTests(unittest.TestCase):
         with patch('agent.fast_pick.enter_pregrasp_refinement') as enter,patch('agent.fast_pick.prepare_pregrasp') as move:
             task._run_task(state,flow)
         enter.assert_called_once_with(flow,123.);move.assert_not_called()
+        flow._next.assert_called_once_with('fast_center')
         task._prepare_plan_f_lift.assert_called_once_with(state,flow)

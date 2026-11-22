@@ -18,13 +18,14 @@ from .grasp_path import plan_correction
 from web.src.handeye_column import ColumnModel
 from .grasp_geometry import ROOT
 
-EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick','execute_battery_approach','execute_pick','capture_grasp_scene','verify_hold','stow_for_carry','return_to_carry'}
+EXECUTION_TOOLS=WORKFLOW_TOOLS|{'execute_coarse_alignment','get_execution_status','plan_battery_pick','execute_battery_approach','execute_pick','capture_grasp_scene','verify_hold','stow_for_carry','return_to_carry','close_centered_handle'}
 
 
 class BatteryExecutionTools(WorkflowTools):
     observation_limit=3
     schemas={k:v for k,v in WorkflowTools.schemas.items() if k in WORKFLOW_TOOLS}
     schemas.update(capture_grasp_scene=object_schema(),verify_hold=object_schema(),plan_battery_pick=object_schema({'observation_id':TEXT},['observation_id']),
+                   close_centered_handle=object_schema({'plan_id':TEXT},['plan_id']),
                    execute_battery_approach=object_schema({'plan_id':TEXT},['plan_id']),
                    execute_pick=ToolRegistry.schemas['execute_pick'],
                    stow_for_carry=object_schema({'plan_id':TEXT},['plan_id']),
@@ -32,7 +33,8 @@ class BatteryExecutionTools(WorkflowTools):
                    execute_coarse_alignment=object_schema({'plan_id':TEXT},['plan_id']),
                    get_execution_status=ToolRegistry.schemas['get_execution_status'])
     descriptions={k:v for k,v in WorkflowTools.descriptions.items() if k in WORKFLOW_TOOLS}
-    descriptions.update(capture_grasp_scene='Freeze D405 RGB-D without movement.',verify_hold='Confirm retention from fresh right-gripper feedback and the configured caught-battery range.',plan_battery_pick='Plan insertion along the battery approach axis from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
+    descriptions.update(close_centered_handle='Close at the taught fast point after the current Qwen jaw-region report; no arm motion.',
+        capture_grasp_scene='Freeze D405 RGB-D without movement.',verify_hold='Confirm retention from fresh right-gripper feedback and the configured caught-battery range.',plan_battery_pick='Plan insertion along the battery approach axis from this run reviewed D405 preview. Uses only locally configured calibrated TCP and limits; returns TCP pending when absent. No movement or execution permission.',
         execute_battery_approach='Execute a locally verified approach or bounded correction, then require a new D405 scene. Never closes the gripper.',
         execute_pick=ToolRegistry.descriptions['execute_pick'],
         stow_for_carry='After confirmed grasp, keep the gripper closed, arm joints and lift unchanged; reverse the chassis 200 mm and stop.',
@@ -44,8 +46,11 @@ class BatteryExecutionTools(WorkflowTools):
     def __init__(self,config,store,observations=None,backends=None,*,allowed_tools=None,pick_setup=None,refinement_policy=None):
         if config.services or (config.motion_enabled and backends is None):
             raise ValueError('An explicitly prepared local execution backend is required')
-        ToolRegistry.__init__(self,config,store,observations,backends,
-                              allowed_tools=EXECUTION_TOOLS if allowed_tools is None else allowed_tools)
+        if allowed_tools is None:
+            allowed_tools=EXECUTION_TOOLS
+            if store.state.get('battery_task_settings',{}).get('pickup_flow')!='competition_fast':
+                allowed_tools=allowed_tools-{'close_centered_handle'}
+        ToolRegistry.__init__(self,config,store,observations,backends,allowed_tools=allowed_tools)
         self.pick_setup=copy.deepcopy(pick_setup)
         self.refinement_policy=copy.deepcopy(refinement_policy)
         self.vision_mode=store.state.get('battery_task_settings',{}).get('vision_mode','d405')
@@ -92,6 +97,14 @@ class BatteryExecutionTools(WorkflowTools):
         return result
 
     def _operation(self,name,arguments,call_id,mission):
+        if name=='close_centered_handle':
+            report=self.store.state.get('fast_handle_center',{})
+            plan=mission.data.get('plan') or {}
+            if (self.store.state.get('battery_task_settings',{}).get('pickup_flow')!='competition_fast'
+                    or report.get('centered') is not True or plan.get('kind')!='stationary_handle_close'
+                    or plan.get('observation_id')!=report.get('observation_id')
+                    or arguments['plan_id']!=plan.get('plan_id')):
+                raise AgentError('plan_missing','Current fast-mode handle-center report required')
         if name in ('stow_for_carry','return_to_carry') and arguments['plan_id']!=(mission.data.get('plan') or {}).get('plan_id'):
             raise AgentError('plan_missing','抽出和运输姿态动作必须使用本轮夹取计划')
         if name in ('execute_battery_approach','execute_pick'):

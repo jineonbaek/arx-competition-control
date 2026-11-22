@@ -189,6 +189,19 @@ class BatteryFlow:
                     self._next('verify_hold' if phase=='insert' else
                                'fixed_pick_plan' if self.vision_mode=='fixed' else
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
+                elif phase=='fast_center':
+                    from .fast_center import judge_handle
+                    if judge_handle(self.tools):
+                        identity=self.store.state['fast_handle_center']['observation_id']
+                        self.store.state['mission'].update(stage='FAST_HANDLE_CENTERED',
+                            target=dict(target_id=identity,camera='d405',observation_id=identity),
+                            plan=dict(plan_id='center_close_'+identity,arm='right',
+                                      kind='stationary_handle_close',observation_id=identity))
+                        self._next('fast_close')
+                    else:self._next('wrist')
+                elif phase=='fast_close':
+                    self._call('close_centered_handle',{'plan_id':self.store.state['mission']['plan']['plan_id']})
+                    self._next('verify_hold')
                 elif phase=='wrist':
                     data=self._visual_call('observe_battery',{'camera':'d405'},'localized')
                     if data is None:continue

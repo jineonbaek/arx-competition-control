@@ -590,6 +590,7 @@ class BatteryTask:
                 if settings.get('pickup_flow')=='competition_fast':
                     from agent.fast_pick import enter_pregrasp_refinement
                     enter_pregrasp_refinement(flow,settings['fast_pregrasp_completed_at'])
+                    flow._next('fast_center')
             result=flow.run()
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:

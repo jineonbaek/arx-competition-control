@@ -6,6 +6,7 @@ from .contracts import AgentError
 
 # operation: (allowed source stages, next stage, sends physical commands)
 OPERATIONS = {
+    "close_centered_handle": (("FAST_HANDLE_CENTERED",), "PICK_EXECUTED", True),
     "execute_battery_approach": (("PICK_APPROACH_PLANNED", "PICK_CORRECTION_PLANNED"), "PICK_AT_PREGRASP", True),
     "execute_coarse_alignment": (("COARSE_PLANNED",), "COARSE_ALIGNED", True),
     "generate_grasp_candidates": (("TARGET_IDENTIFIED", "GRASP_CANDIDATE_READY", "PICK_PLANNED"), "GRASP_CANDIDATE_READY", False),
@@ -92,6 +93,9 @@ class Mission:
             if any(key in data and data[key] != arguments[key] for key in ('candidate_id', 'arm')):
                 raise AgentError('plan_identity_conflict', 'Planner result contradicts requested candidate or arm')
             self.data["plan"] = dict(data, candidate_id=arguments["candidate_id"], arm=arguments["arm"])
+        elif operation == "close_centered_handle":
+            if data.get('gripper_settled') is not True:
+                raise AgentError('operation_not_confirmed','Gripper closure has not completed')
         elif operation == "verify_hold":
             feedback=data.get('gripper_feedback');bounds=data.get('gripper_feedback_range')
             feedback_ok=(data.get('gripper_feedback_in_range') is True

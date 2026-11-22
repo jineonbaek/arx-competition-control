@@ -18,15 +18,16 @@ from .pick_backend import (CoarseExecutionBackend,ApproachExecutionBackend,PickE
     ExtractionExecutionBackend,CarryReturnExecutionBackend)
 from .battery_extract import WristExtractionStep,CarryReturnStep
 from .storage import atomic_json
+from .fast_center import CenteredCloseBackend,CenteredCloseStep
 
 BACKENDS={c.operation:c for c in (CoarseExecutionBackend,ApproachExecutionBackend,PickExecutionBackend,
-    ExtractionExecutionBackend,CarryReturnExecutionBackend)}
+    ExtractionExecutionBackend,CarryReturnExecutionBackend,CenteredCloseBackend)}
 
 class BatteryControllerBackend:
     def __init__(self,controller,token,store,*,policies,pick_setup,preflight,cancelled,timeout_s):
         if store.closed or not callable(preflight) or not callable(cancelled):
             raise ValueError('Open run and local preflight/cancellation required')
-        if set(timeout_s)!=set(BACKENDS)-{'stow_for_carry','return_to_carry'} or any(type(t) not in (int,float) or not math.isfinite(t)
+        if set(timeout_s)!=set(BACKENDS)-{'stow_for_carry','return_to_carry','close_centered_handle'} or any(type(t) not in (int,float) or not math.isfinite(t)
                                                or not 0<t<=3600 for t in timeout_s.values()):
             raise ValueError('Finite deadlines required for all execution stages')
         self.controller=controller;self.token=token;self.store=store
@@ -36,6 +37,9 @@ class BatteryControllerBackend:
         self.entries={};self.lock=Lock();self.cancelled_here=False
 
     def available(self,operation):
+        if (operation=='close_centered_handle' and
+                self.store.state.get('battery_task_settings',{}).get('pickup_flow')!='competition_fast'):
+            return False
         if operation=='verify_hold':
             return (callable(getattr(self.controller,'snapshot',None)) and not self.store.closed
                     and len(self.policies.get('pick',{}).get('hold_gripper_range',[]))==2)
@@ -256,7 +260,9 @@ class BatteryControllerBackend:
                     saved=json.loads(journal.read_text())
                     if saved['receipt']['status'] not in ('completed','rejected'):
                         raise ValueError('Earlier execution requires recovery')
-                if operation=='stow_for_carry':
+                if operation=='close_centered_handle':
+                    step=CenteredCloseStep(self.controller,self.token,self.policies['pick'])
+                elif operation=='stow_for_carry':
                     step=WristExtractionStep(self.controller,self.token)
                 elif operation=='return_to_carry':
                     step=CarryReturnStep(self.controller,self.token,
