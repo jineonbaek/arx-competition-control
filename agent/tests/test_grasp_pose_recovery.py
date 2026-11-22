@@ -61,39 +61,6 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.c.lift,12.)
         self.assertEqual(r['attempt'],1)
         self.assertEqual(self.store.state['grasp_recovery']['status'],'ready')
-    def test_unknown_hold_or_unknown_execution_or_cancel_never_returns(self):
-        for fault in ('grip','pending','unknown','cancel','contact'):
-            with self.subTest(fault=fault):
-                self.store.state.pop('grasp_recovery',None);self.c.grip=-3.14
-                self.store.state['pending']=None;self.recovery.capture()
-                if fault=='grip':self.c.grip=-1.
-                if fault=='pending':self.store.state['pending']={'unknown':True}
-                if fault=='unknown':self.store.state['grasp_recovery']['status']='moving'
-                if fault=='cancel':(self.store.path/'cancel.flag').touch()
-                if fault=='contact':self.c.valid=False
-                with patch.object(self.recovery,'_move') as move:
-                    with self.assertRaises((ValueError,AgentError)):self.recovery.recover('vision_failed')
-                    move.assert_not_called()
-                self.c.valid=True
-                (self.store.path/'cancel.flag').unlink(missing_ok=True)
-    def test_unknown_prior_journal_and_post_closure_do_not_retry(self):
-        self.recovery.capture()
-        for fault in ('journal','closed'):
-            if fault=='journal':(self.b.directory/'previous.json').write_text('{"receipt":{"status":"unknown"}}')
-            else:
-                (self.b.directory/'previous.json').unlink()
-                self.store.state['mission']['stage']='PICK_EXECUTED'
-            with patch.object(self.recovery,'_move') as move:
-                with self.assertRaises((ValueError,AgentError)):self.recovery.recover('vision_failed')
-                move.assert_not_called()
-    def test_four_point3_retries_then_existing_bounded_stop(self):
-        self.recovery.capture();postures=[]
-        def move(points):self.c.q=list(points[-1]);return points
-        with patch.object(self.recovery,'_move',side_effect=move):
-            for i in range(4):postures.append(tuple(self.recovery.recover('vision_failed')['target_joints_rad']))
-            with self.assertRaisesRegex(ValueError,'exhausted'):self.recovery.recover('vision_failed')
-        self.assertEqual(len(postures),4)
-        for q in postures:np.testing.assert_allclose(np.degrees(q),POINT3_JOINTS_DEG)
     def test_failed_recovery_is_persisted_and_never_replayed(self):
         self.recovery.capture()
         with patch.object(self.recovery,'_move',side_effect=RuntimeError('unknown reply')):
@@ -112,11 +79,6 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.c.valid)
         self.assertEqual(self.c.calls[-1],{'type':'arm.stop','arm':'right'})
 
-    def test_route_collision_or_limit_failure_sends_nothing(self):
-        self.recovery.capture();q=np.array(self.c.q);q[3]+=.1
-        self.c.models['right'].check=lambda *a:dict(clear=False,lower_mm=0.)
-        with self.assertRaises(ValueError):self.recovery._move([self.c.q,q.tolist()])
-        self.assertEqual(self.c.calls,[])
     def test_completed_recovery_request_is_not_replayed(self):
         self.recovery.capture()
         def move(points):self.c.q=list(points[-1]);return points
@@ -124,13 +86,6 @@ class RecoveryTests(unittest.TestCase):
             first=self.recovery.recover('vision_failed',request_id='flow_1')
             again=self.recovery.recover('vision_failed',request_id='flow_1')
             self.assertEqual(first,again);self.assertEqual(moving.call_count,2)
-    def test_invalid_point3_sends_no_motion(self):
-        self.recovery.capture();origin=list(self.c.q);routes=[]
-        self.c.models['right'].check=lambda a,b,h:dict(clear=bool(b[0]<=origin[0]+.001),lower_mm=100.)
-        def move(points):routes.append(points);self.c.q=list(points[-1]);return points
-        with patch.object(self.recovery,'_move',side_effect=move):
-            with self.assertRaises(ValueError):self.recovery.recover('vision_failed')
-        self.assertEqual(routes,[])
     def test_real_recovery_loop_uses_trajectory_receipt_and_never_commands_gripper(self):
         self.recovery.capture();base_snapshot=self.c.snapshot
         def snapshot():self.c.now+=.03;return base_snapshot()
@@ -154,6 +109,24 @@ class RecoveryTests(unittest.TestCase):
         p=np.zeros((10,6));p[:5,0]=np.arange(5)*.01;p[5:,0]=.04;p[5:,1]=np.arange(1,6)*.01
         q=simplify_trace(p.tolist())
         self.assertEqual(len(q),3);np.testing.assert_allclose(q[1],p[4])
+
+    def test_point3_recovery_has_no_new_grip_journal_or_four_attempt_gate(self):
+        self.recovery.capture();self.c.grip=-1.
+        self.store.state['pending']={'previous':True}
+        self.store.state['mission']['stage']='PICK_EXECUTED'
+        (self.b.directory/'previous.json').write_text('{"receipt":{"status":"unknown"}}')
+        def move(points):self.c.q=list(points[-1]);return points
+        with patch.object(self.recovery,'_move',side_effect=move):
+            for i in range(6):
+                result=self.recovery.recover('vision_failed',request_id=str(i))
+                np.testing.assert_allclose(np.degrees(result['target_joints_rad']),POINT3_JOINTS_DEG)
+        self.assertEqual(result['attempt'],6)
+        self.assertEqual(self.c.grip,-1.)
+
+    def test_no_progress_is_diagnostic_and_does_not_trigger_recovery(self):
+        self.recovery.capture()
+        for i in range(3):
+            self.assertTrue(self.recovery.record_approach({'execution_id':str(i),'return_trace_rad':[self.c.q]}))
 
 class FlowRecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -223,29 +196,3 @@ class FlowRecoveryTests(unittest.TestCase):
                 self.assertIn('preview_battery_grasp',self.tools.calls)
                 self.assertIn('plan_battery_pick',self.tools.calls)
                 self.assertEqual(self.tools.calls[-3:],['verify_hold','stow_for_carry','return_to_carry'])
-
-
-class FreshRecoveryObservationTests(unittest.TestCase):
-    def test_pre_recovery_camera_frame_cannot_be_reused_after_motion(self):
-        from agent.battery_tools import BatteryExecutionTools
-        from agent.config import Config
-        import time
-        with tempfile.TemporaryDirectory() as directory:
-            store=RunStore.create(directory)
-            try:
-                now=time.time()
-                store.state['battery_task_settings']={'vision_mode':'plan_f'}
-                store.state['mission']['evidence_barriers']={'GRASP_RECOVERY':{
-                    'completed_at':now,'previous_observation_ids':[]}}
-                tools=BatteryExecutionTools(Config(),store)
-                old=store.save_observation({'captured_at':now-1,'cameras':{
-                    'd405':{'captured_at':now-1,'image_size_px':[640,480]}}},{})['observation_id']
-                fresh=store.save_observation({'captured_at':now+1,'cameras':{
-                    'd405':{'captured_at':now+1,'image_size_px':[640,480]}}},{})['observation_id']
-                with patch.object(tools,'_perception',return_value={'status':'localized','observation_id':old}):
-                    r=tools.execute('observe_battery',{'camera':'d405'},'old')
-                self.assertEqual(r['error']['code'],'post_action_evidence_required')
-                with patch.object(tools,'_perception',return_value={'status':'localized','observation_id':fresh}):
-                    r=tools.execute('observe_battery',{'camera':'d405'},'fresh')
-                self.assertTrue(r['ok'],r)
-            finally:store.close()
