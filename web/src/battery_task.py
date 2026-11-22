@@ -15,6 +15,21 @@ from agent.battery_references import REFERENCES
 from agent import fast_pick
 
 
+FAST_HANDLE_QWEN_TASK=(
+    '当前是D405已到预抓点的近景。请以提供的图2、图4电池局部参考为外观依据，'
+    '在CURRENT实时图像中找到无人机电池外露端部的一体式刚性拉手；主要匹配拉手，不要只凭长方体电池外形选择。'
+    '参考中的拉手是紧贴电池端面的宽厚条桥，两端与电池端部连接，条桥与端面之间形成可供夹指进入的凹槽或开口。'
+    '结合条桥、槽口和相连端面的整体结构判断，不能把任意长条、凸起或矩形板都当作拉手。'
+    '优先选择紧凑地包含拉手及相连电池端面的候选；电池主体可以被遮挡或超出画面，不要求看到完整电池。'
+    '拉手和画面可能旋转或倾斜，不限定横向、竖向、画面中心或固定像素位置。'
+    '近处两侧的大型夹板、夹指及其黑色长条内衬是机器人夹爪，必须排除；'
+    '无人机机臂、起落架、螺旋桨、黄色机身边缘、空电池槽和地面也不是目标。'
+    '不要依赖小圆孔、颜色、标签、文字或打印纹理，不要求看到任何孔位。'
+    '参考图只用于比较结构，候选和位置必须以CURRENT为准。'
+    '候选仅包含夹爪内衬、机架或无法确认拉手连接关系时不要勉强选择；'
+    '存在疑似目标但无法可靠区分时返回 ambiguous，明确没有可见电池拉手或相连端部时返回 not_found。')
+
+
 DEFAULT_RECOGNITION_PROFILES={
     'handle':{
         'id':'handle','name':'把手方案（当前）',
@@ -480,6 +495,12 @@ class BatteryTask:
             if store is None:store=RunStore.create(self.root)
             if settings:
                 store.state['battery_task_settings']=copy.deepcopy(settings)
+                if settings.get('pickup_flow') in ('fast_plan_f','competition_fast'):
+                    profile=store.state['battery_task_settings']['recognition_profile']
+                    profile.update(id='fast-handle-near',name='快模式 · 图2/4把手近景',
+                        qwen_task=FAST_HANDLE_QWEN_TASK,
+                        reference_images={'first':['d405-02','d405-04'],
+                                          'reobserve':['d405-02','d405-04']})
                 store.save()
             flow=self.workflow_factory(store,self.controller,token,environment_clear)
         except Exception:

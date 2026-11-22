@@ -177,7 +177,13 @@ class FastEntryTests(unittest.TestCase):
                 try:
                     first=task.action('owner',request)
                     self.assertEqual(task.action('owner',request)['run_id'],first['run_id'])
-                    self.assertEqual(first['settings']['recognition_profile'],selected)
+                    profile=first['settings']['recognition_profile']
+                    from battery_task import FAST_HANDLE_QWEN_TASK
+                    self.assertEqual(profile['qwen_task'],FAST_HANDLE_QWEN_TASK)
+                    self.assertEqual(profile['dino_prompt'],selected['dino_prompt'])
+                    self.assertEqual(profile['reference_images'],dict(
+                        first=['d405-02','d405-04'],reobserve=['d405-02','d405-04']))
+                    self.assertEqual(task.task_settings['recognition_profile'],selected)
                     self.assertEqual(first['settings']['pickup_flow'],'fast_plan_f')
                     self.assertEqual(first['settings']['vision_mode'],'plan_f')
                     self.assertNotIn('pickup_flow',task.task_settings)
