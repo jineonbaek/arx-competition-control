@@ -3,6 +3,17 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 
+def _checked_inverse(model, start, lift, xyz, rpy, limits):
+    """Keep the clearance from this exact solve, never from another plan/pose."""
+    solve = getattr(model, 'inverse_wrist_with_clearance', None)
+    if callable(solve):
+        joints, clearance = solve(start, lift, xyz, rpy, limits)
+    else:
+        joints = model.inverse_wrist(start, lift, xyz, rpy, limits)
+        clearance = model.check(start, joints, lift)
+    return np.asarray(joints), clearance
+
+
 def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wrist_from_tool, limits_deg, *, timing_limits=None):
     if wrist_from_tool is None:
         return dict(status='tcp_pending',joint_waypoints_rad=None,wrist_pre_mm=None,wrist_end_mm=None,
@@ -28,16 +39,15 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
     points=np.linspace(pre,end,int(np.ceil(distance/2))+1)
     wrists=points-(wrist_rotation@tcp[:3,3])*1000
     # Approach is a separate joint-space proposal; only the insertion below has a straightness bound.
-    first=np.asarray(model.inverse_wrist(q,lift_rad,wrists[0],rpy,limits))
+    first,clearance=_checked_inverse(model,q,lift_rad,wrists[0],rpy,limits)
     waypoints=[first];position_bound=0.;angle_error=0.;clearances=[]
-    clearances.append(model.check(q,first,lift_rad))
+    clearances.append(clearance)
     for previous_point,target,target_wrist in zip(points[:-1],points[1:],wrists[1:]):
         a=waypoints[-1]
-        b=np.asarray(model.inverse_wrist(a,lift_rad,target_wrist,rpy,limits))
+        b,clearance=_checked_inverse(model,a,lift_rad,target_wrist,rpy,limits)
         dq=b-a
         if np.max(np.abs(dq))>np.radians(5):
             raise ValueError('Insertion IK branch jump or singular configuration')
-        clearance=model.check(a,b,lift_rad)
         clearances.append(clearance)
         endpoint_errors=[]
         for joints,point in ((a,previous_point),(b,target)):
@@ -90,11 +100,10 @@ def plan_correction(model,start_q,lift_rad,wrist_from_tool,target,limits_deg,*,t
         tool=actual.copy();tool[:3,3]+=t*displacement
         tool[:3,:3]=actual[:3,:3]@Rotation.from_rotvec(t*rotation).as_matrix()
         wrist=tool@np.linalg.inv(tcp)
-        angles=np.asarray(model.inverse_wrist(waypoints[-1],lift_rad,wrist[:3,3]*1000,
-            Rotation.from_matrix(wrist[:3,:3]).as_euler('xyz',degrees=True),limits_deg),float)
+        angles,check=_checked_inverse(model,waypoints[-1],lift_rad,wrist[:3,3]*1000,
+            Rotation.from_matrix(wrist[:3,:3]).as_euler('xyz',degrees=True),limits_deg)
         if np.max(np.abs(angles-waypoints[-1]))>np.radians(5):
             raise ValueError('Correction IK branch jump or singular configuration')
-        check=model.check(waypoints[-1],angles,lift_rad)
         if not check['clear']:raise ValueError('Correction path approaches central column')
         checks.append(check)
         if not np.array_equal(angles,waypoints[-1]):waypoints.append(angles)

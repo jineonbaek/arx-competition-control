@@ -49,12 +49,12 @@ class InsertTests(unittest.TestCase):
         from unittest.mock import patch
         q=np.radians([0,20,40,10,0,-90]);T=self.model.wrist_transform(q,12)
         pre=T[:3,3]*1000;end=pre+10*T[:3,0]
-        real=self.model.inverse_wrist;calls=[]
+        real=self.model.inverse_wrist_with_clearance;calls=[]
         def fail_later(*args):
             calls.append(1)
             if len(calls)==3:raise ValueError('middle waypoint unreachable')
             return real(*args)
-        with patch.object(self.model,'inverse_wrist',side_effect=fail_later):
+        with patch.object(self.model,'inverse_wrist_with_clearance',side_effect=fail_later):
             with self.assertRaisesRegex(ValueError,'middle'):plan_insert(self.model,q,12,pre,end,T[:3,:3],np.eye(4),self.limits)
         with patch.object(self.model,'check',return_value={'clear':False,'lower_mm':0}):
             with self.assertRaises(ValueError):plan_insert(self.model,q,12,pre,end,T[:3,:3],np.eye(4),self.limits)
@@ -62,7 +62,9 @@ class InsertTests(unittest.TestCase):
     def test_joint_branch_jump_is_rejected_even_if_ik_claims_success(self):
         from unittest.mock import patch
         q=np.radians([0,20,40,10,0,-90]);T=self.model.wrist_transform(q,12);pre=T[:3,3]*1000
-        with patch.object(self.model,'inverse_wrist',side_effect=[q,q+np.radians([0,0,0,0,0,10])]):
+        clearance={'clear':True,'lower_mm':100.}
+        with patch.object(self.model,'inverse_wrist_with_clearance',side_effect=[
+                (q,clearance),(q+np.radians([0,0,0,0,0,10]),clearance)]):
             with self.assertRaisesRegex(ValueError,'branch'):plan_insert(self.model,q,12,pre,pre+10*T[:3,0],T[:3,:3],np.eye(4),self.limits)
 
 

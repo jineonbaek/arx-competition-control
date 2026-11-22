@@ -11,6 +11,7 @@ import numpy as np
 
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent))
+from foundationpose.overlay import draw_line
 
 
 def image_url(rgb):
@@ -135,7 +136,7 @@ def infer(args,state=None):
     def project(points):
         pts=np.asarray(points)@pose[:3,:3].T+pose[:3,3]
         if np.any(pts[:,2]<=0):raise ValueError("Estimated CAD is behind camera")
-        return np.rint([rs.rs2_project_point_to_pixel(intr,p.tolist()) for p in pts]).astype(int)
+        return np.rint([rs.rs2_project_point_to_pixel(intr,p.tolist()) for p in pts])
     corners=trimesh.bounds.corners(mesh.bounds)
     pixels=project(corners)
     vis=rgb.copy()
@@ -143,8 +144,8 @@ def infer(args,state=None):
     for i in range(8):
         for j in range(i+1,8):
             if np.count_nonzero(corners[i]!=corners[j])==1:
-                cv2.line(vis,tuple(pixels[i]),tuple(pixels[j]),(40,255,90),2,cv2.LINE_AA)
-                edges.append([pixels[i].tolist(),pixels[j].tolist()])
+                edge=draw_line(vis,pixels[i],pixels[j],(40,255,90),2)
+                if edge is not None:edges.append(edge)
     _,render_depth,_=nvdiffrast_render(K=K,H=h,W=w,mesh=mesh,
         ob_in_cams=torch.as_tensor(pose[None],dtype=torch.float32,device="cuda"),glctx=est.glctx)
     from pose_quality import assess_depth_fit
@@ -158,7 +159,7 @@ def infer(args,state=None):
         cv2.polylines(vis,[distorted],True,(0,220,255),2,cv2.LINE_AA)
     axes=project(np.vstack([center,center+np.eye(3)*.06]))
     for i,c in enumerate([(255,70,70),(70,255,70),(70,140,255)],1):
-        cv2.line(vis,tuple(axes[0]),tuple(axes[i]),c,3,cv2.LINE_AA)
+        draw_line(vis,axes[0],axes[i],c,3)
     grip=None
     profile_path=ROOT.parent/"web/public/cad/battery-grip.json"
     source_hash=hashlib.sha256(source.read_bytes()).hexdigest()

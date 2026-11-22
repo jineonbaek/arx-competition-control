@@ -128,7 +128,7 @@ function executionButtons(){
  const paths={plan_f:'D405 粗定位、精定位后夹取',d405:'D435 粗定位、D405 精定位后夹取',
   d435:'D435 单帧定位后夹取',fixed:'按预录关节位置夹取'};
  el('flow-summary').textContent=fast?
-   'T1 低速贴靠 0.2 秒 → 雷达确认停稳 → 固定预抓取点 → D405 精调 → 夹取 → 后退 200 mm。'+
+   'T1 低速贴靠 2 秒 → 雷达确认停稳 → 固定预抓取点 → D405 精调 → 夹取 → 后退 200 mm。'+
   (execution&&!policy?' 等待配置平台停车信号。':''):
   planD?'Plan D 仅预览 D435 电池识别结果。':(paths[mode]||'按所选方案夹取')+' → 后退 200 mm → 返回运输姿态。';
  el('fast-reference').textContent=start?'地图出发点  X '+start.pose[0].toFixed(3)+' m  Y '+start.pose[1].toFixed(3)+' m  朝向 '+(start.pose[2]*180/Math.PI).toFixed(2)+'°':'尚未记录快流程出发点';
