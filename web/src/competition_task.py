@@ -220,7 +220,9 @@ class CompetitionTask:
         return value
 
     def _execute(self, s, stage, module, record):
-        self._mode(s,getattr(module,'navigation',False))
+        # Placement stores a NavigationSession in this attribute. Only the
+        # explicit stage flag may hand control to navigation and drop the arm lease.
+        self._mode(s,getattr(module,'navigation',False) is True)
         context = self._context(s, stage, record)
         with self.lock:
             self._check(s)
