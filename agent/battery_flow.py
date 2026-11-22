@@ -65,7 +65,7 @@ class BatteryFlow:
                 if (isinstance(error,AgentError) and error.code in NON_RECOVERABLE
                         or self.store.cancelled or self.store.state.get('pending')):raise
                 self.flow['recovery_reason']=str(error)[:300]
-                self.store.event('grasp_pose_retry',dict(name='识别/规划失败，返回预观察点 3 重跑',reason=str(error)[:300]))
+                self.store.event('grasp_pose_retry',dict(name='识别/规划失败，返回预观察点 3 精纠偏',reason=str(error)[:300]))
                 self._next('recover_pose')
                 return None
             if (self.vision_mode!='plan_f' or fast_requested(self.store) or self.store.cancelled
@@ -192,6 +192,10 @@ class BatteryFlow:
                 elif phase=='wrist':
                     data=self._visual_call('observe_battery',{'camera':'d405'},'localized')
                     if data is None:continue
+                    if self.vision_mode=='plan_f':
+                        self.flow.setdefault('head',data['observation_id'])
+                        self.store.state['mission'].setdefault('target',dict(target_id=data['observation_id'],
+                            camera='d405',observation_id=data['observation_id']))
                     self.flow['wrist']=data['observation_id'];self._next('preview')
                 elif phase=='preview':
                     observation=self.flow['head'] if self.vision_mode=='d435' else self.flow['wrist']
@@ -207,6 +211,7 @@ class BatteryFlow:
                     stage=self.store.state['mission']['stage']
                     if stage=='PICK_PLANNED':self._next('insert')
                     elif stage in ('PICK_APPROACH_PLANNED','PICK_CORRECTION_PLANNED'):self._next('approach_execute')
+                    elif data.get('refinement',{}).get('status')=='reference_recorded':self._next('wrist')
                     elif data.get('refinement',{}).get('status')=='reacquire_required':
                         self.flow['recovery_reason']='当前姿态无法完成视觉修正'
                         self._next('recover_pose' if self.recovery is not None else 'wrist')
@@ -216,15 +221,18 @@ class BatteryFlow:
                     recovered=self.recovery.recover(self.flow.get('recovery_reason','vision_failed'),
                                                     request_id='flow_'+str(self.flow['index']))
                     mission=self.store.state['mission']
-                    for key in ('plan','approach_plan','target','pick_corrections','pick_correction_mm','evidence_barriers'):
+                    for key in ('plan','approach_plan','refinement_reference','target','pick_corrections','pick_correction_mm','evidence_barriers'):
                         mission.pop(key,None)
-                    mission['stage']='IDLE'
+                    mission.update(stage='COARSE_ALIGNED',point3_refinement=True)
+                    mission['evidence_barriers']={'PICK_AT_PREGRASP':dict(
+                        completed_at=recovered['completed_at'],
+                        previous_observation_ids=list(self.store.state.get('observations',{})))}
                     for key in ('grasp_preview','grasp_preview_sha256','battery_pick_plan','battery_pick_plan_sha256',
                                 'latest_battery_observations','battery_observation_attempts'):
                         self.store.state.pop(key,None)
                     for key in ('head','wrist','plan_id','reviewed_plan','target_cache','fallback_attempts'):
                         self.flow.pop(key,None)
-                    self._next('head')
+                    self._next('wrist')
                 elif phase=='cached_replan':
                     attempt=self.flow.get('fallback_attempts',0)+1
                     if attempt>3:

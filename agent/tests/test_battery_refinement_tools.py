@@ -42,6 +42,25 @@ class RefinementToolsTests(unittest.TestCase):
         self.assertFalse(self.tools.execute('execute_battery_approach',
             {'plan_id':r['data']['plan_id']},'blocked')['ok'])
         self.assertIsNone(self.store.state['pending'])
+
+    def test_point3_records_a_fresh_refinement_reference_without_an_approach(self):
+        self.tools.vision_mode='plan_f'
+        self.store.state['battery_task_settings']={'vision_mode':'plan_f'}
+        self.store.state['battery_flow']={'head':'point3-head'}
+        self.store.state['mission'].update(stage='COARSE_ALIGNED',point3_refinement=True)
+        self.store.state['mission'].setdefault('evidence_barriers',{})['PICK_AT_PREGRASP']=dict(
+            completed_at=time.time()-1,previous_observation_ids=[])
+        self.preview();result=self.plan('point3_reference')
+        self.assertTrue(result['ok'],result)
+        self.assertEqual(result['data']['refinement']['status'],'reference_recorded')
+        self.assertEqual(self.store.state['mission']['stage'],'PICK_AT_PREGRASP')
+        self.assertNotIn('approach_plan',self.store.state['mission'])
+        self.assertEqual(self.tools._wrist_stage(),'PICK_AT_PREGRASP')
+        self.assertIsNone(self.store.state['mission']['plan'])
+        self.assertIsNone(self.store.state['pending'])
+        same=self.plan('same_point3_frame')
+        self.assertFalse(same['ok'])
+        self.assertIn('New post-approach observation required',same['error']['message'])
     def test_new_reviewed_scene_can_align_without_moving(self):
         self.arrived();self.preview(call='fresh_preview');r=self.plan('fresh_plan')
         self.assertTrue(r['ok'],r)
