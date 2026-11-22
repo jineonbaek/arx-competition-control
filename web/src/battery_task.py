@@ -495,7 +495,11 @@ class BatteryTask:
             if store is None:store=RunStore.create(self.root)
             if settings:
                 store.state['battery_task_settings']=copy.deepcopy(settings)
-                if settings.get('pickup_flow') in ('fast_plan_f','competition_fast'):
+                if settings.get('pickup_flow')=='competition_fast':
+                    # Refinement fits the battery CAD; the center-only check has its own handle task.
+                    store.state['battery_task_settings']['recognition_profile']=copy.deepcopy(
+                        DEFAULT_RECOGNITION_PROFILES['battery'])
+                elif settings.get('pickup_flow')=='fast_plan_f':
                     profile=store.state['battery_task_settings']['recognition_profile']
                     profile.update(id='fast-handle-near',name='快模式 · 图2/4把手近景',
                         qwen_task=FAST_HANDLE_QWEN_TASK,

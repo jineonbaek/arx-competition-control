@@ -6,11 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock,patch
 
-from battery_task import BatteryTask,FAST_HANDLE_QWEN_TASK
+from battery_task import BatteryTask,FAST_HANDLE_QWEN_TASK,DEFAULT_RECOGNITION_PROFILES
 
 
 class FastHandleProfileTests(unittest.TestCase):
-    def test_competition_and_console_fast_use_near_references_without_changing_stable(self):
+    def test_competition_refinement_uses_battery_without_changing_console_fast_or_stable(self):
         with tempfile.TemporaryDirectory() as directory:
             controller=Mock();controller.motion_valid.return_value=True
             controller.snapshot.return_value={'command_epoch':0}
@@ -28,7 +28,8 @@ class FastHandleProfileTests(unittest.TestCase):
                     task._start('test',None,True,settings,token='owned')
                     task.active['store'].close()
                     self.assertEqual(settings.get('recognition_profile'),original['recognition_profile'])
-            for settings in seen[:2]:
+            self.assertEqual(seen[0]['recognition_profile'],DEFAULT_RECOGNITION_PROFILES['battery'])
+            for settings in seen[1:2]:
                 profile=settings['recognition_profile']
                 self.assertEqual(profile['qwen_task'],FAST_HANDLE_QWEN_TASK)
                 self.assertEqual(profile['reference_images'],{
