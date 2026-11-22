@@ -7,8 +7,8 @@ from numbers import Real
 
 FAST_PREGRASP_PATH=Path(__file__).resolve().parents[1]/"config/fast-pregrasp.local.json"
 
-FAST_PREGRASP_JOINTS_DEG=(19.66914334204537,29.2725054007236,43.37099254278322,
-                         -11.494709293372578,19.89204159249508,-88.55883048579047)
+FAST_PREGRASP_JOINTS_DEG=(13.092,43.766,42.166,6.003,14.637,-87.707)
+FAST_REFINE_ENTRY_JOINTS_DEG=(27.267,36.446,47.681,-10.786,32.447,-87.570)
 
 
 def pregrasp_joints(value):
@@ -23,13 +23,13 @@ def load_pregrasp():
     except FileNotFoundError:return list(FAST_PREGRASP_JOINTS_DEG)
 
 
-def prepare_pregrasp(flow):
+def prepare_pregrasp(flow,*,target_joints_deg=None):
     """Fast entry only: reuse the joint move and existing taught-pose refinement."""
     import time
     import numpy as np
     recovery=flow.recovery;store=flow.store
     origin=recovery.capture()['joints_rad']
-    target=load_pregrasp()
+    target=load_pregrasp() if target_joints_deg is None else list(target_joints_deg)
     store.event('fast_pregrasp',dict(stage='前往快模式预抓取点',target_joints_deg=target))
     try:
         trace=recovery._move([origin,np.radians(target).tolist()])

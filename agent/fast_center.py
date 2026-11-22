@@ -61,7 +61,7 @@ def judge_handle(tools):
     tools.store.state['fast_handle_center']=dict(observation_id=identity,**result)
     tools.store.save()
     tools.store.event('fast_handle_center',dict(observation_id=identity,**result,
-        name='把手位于夹爪之间，直接闭爪' if result['centered'] else '把手未确认位于夹爪之间，进入新版精纠'))
+        name='把手位于夹爪之间，直接闭爪' if result['centered'] else '把手未确认位于夹爪之间，返回精纠起点'))
     return result['centered']
 
 

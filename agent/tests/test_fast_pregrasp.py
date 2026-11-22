@@ -1,5 +1,6 @@
 """Fast taught pregrasp routing, with no hardware transport."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
 from agent.fast_pick import FAST_PREGRASP_JOINTS_DEG,prepare_pregrasp
@@ -21,8 +22,7 @@ class FastPregraspTests(unittest.TestCase):
         with patch.object(self.fixture.recovery,'_move',return_value=[self.fixture.c.q,target]) as move:
             prepare_pregrasp(self.flow)
         np.testing.assert_allclose(np.degrees(move.call_args.args[0][-1]),
-            [19.66914334204537,29.2725054007236,43.37099254278322,
-             -11.494709293372578,19.89204159249508,-88.55883048579047])
+            [13.092,43.766,42.166,6.003,14.637,-87.707])
         self.assertEqual(self.store.state['battery_flow']['phase'],'wrist')
         self.assertTrue(self.store.state['mission']['point3_refinement'])
         self.assertIn('PICK_AT_PREGRASP',self.store.state['mission']['evidence_barriers'])

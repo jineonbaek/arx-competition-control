@@ -191,14 +191,24 @@ class BatteryFlow:
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
                 elif phase=='fast_center':
                     from .fast_center import judge_handle
-                    if judge_handle(self.tools):
+                    try:centered=judge_handle(self.tools)
+                    except (AgentError,OSError,ValueError) as error:
+                        if self.store.cancelled or isinstance(error,AgentError) and error.code in ('cancelled','interrupted','control_lost'):
+                            raise
+                        centered=False
+                        self.store.event('fast_handle_center',dict(centered=False,
+                            name='居中判断未成功，返回精纠起点',reason=str(error)[:300]))
+                    if centered:
                         identity=self.store.state['fast_handle_center']['observation_id']
                         self.store.state['mission'].update(stage='FAST_HANDLE_CENTERED',
                             target=dict(target_id=identity,camera='d405',observation_id=identity),
                             plan=dict(plan_id='center_close_'+identity,arm='right',
                                       kind='stationary_handle_close',observation_id=identity))
                         self._next('fast_close')
-                    else:self._next('wrist')
+                    else:self._next('fast_refine_entry')
+                elif phase=='fast_refine_entry':
+                    from .fast_pick import prepare_pregrasp,FAST_REFINE_ENTRY_JOINTS_DEG
+                    prepare_pregrasp(self,target_joints_deg=FAST_REFINE_ENTRY_JOINTS_DEG)
                 elif phase=='fast_close':
                     self._call('close_centered_handle',{'plan_id':self.store.state['mission']['plan']['plan_id']})
                     self._next('verify_hold')

@@ -15,7 +15,7 @@ from agent.battery_tools import BatteryExecutionTools
 from agent.config import Config
 from agent.contracts import AgentError
 from agent.fast_center import judge_handle,CenteredCloseStep,CenteredCloseBackend
-from agent.fast_pick import enter_pregrasp_refinement
+from agent.fast_pick import enter_pregrasp_refinement,FAST_PREGRASP_JOINTS_DEG,FAST_REFINE_ENTRY_JOINTS_DEG
 from agent.mission import Mission
 from agent.storage import RunStore
 from agent.tests.test_battery_flow import Tools,review
@@ -27,6 +27,11 @@ class CenterTests(unittest.TestCase):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         self.store=RunStore.create(temp.name);self.addCleanup(self.store.close)
         self.store.state['battery_task_settings']={'pickup_flow':'competition_fast','vision_mode':'plan_f'}
+
+    def recovery(self):
+        recovery=Mock();recovery.capture.return_value={'joints_rad':[0.]*6}
+        recovery._move.return_value=[[0.]*6,[.1]*6];recovery.state={}
+        return recovery
 
     def test_true_closes_without_detection_pose_or_arm_motion_then_extracts(self):
         tools=Tools(self.store);flow=BatteryFlow(tools,vision_mode='plan_f',review_plan=review)
@@ -42,7 +47,8 @@ class CenterTests(unittest.TestCase):
 
     def test_false_continues_full_existing_refinement(self):
         tools=Tools(self.store);tools.corrections=1
-        flow=BatteryFlow(tools,vision_mode='plan_f',review_plan=review)
+        recovery=self.recovery()
+        flow=BatteryFlow(tools,vision_mode='plan_f',review_plan=review,recovery=recovery)
         enter_pregrasp_refinement(flow,123.);flow._next('fast_center')
         with patch('agent.fast_center.judge_handle',return_value=False):
             self.assertEqual(flow.run()['status'],'completed')
@@ -50,12 +56,18 @@ class CenterTests(unittest.TestCase):
         self.assertEqual(tools.calls.count('execute_battery_approach'),2)
         self.assertNotIn('close_centered_handle',tools.calls)
         self.assertEqual(tools.calls[-3:],['execute_pick','verify_hold','stow_for_carry'])
+        import numpy as np
+        recovery._move.assert_called_once_with([[0.]*6,np.radians(FAST_REFINE_ENTRY_JOINTS_DEG).tolist()])
+        self.assertEqual(self.store.state['fast_pregrasp']['target_joints_deg'],list(FAST_REFINE_ENTRY_JOINTS_DEG))
+        self.assertGreater(self.store.state['mission']['evidence_barriers']['PICK_AT_PREGRASP']['completed_at'],123.)
+        self.assertEqual(FAST_PREGRASP_JOINTS_DEG,(13.092,43.766,42.166,6.003,14.637,-87.707))
 
-    def test_model_failure_and_cancel_never_close(self):
+    def test_model_failure_enters_refinement_but_cancel_stops(self):
         for cancel in (False,True):
             with self.subTest(cancel=cancel):
                 self.store.state.pop('battery_flow',None)
-                tools=Tools(self.store);flow=BatteryFlow(tools,vision_mode='plan_f',review_plan=review)
+                tools=Tools(self.store);recovery=self.recovery()
+                flow=BatteryFlow(tools,vision_mode='plan_f',review_plan=review,recovery=recovery)
                 flow._next('fast_center')
                 def judgment(_):
                     if not cancel:raise AgentError('model_protocol_error','bad reply')
@@ -63,8 +75,13 @@ class CenterTests(unittest.TestCase):
                     (self.store.path/'cancel.flag').touch()
                     return True
                 with patch('agent.fast_center.judge_handle',side_effect=judgment):
-                    self.assertEqual(flow.run()['status'],'cancelled' if cancel else 'needs_attention')
-                self.assertEqual(tools.calls,[])
+                    self.assertEqual(flow.run()['status'],'cancelled' if cancel else 'completed')
+                if cancel:
+                    self.assertEqual(tools.calls,[]);recovery._move.assert_not_called()
+                else:
+                    self.assertEqual(tools.calls[0],'observe_battery')
+                    self.assertNotIn('close_centered_handle',tools.calls)
+                    recovery._move.assert_called_once()
 
     def test_stable_flow_never_asks_center_and_does_not_expose_close(self):
         self.store.state['battery_task_settings']={'vision_mode':'plan_f'}
