@@ -128,7 +128,7 @@ function executionButtons(){
  const paths={plan_f:'D405 粗定位、精定位后夹取',d405:'D435 粗定位、D405 精定位后夹取',
   d435:'D435 单帧定位后夹取',fixed:'按预录关节位置夹取'};
  el('flow-summary').textContent=fast?
-  'T1 低速贴靠 0.2 秒 → 雷达确认停稳 → D405 确认把手 → 夹取 → 后退 200 mm。'+
+   'T1 低速贴靠 0.2 秒 → 雷达确认停稳 → 固定预抓取点 → D405 精调 → 夹取 → 后退 200 mm。'+
   (execution&&!policy?' 等待配置平台停车信号。':''):
   planD?'Plan D 仅预览 D435 电池识别结果。':(paths[mode]||'按所选方案夹取')+' → 后退 200 mm → 返回运输姿态。';
  el('fast-reference').textContent=start?'地图出发点  X '+start.pose[0].toFixed(3)+' m  Y '+start.pose[1].toFixed(3)+' m  朝向 '+(start.pose[2]*180/Math.PI).toFixed(2)+'°':'尚未记录快流程出发点';
@@ -142,7 +142,7 @@ function executionButtons(){
  for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','reference-first','reference-reobserve','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
  el('delete-recognition-profile').disabled=running||!el('recognition-profile').value.startsWith('custom-');
 }
-const executionNames={grasp_point2:'记录抓取起始姿态',grasp_pose_retry:'预观察点 3 重试',grasp_arrival:'到位误差记录',fast_dock:'快流程贴靠',run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
+const executionNames={grasp_point2:'记录抓取起始姿态',grasp_pose_retry:'预观察点 3 重试',grasp_arrival:'到位误差记录',fast_dock:'快流程贴靠',fast_pregrasp:'快模式预抓取点',run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
 function executionLog(){
  const list=el('execution-log'),logs=execution?.logs||[];
  if(!logs.length){list.replaceChildren(Object.assign(document.createElement('li'),{textContent:'等待任务启动。'}));return;}

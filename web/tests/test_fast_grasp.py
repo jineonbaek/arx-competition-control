@@ -107,6 +107,20 @@ class FastPlanTests(unittest.TestCase):
 
 
 class FastEntryTests(unittest.TestCase):
+    def test_stable_entry_never_uses_fast_pregrasp(self):
+        from battery_task import BatteryTask
+        from threading import RLock
+        task=object.__new__(BatteryTask);task.lock=RLock()
+        task._prepare_plan_f_lift=Mock();task._restore_depth=Mock()
+        store=Mock();store.state={'battery_task_settings':{'vision_mode':'plan_f'}}
+        flow=Mock();flow.run.return_value={'status':'completed'}
+        state={'store':store,'token':'owned','owns_motion':False,'run_id':'stable'}
+        with patch('agent.fast_pick.prepare_pregrasp') as prepare:
+            task._run_task(state,flow)
+        prepare.assert_not_called()
+        task._prepare_plan_f_lift.assert_called_once_with(state,flow)
+        flow.run.assert_called_once()
+
     def test_standalone_uses_handle_profile_and_idempotent_request(self):
         from battery_task import BatteryTask
         import threading
@@ -130,7 +144,7 @@ class FastEntryTests(unittest.TestCase):
             request=dict(action='start_fast',request_id='request',expected_epoch=4,environment_clear=True)
             view={'pose':dict(valid=True,frame='map',x=3.,y=2.,yaw=0.),
                   'route':{'definition':{'map_id':'map-a'}}}
-            with patch('navigation_view.read_snapshot',return_value=view):
+            with patch('navigation_view.read_snapshot',return_value=view),patch('agent.fast_pick.prepare_pregrasp') as prepare:
                 try:
                     first=task.action('owner',request)
                     self.assertEqual(task.action('owner',request)['run_id'],first['run_id'])
@@ -142,6 +156,7 @@ class FastEntryTests(unittest.TestCase):
                     task.active['worker'].join(3.)
                     task.close()
             self.assertEqual(dock.call_count,1)
+            prepare.assert_called_once_with(task.active['runner'])
             self.assertFalse(controller.submit.called)
 
     def test_direct_pick_opens_for_approach_then_accepts_closing_feedback(self):

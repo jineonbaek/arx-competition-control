@@ -554,7 +554,9 @@ class BatteryTask:
                     raise ValueError('底盘停车未确认')
                 dock.update(receipt)
                 store.save()
-                store.event('fast_dock', dict(stage='底盘已停稳，开始 D405 把手定位', **receipt))
+                store.event('fast_dock', dict(stage='底盘已停稳，前往快模式预抓取点', **receipt))
+                from agent.fast_pick import prepare_pregrasp
+                prepare_pregrasp(flow)
             else:
                 self._prepare_plan_f_lift(state,flow)
             result=flow.run()

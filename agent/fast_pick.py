@@ -1,5 +1,33 @@
 """Standalone fast pickup, bound to one stopped docking receipt and wrist observation."""
 
+FAST_PREGRASP_JOINTS_DEG=(19.66914334204537,29.2725054007236,43.37099254278322,
+                         -11.494709293372578,19.89204159249508,-88.55883048579047)
+
+
+def prepare_pregrasp(flow):
+    """Fast entry only: reuse the joint move and existing taught-pose refinement."""
+    import time
+    import numpy as np
+    recovery=flow.recovery;store=flow.store
+    origin=recovery.capture()['joints_rad']
+    store.event('fast_pregrasp',dict(stage='前往快模式预抓取点',target_joints_deg=list(FAST_PREGRASP_JOINTS_DEG)))
+    try:
+        trace=recovery._move([origin,np.radians(FAST_PREGRASP_JOINTS_DEG).tolist()])
+    except Exception:
+        recovery.controller.begin_contact_stop(recovery.token)
+        recovery.controller.interrupt_motion(recovery.token)
+        try:recovery.controller.submit({'type':'arm.stop','arm':'right'},recovery.token)
+        except Exception:pass
+        raise
+    completed_at=time.time()
+    recovery.state.update(outbound_trace=trace,last_approach_end=trace[-1])
+    store.state['mission'].update(stage='COARSE_ALIGNED',point3_refinement=True,
+        evidence_barriers={'PICK_AT_PREGRASP':dict(completed_at=completed_at,
+            previous_observation_ids=list(store.state.get('observations',{})))})
+    store.state['fast_pregrasp']=dict(target_joints_deg=list(FAST_PREGRASP_JOINTS_DEG),completed_at=completed_at)
+    flow._next('wrist')
+    store.event('fast_pregrasp',dict(stage='预抓取点轨迹完成，进入 D405 精调'))
+
 
 def fast_requested(store):
     return store.state.get('battery_task_settings', {}).get('pickup_flow') == 'fast'
