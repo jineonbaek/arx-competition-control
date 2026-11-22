@@ -59,7 +59,7 @@ class BatteryExecutionTools(WorkflowTools):
 
     def _wrist_stage(self):
         mission=self.store.state['mission']
-        return 'PICK_AT_PREGRASP' if mission.get('approach_plan') else 'COARSE_ALIGNED'
+        return 'PICK_AT_PREGRASP' if mission.get('approach_plan') or mission.get('refinement_reference') else 'COARSE_ALIGNED'
 
     def _observation_budget_key(self,camera):
         if camera!='d405':return camera
@@ -67,7 +67,7 @@ class BatteryExecutionTools(WorkflowTools):
         return camera+':'+str(barrier.get('completed_at','missing'))
 
     def _observation_limit(self,camera):
-        if camera=='d405' and self.store.state.get('mission',{}).get('approach_plan'):
+        if camera=='d405' and self._wrist_stage()=='PICK_AT_PREGRASP':
             return None
         if camera=='d405' and self.store.state.get('mission',{}).get('stage')=='COARSE_ALIGNED':
             return 12
@@ -246,8 +246,13 @@ class BatteryExecutionTools(WorkflowTools):
                 result=plan_battery_pick(self,a['observation_id'],call_id,self.pick_setup)
                 result['plan_id']='pick_'+hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
                 if result['status']!='tcp_pending':
-                    previous=mission.data.get('approach_plan')
-                    if (plan_f and not previous and stopped_for_fast_pick(self.store)
+                    previous=mission.data.get('approach_plan') or mission.data.get('refinement_reference')
+                    if plan_f and mission.data.get('point3_refinement') and not previous:
+                        # Fresh target reference at the reached taught pose; no approach was executed.
+                        mission.data['refinement_reference']=copy.deepcopy(result)
+                        result['refinement']=dict(status='reference_recorded',executable=False)
+                        next_stage='PICK_AT_PREGRASP'
+                    elif (plan_f and not previous and stopped_for_fast_pick(self.store)
                             and result.get('vision_mode') == 'd405'):
                         result['pickup_flow'] = 'fast'
                         next_stage = 'PICK_PLANNED'
