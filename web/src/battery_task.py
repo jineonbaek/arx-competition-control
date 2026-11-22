@@ -434,13 +434,17 @@ class BatteryTask:
             self.requests[(client,request)]=copy.deepcopy(result)
             return result
 
-    def start_owned(self, token, environment_clear):
+    def start_owned(self, token, environment_clear, *, fast_pregrasp_at=None):
         """Competition-only entry; the parent retains ownership after this subtask."""
         with self.lock:
             if not self.controller.motion_valid(token):
                 raise Rejected('整场任务控制权无效')
+            settings=copy.deepcopy(self.task_settings)
+            if fast_pregrasp_at is not None:
+                settings.update(vision_mode='plan_f',pickup_flow='competition_fast',
+                                fast_pregrasp_completed_at=fast_pregrasp_at)
             return self._start('competition', None, environment_clear,
-                               copy.deepcopy(self.task_settings), token=token,use_prepared=True)
+                               settings, token=token,use_prepared=True)
 
     def _start(self, client, expected_epoch, environment_clear, settings, *, token=None,use_prepared=False):
         if self.active is not None:
@@ -549,6 +553,10 @@ class BatteryTask:
                 prepare_pregrasp(flow)
             else:
                 self._prepare_plan_f_lift(state,flow)
+                settings=store.state.get('battery_task_settings',{})
+                if settings.get('pickup_flow')=='competition_fast':
+                    from agent.fast_pick import enter_pregrasp_refinement
+                    enter_pregrasp_refinement(flow,settings['fast_pregrasp_completed_at'])
             result=flow.run()
             if not isinstance(result,dict):raise ValueError('Workflow returned invalid result')
         except Exception as error:

@@ -41,6 +41,12 @@ function renderCompetition(task) {
   el('competition-start').disabled=taskBusy || !taskConnected || !task.can_start || !el('environment-clear').checked;
   el('competition-continue').disabled=taskBusy || !taskConnected || !task.can_continue || !el('environment-clear').checked;
   el('competition-stop').disabled=!task.control_owned && !['running','recovering','stopping'].includes(task.status);
+  const pickupMode=el('competition-mode');
+  if(pickupMode){
+    pickupMode.disabled=taskBusy || !taskConnected || !task.can_start;
+    if(task.control_owned)pickupMode.value=task.mode || 'stable';
+    renderCompetitionMode();
+  }
   el('stages').replaceChildren(...(task.tasks || []).map(t=>{
     const li=document.createElement('li');
     const label={completed:'完成',running:'执行中',stopped:'已停止',failed:'需要检查',pending:'待执行'};
@@ -64,6 +70,7 @@ async function competitionAction(action) {
   if(action!=='stop' && taskBusy)return;
   const request_id=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
   const data={action,request_id};
+  if(action==='start' && taskKey==='competition' && el('competition-mode')?.value==='fast')data.mode='fast';
   if(action!=='stop')Object.assign(data,{expected_epoch:(taskKey==='t2_test' ? directTask : latest?.[taskKey])?.command_epoch,
     environment_clear:el('environment-clear').checked});
   taskBusy=true;renderCompetition(latest?.[taskKey]);el('task-message').textContent='';
@@ -78,6 +85,13 @@ async function competitionAction(action) {
   finally {taskBusy=false;renderCompetition(latest?.[taskKey]);}
 }
 for(const action of ['start','stop','continue'])el('competition-'+action).addEventListener('click',()=>competitionAction(action));
+function renderCompetitionMode(){
+  const description=el('competition-mode-description');
+  if(description)description.textContent=el('competition-mode')?.value==='fast'
+    ?'启动时右臂到预抓点（19.67° / 29.27° / 43.37° / -11.49° / 19.89° / -88.56°）；到点后 D405 识别并精纠。后退 200 mm 后交给运输，导航时同时降升降和返回运输姿态。'
+    :'稳模式沿用原比赛流程。';
+}
+el('competition-mode')?.addEventListener('change',renderCompetitionMode);
 el('environment-clear').addEventListener('change',()=>renderCompetition(latest?.[taskKey]));
 
 function draw() {

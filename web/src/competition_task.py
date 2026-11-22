@@ -1,6 +1,7 @@
 """Fixed competition sequence; modules own motion details and recovery evidence."""
 import copy
 import json
+import math
 import threading
 import time
 import uuid
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from control import Rejected
 from agent.storage import atomic_json
+from agent.fast_pick import FAST_PREGRASP_JOINTS_DEG
 
 
 STAGES = (
@@ -53,6 +55,7 @@ class CompetitionTask:
             robot = self.controller.snapshot()
             manual_available = not robot['motion_reserved'] and not robot['chassis_active'] and not robot['competition_reserved']
             view = dict(status=s['status'] if s else 'idle',
+                mode=s.get('mode','stable') if s else 'stable',
                 run_id=s['run_id'] if s else None,
                 phase=('finish_forward' if s and (s['records'].get('finish_forward') or {}).get('status')=='running' else self.stages[s['index']][0] if s and s['index'] < len(self.stages) else 'idle'),
                 reason=s['reason'] if s else '',
@@ -67,6 +70,7 @@ class CompetitionTask:
                 tasks=[], logs=copy.deepcopy(s['logs'][-50:]) if s else [],
                 target='无人机指定左上角电池 → 电池柜红框 A 口')
             for key, label in self.stages:
+                if s and s.get('mode')=='fast' and key=='carry':label='交接运输并下发右臂运输姿态'
                 record = (s['records'].get(key) or {}) if s else {}
                 view['tasks'].append(dict(id=key, label=label, connected=key in self.modules,
                     status=record.get('status', 'pending'), request_id=record.get('request_id'),
@@ -94,8 +98,11 @@ class CompetitionTask:
         expected = {'action', 'request_id'}
         if action in ('start', 'continue'):
             expected |= {'expected_epoch', 'environment_clear'}
+        if action=='start' and 'mode' in data:expected.add('mode')
         if set(data) != expected or action not in ('start', 'stop', 'continue'):
             raise ValueError('Unknown competition action or fields')
+        if data.get('mode','stable') not in ('stable','fast'):
+            raise ValueError('Unknown competition mode')
         with self.lock:
             old = self.requests.get((client, request))
             if old:
@@ -127,6 +134,7 @@ class CompetitionTask:
                     directory = self.root / run_id
                     directory.mkdir(parents=True, mode=0o700)
                     s = dict(run_id=run_id, directory=directory, index=0, records={}, logs=[],
+                        mode=data.get('mode','stable'),
                         current=None, halt_lock=threading.Lock(), token=None, competition_token=None,
                         worker=threading.Thread(), reason='', status='idle', lift_prepositioned=False)
                 lease = self.controller.reserve_competition(data['expected_epoch'])
@@ -154,6 +162,7 @@ class CompetitionTask:
 
     def _context(self, s, stage, record):
         return dict(t2_timed_out=((s['records'].get('place') or {}).get('result') or {}).get('outcome')=='timed_out',run_id=s['run_id'], stage=stage, request_id=record['request_id'],
+            competition_mode=s.get('mode','stable'),pregrasp_completed_at=s.get('pregrasp_completed_at'),
             token=s['token'], cancelled=s['cancel'], controller=self.controller,
             environment_clear=True, competition_token=s['competition_token'])
 
@@ -186,18 +195,28 @@ class CompetitionTask:
             s['competition_token'].prestarted_lift_target = prestarted
             s['token'].prestarted_lift_target = None
         self.controller.submit({'type':'arm.fixed_hold2', 'arm':'left'}, s['token'])
-        self.controller.submit({'type':'arm.avoidance_preset', 'arm':'right'}, s['token'])
+        fast=s.get('mode')=='fast'
+        self.controller.submit(({'type':'arm.joints','arm':'right','joints':list(FAST_PREGRASP_JOINTS_DEG)}
+                                if fast else {'type':'arm.avoidance_preset', 'arm':'right'}),s['token'])
         self._save(s, 'left_hold_requested', 'J1-J6 0/0/90/0/0/0 deg; gripper closed')
-        self._save(s, 'right_avoidance_requested', 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
+        self._save(s, 'right_pregrasp_requested' if fast else 'right_avoidance_requested',
+                   str(list(FAST_PREGRASP_JOINTS_DEG)) if fast else 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
         deadline = time.monotonic() + LEFT_HOLD_TIMEOUT_S
         while time.monotonic() < deadline:
             self._check(s)
             snapshot = self.controller.snapshot()
             left = snapshot['left_fixed_hold2']
             right = snapshot['right_avoidance_preset']
+            if fast:
+                arm=snapshot['arms']['right']
+                errors=([abs(math.degrees(q)-target) for q,target in zip(arm['joints'],FAST_PREGRASP_JOINTS_DEG)]
+                        if arm.get('fresh') and len(arm.get('joints',[]))==6 else [])
+                right=dict(right,max_error_deg=max(errors) if errors else None,
+                           arrived=bool(errors and max(errors)<=right['tolerance_deg']))
             if left['arrived'] and right['arrived']:
                 self._save(s, 'left_hold_ready', 'max joint error %.3f deg' % left['max_error_deg'])
-                self._save(s, 'right_avoidance_ready', 'max joint error %.3f deg' % right['max_error_deg'])
+                if fast:s['pregrasp_completed_at']=time.time()
+                self._save(s, 'right_pregrasp_ready' if fast else 'right_avoidance_ready', 'max joint error %.3f deg' % right['max_error_deg'])
                 self.controller.release_motion(s['token'])
                 s['token'] = None
                 return
@@ -246,6 +265,7 @@ class CompetitionTask:
                 self.controller.submit_competition_lift({'type':'lift','target':0.},s['competition_token'])
                 s['lift_prepositioned']=True
                 self._save(s,'placement_lift_requested','0 rad; continue navigation without waiting')
+            if stage=='carry' and s.get('mode')=='fast':s['transport_arm_requested']=True
             result = module.start(context)
             if stage=='pick':s['lift_prepositioned']=False
         waiting_since=time.monotonic();last_wait=None
@@ -401,6 +421,10 @@ class CompetitionTask:
             except Exception as error:
                 stopped=False
                 reason='预升降停止失败：'+str(error)[:300]
+        if status!='completed' and s.get('transport_arm_requested'):
+            try:self.controller.submit({'type':'arm.stop','arm':'right'},s['token'] or 'competition-transport-stop')
+            except Exception as error:
+                stopped=False;reason='运输右臂停止失败：'+str(error)[:300]
         try:
             if callable(getattr(pick,'discard_prewarm',None)):pick.discard_prewarm()
         except Exception as error:self.controller.log('视觉预热清理失败：'+str(error)[:200],'warning')

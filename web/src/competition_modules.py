@@ -27,7 +27,9 @@ class GraspModule:
             if request in self.runs:
                 raise ValueError('抓取任务已启动，必须核实原任务而不是重跑')
             if context['cancelled'].is_set(): return dict(status='stopped', reason='操作员停止')
-            self.task.start_owned(context['token'], context['environment_clear'])
+            options=({'fast_pregrasp_at':context['pregrasp_completed_at']}
+                     if context.get('competition_mode')=='fast' else {})
+            self.task.start_owned(context['token'], context['environment_clear'],**options)
             self.runs[request] = self.task.active
         return dict(status='running')
 
@@ -68,14 +70,33 @@ class GraspModule:
 
 
 class CarryReceiptModule:
-    """The grasp flow already returns to transport joints; do not move twice."""
+    """Stable verifies transport; competition fast dispatches it after extraction."""
     recoveries={}
-    def __init__(self,grasp):self.grasp=grasp
-    def start(self,context):return self.inspect(context)
+    def __init__(self,grasp):self.grasp=grasp;self.fast_receipts={}
+    def start(self,context):
+        result=self.inspect(context)
+        if context.get('competition_mode')=='fast' and result['status']=='completed':
+            request=context['request_id']
+            if request in self.fast_receipts:return self.fast_receipts[request]
+            from agent.battery_extract import TRANSPORT_JOINTS_DEG
+            # Dispatch only; navigation and lowering follow without waiting for arrival.
+            self.fast_receipts[request]=dict(status='unknown',reason='运输点指令尚无下发确认，不重复发送')
+            context['controller'].submit({'type':'arm.joints','arm':'right',
+                'joints':list(TRANSPORT_JOINTS_DEG)},context['token'])
+            result=dict(result,source='transport_command_submitted',arrival_confirmed=False)
+            self.fast_receipts[request]=result
+        return result
     def inspect(self,context):
+        if context.get('competition_mode')=='fast' and context.get('request_id') in self.fast_receipts:
+            return self.fast_receipts[context['request_id']]
         with self.grasp.task.lock:
             state=self.grasp.runs.get(context['run_id']+':pick')
             mission=state['store'].state.get('mission',{}) if state else {}
+            if context.get('competition_mode')=='fast':
+                if (state and (state['flow'] or {}).get('status')=='completed'
+                        and mission.get('stage')=='EXTRACTED'):
+                    return dict(status='completed',run_id=state['run_id'],source='existing_extraction_receipt')
+                return dict(status='failed',reason='原抓取尚无后退完成回执')
             if (state and (state['flow'] or {}).get('status')=='completed'
                     and mission.get('stage')=='CARRY_READY'):
                 return dict(status='completed',run_id=state['run_id'],source='existing_carry_ready_receipt')

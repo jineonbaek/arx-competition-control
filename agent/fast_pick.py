@@ -21,12 +21,17 @@ def prepare_pregrasp(flow):
         raise
     completed_at=time.time()
     recovery.state.update(outbound_trace=trace,last_approach_end=trace[-1])
+    store.state['fast_pregrasp']=dict(target_joints_deg=list(FAST_PREGRASP_JOINTS_DEG),completed_at=completed_at)
+    enter_pregrasp_refinement(flow,completed_at)
+    store.event('fast_pregrasp',dict(stage='预抓取点轨迹完成，进入 D405 精调'))
+
+
+def enter_pregrasp_refinement(flow,completed_at):
+    store=flow.store
     store.state['mission'].update(stage='COARSE_ALIGNED',point3_refinement=True,
         evidence_barriers={'PICK_AT_PREGRASP':dict(completed_at=completed_at,
             previous_observation_ids=list(store.state.get('observations',{})))})
-    store.state['fast_pregrasp']=dict(target_joints_deg=list(FAST_PREGRASP_JOINTS_DEG),completed_at=completed_at)
     flow._next('wrist')
-    store.event('fast_pregrasp',dict(stage='预抓取点轨迹完成，进入 D405 精调'))
 
 
 def fast_requested(store):

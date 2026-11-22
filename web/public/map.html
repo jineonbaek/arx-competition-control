@@ -21,6 +21,12 @@
       <section><h2>定位</h2><strong id="pose-state">等待反馈</strong><p id="pose-value">—</p><p id="pose-age">—</p><p id="path-state">—</p></section>
       <section>
         <h2>整场比赛总控</h2>
+        <label for="competition-mode">比赛模式</label>
+        <select id="competition-mode">
+          <option value="stable">稳模式（原链路）</option>
+          <option value="fast">快模式（预抓点直接精纠）</option>
+        </select>
+        <p id="competition-mode-description">稳模式沿用原比赛流程。</p>
         <p><a href="/t2-test.html">T2 单独实测</a></p>
         <p id="target">无人机指定左上角电池 → 电池柜红框 A 口</p>
         <label class="clearance"><input id="environment-clear" type="checkbox">已确认本轮作业区无人且无临时障碍</label>

@@ -266,7 +266,8 @@ class BatteryFlow:
                     self._next('extract')
                 elif phase=='extract':
                     self._call('stow_for_carry',{'plan_id':self.store.state['mission']['plan']['plan_id']})
-                    if fast_requested(self.store):
+                    if (fast_requested(self.store) or
+                            self.store.state.get('battery_task_settings',{}).get('pickup_flow')=='competition_fast'):
                         return self._finish('completed')
                     self._next('carry')
                 elif phase=='carry':

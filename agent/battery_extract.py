@@ -65,12 +65,15 @@ class WristExtractionStep:
     def timeout(self):return self.cancel('timeout')
 
 
+TRANSPORT_JOINTS_DEG=(0.,0.,25.,-25.,0.,-90.)
+
+
 class CarryReturnStep:
     def __init__(self,controller,token,*,arm_policy,timing_limits,wrist_from_tool):
         self.controller=controller;self.token=token
         self.arm_policy=dict(arm_policy)
         self.timing_limits=dict(timing_limits);self.tcp=np.asarray(wrist_from_tool,float).copy()
-        self.carry_joints_deg=[0.,0.,25.,-25.,0.,-90.]
+        self.carry_joints_deg=list(TRANSPORT_JOINTS_DEG)
         self.reference_complete=False;self.return_monitor=None
         self.started=False;self.failure=None;self.failure_detail=None;self.stop_request=None
 
