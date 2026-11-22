@@ -9,7 +9,7 @@ from pathlib import Path
 
 from control import Rejected
 from agent.storage import atomic_json
-from agent.fast_pick import FAST_PREGRASP_JOINTS_DEG
+from agent.fast_pick import load_pregrasp
 
 
 STAGES = (
@@ -196,11 +196,12 @@ class CompetitionTask:
             s['token'].prestarted_lift_target = None
         self.controller.submit({'type':'arm.fixed_hold2', 'arm':'left'}, s['token'])
         fast=s.get('mode')=='fast'
-        self.controller.submit(({'type':'arm.joints','arm':'right','joints':list(FAST_PREGRASP_JOINTS_DEG)}
+        pregrasp=load_pregrasp() if fast else None
+        self.controller.submit(({'type':'arm.joints','arm':'right','joints':pregrasp}
                                 if fast else {'type':'arm.avoidance_preset', 'arm':'right'}),s['token'])
         self._save(s, 'left_hold_requested', 'J1-J6 0/0/90/0/0/0 deg; gripper closed')
         self._save(s, 'right_pregrasp_requested' if fast else 'right_avoidance_requested',
-                   str(list(FAST_PREGRASP_JOINTS_DEG)) if fast else 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
+                   str(pregrasp) if fast else 'J1-J6 0/0/65/-65/0/0 deg; gripper unchanged')
         deadline = time.monotonic() + LEFT_HOLD_TIMEOUT_S
         while time.monotonic() < deadline:
             self._check(s)
@@ -209,7 +210,7 @@ class CompetitionTask:
             right = snapshot['right_avoidance_preset']
             if fast:
                 arm=snapshot['arms']['right']
-                errors=([abs(math.degrees(q)-target) for q,target in zip(arm['joints'],FAST_PREGRASP_JOINTS_DEG)]
+                errors=([abs(math.degrees(q)-target) for q,target in zip(arm['joints'],pregrasp)]
                         if arm.get('fresh') and len(arm.get('joints',[]))==6 else [])
                 right=dict(right,max_error_deg=max(errors) if errors else None,
                            arrived=bool(errors and max(errors)<=right['tolerance_deg']))

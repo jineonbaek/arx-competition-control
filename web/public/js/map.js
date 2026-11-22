@@ -88,7 +88,7 @@ for(const action of ['start','stop','continue'])el('competition-'+action).addEve
 function renderCompetitionMode(){
   const description=el('competition-mode-description');
   if(description)description.textContent=el('competition-mode')?.value==='fast'
-    ?'启动时右臂到预抓点（19.67° / 29.27° / 43.37° / -11.49° / 19.89° / -88.56°）；到点后 D405 识别并精纠。后退 200 mm 后交给运输，导航时同时降升降和返回运输姿态。'
+    ?'启动时右臂到已保存的快模式预抓点；到点后 D405 识别并精纠。后退 200 mm 后交给运输，导航时同时降升降和返回运输姿态。'
     :'稳模式沿用原比赛流程。';
 }
 el('competition-mode')?.addEventListener('change',renderCompetitionMode);

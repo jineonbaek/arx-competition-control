@@ -12,6 +12,7 @@ from agent.storage import RunStore,atomic_json
 from agent.perception_session import PerceptionSession
 from control import Rejected
 from agent.battery_references import REFERENCES
+from agent import fast_pick
 
 
 DEFAULT_RECOGNITION_PROFILES={
@@ -202,6 +203,7 @@ class BatteryTask:
         if self.fast_start_path is not None:
             value['fast_start'] = self._fast_reference()
             value['fast_dock_policy'] = getattr(self.fast_dock, 'policy', None)
+        value['fast_pregrasp_joints_deg']=fast_pick.load_pregrasp()
         value['plan_c']=copy.deepcopy(self.plan_c)
         value['reference_catalog']=[dict(id=k,label=v['label'],url='/grasp-reference/'+k+'.png') for k,v in REFERENCES.items()]
         value['recognition_profiles']=[copy.deepcopy(profile) for profile in self.recognition_profiles.values()]
@@ -369,6 +371,16 @@ class BatteryTask:
                     raise ValueError('Plan C 请先记录预夹取点和夹取点')
                 if action=='start_fast':values['pickup_flow']='fast_plan_f'
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
+            elif action=='record_fast_pregrasp':
+                if set(data)!={'action','request_id'}:
+                    raise ValueError('记录快模式预抓点仅需要请求编号')
+                arm=self.controller.snapshot().get('arms',{}).get('right',{})
+                if arm.get('fresh') is not True:
+                    raise ValueError('记录快模式预抓点需要新鲜右臂反馈')
+                joints=fast_pick.pregrasp_joints(arm.get('joints'))
+                fast_pick.FAST_PREGRASP_PATH.parent.mkdir(parents=True,exist_ok=True)
+                atomic_json(fast_pick.FAST_PREGRASP_PATH,[math.degrees(v) for v in joints])
+                result=self._view(client)
             elif action=='record_fast_start':
                 if self.fast_start_path is None:
                     raise ValueError('快速抓取未配置')

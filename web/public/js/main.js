@@ -184,6 +184,7 @@ function render(force=false) {
   $('left-fixed-hold2').hidden=side!=='left';
   $('right-avoidance-preset').hidden=side!=='right';
   $('right-place-preobserve').hidden=side!=='right';
+  $('right-fast-pregrasp-controls').hidden=side!=='right';
   $('left-fixed-hold-status').textContent=hold?.arrived
     ? '左臂固定点位：已到位 · 最大误差 '+fmt(hold.max_error_deg,2)+'° · 夹爪闭合目标保持'
     : '左臂固定点位：'+(Number.isFinite(hold?.max_error_deg)?'最大误差 '+fmt(hold.max_error_deg,2)+'°':'等待反馈')+' · 六轴容差 ±2° · 夹爪闭合';
@@ -226,6 +227,9 @@ function render(force=false) {
   button('left-fixed-hold2','left:arm.fixed_hold2');
   button('right-avoidance-preset','right:arm.avoidance_preset');
   button('right-place-preobserve','right:arm.joints');
+  button('right-fast-pregrasp','right:arm.joints');
+  $('right-fast-pregrasp').disabled ||= rightAvoidanceBusy;
+  $('record-fast-pregrasp').disabled=!(connected && snapshot.arms.right.fresh) || rightAvoidanceBusy;
   $('left-fixed-hold').disabled ||= leftHoldBusy;
   $('left-fixed-hold2').disabled ||= leftHoldBusy;
   $('right-avoidance-preset').disabled ||= rightAvoidanceBusy;
@@ -304,6 +308,30 @@ $('right-avoidance-preset').addEventListener('click',async()=>{
   try{await command({type:'arm.avoidance_preset',arm:'right'});}
   finally{rightAvoidanceBusy=false;render();}
 });
+async function fastPregrasp(record=false) {
+  const response=await fetch('/api/battery-task',record?{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'record_fast_pregrasp',request_id:Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('')})
+  }:{cache:'no-store'});
+  const result=await response.json();
+  if(!response.ok)throw Error(result.message || '快模式预抓点读取失败');
+  const joints=result.settings.fast_pregrasp_joints_deg;
+  $('right-fast-pregrasp-status').textContent='快模式预抓点：'+joints.map(v=>fmt(v,2)+'°').join(' / ');
+  return joints;
+}
+for(const [id,record] of [['record-fast-pregrasp',true],['right-fast-pregrasp',false]]){
+  $(id).addEventListener('click',async()=>{
+    if(rightAvoidanceBusy)return;
+    rightAvoidanceBusy=true;render();
+    try{
+      const joints=await fastPregrasp(record);
+      if(record){toast('已记录右臂实际位置；下次比赛快模式使用此点');localLog('已记录快模式预抓点：'+joints.join(' / '));}
+      else await command({type:'arm.joints',arm:'right',joints});
+    }catch(error){toast(error.message);localLog(error.message,'warning');}
+    finally{rightAvoidanceBusy=false;render();}
+  });
+}
+fastPregrasp().catch(error=>{$('right-fast-pregrasp-status').textContent=error.message;});
 $('right-place-preobserve').addEventListener('click',async()=>{
   if(rightAvoidanceBusy)return;
   rightAvoidanceBusy=true;render();
