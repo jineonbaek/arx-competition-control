@@ -124,4 +124,59 @@ class RetreatTests(unittest.TestCase):
             self.assertEqual(_retreat_stale_inputs(object()),['/pb/scan','/localization/odometry'])
 
 
+    def test_scan_stale_stops_waits_past_old_timeout_then_resumes_same_target(self):
+        import time
+        self.controller.log=Mock()
+        self.step.start();self.step.poll()
+        target=self.step.target.copy();route=self.step.route.copy()
+        self.odom[1]=2.9
+        self.reader.read.side_effect=ValueError('sensor_or_costmap_stale /pb/scan')
+        self.now+=.1
+        self.assertTrue(self.step.poll()['waiting_for_pose'])
+        count=len(self.commands)
+        self.assertEqual(self.commands[-1][0]['type'],'chassis.end_output')
+        for _ in range(4):
+            self.step.pose_watch.started=time.monotonic()-120
+            self.now+=60.
+            self.assertTrue(self.step.poll()['waiting_for_pose'])
+        self.assertEqual(len(self.commands),count)
+        self.assertFalse(self.step.done)
+        self.reader.read.side_effect=lambda:(self.odom.copy(),self.odom.copy(),self.now)
+        for _ in range(15):
+            self.now+=.1;self.step.poll()
+        np.testing.assert_array_equal(self.step.target,target)
+        np.testing.assert_array_equal(self.step.route,route)
+        self.assertFalse(self.step.scan_waiting)
+        self.assertEqual(self.commands[-1][0]['type'],'chassis.nav_sdk')
+        self.assertLess(self.commands[-1][0]['x'],0.)
+        self.assertGreaterEqual(self.reader.check_motion.call_count,2)
+        self.odom[1]=2.79
+        for _ in range(15):
+            self.now+=.1;receipt=self.step.poll()
+        self.assertEqual(receipt['status'],'chassis_stopped')
+
+    def test_scan_stale_at_send_boundary_never_sends_stale_command(self):
+        self.controller.log=Mock();self.step.start()
+        self.reader.check_motion.side_effect=ValueError('sensor_or_costmap_stale /pb/scan')
+        self.assertTrue(self.step.poll()['waiting_for_pose'])
+        self.assertTrue(all(c['type']=='chassis.end_output' for c,_ in self.commands))
+        self.step.cancel();self.reader.close.assert_called_once()
+
+    def test_driver_error_still_propagates_while_waiting_for_scan(self):
+        self.controller.log=Mock();self.step.start()
+        self.reader.read.side_effect=ValueError('sensor_or_costmap_stale /pb/scan')
+        self.step.poll()
+        self.reader.read.side_effect=ValueError('driver_disconnected')
+        with self.assertRaisesRegex(ValueError,'driver_disconnected'):self.step.poll()
+
+    def test_initial_scan_staleness_is_reported_without_creating_target(self):
+        reader=_PoseReader.__new__(_PoseReader)
+        reader.node=Mock();reader.node.received_pose=True;reader.node.target=None
+        reader.node.motion_poses.return_value=(self.odom,self.odom,50.)
+        reader.node.stale_inputs.return_value=['/pb/scan']
+        reader.executor=Mock()
+        with self.assertRaisesRegex(ValueError,'sensor_or_costmap_stale /pb/scan'):reader.read()
+        self.assertIsNone(reader.node.target)
+
+
 if __name__=='__main__':unittest.main()

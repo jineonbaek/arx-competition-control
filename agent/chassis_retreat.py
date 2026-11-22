@@ -81,7 +81,8 @@ class _PoseReader:
         if not self.node.received_pose:return None
         sample=self.node.motion_poses()
         if self.node.target is None:
-            if self.node.stale_inputs():return None
+            if stale:=self.node.stale_inputs():
+                raise ValueError('sensor_or_costmap_stale '+','.join(stale))
             if self.node.require_bottom_mark and not self.node.bottom_mark_stamp:return None
             if self.node.require_dual_origin and self.node.dual_origin_health is None:return None
             self.node.target=sample[0].copy()
@@ -108,7 +109,7 @@ class ChassisRetreatStep:
         self.reader=None;self.transport=None;self.target=None;self.route=None
         self.previous=np.zeros(3);self.last=None;self.stop=None;self.done=False
         self.pose_wait=None;self.moved=False
-        self.pose_watch=None
+        self.pose_watch=None;self.scan_waiting=False
 
     def start(self):
         # Finish ROS discovery before WebChassis timestamps its first source-stamped command.
@@ -124,13 +125,25 @@ class ChassisRetreatStep:
         if self.pose_watch is None:self.pose_watch=RetryWatch(None,'抓取后退定位',max_attempts=10000,max_s=45.)
         try:
             result=self._poll()
-            if result.get('waiting_for_pose'):self.pose_watch.fail('后退已停车，等待雷达位姿恢复')
-            else:self.pose_watch.reset()
+            if result.get('waiting_for_pose'):
+                if not self.scan_waiting:self.pose_watch.fail('后退已停车，等待雷达位姿恢复')
+            else:
+                if self.scan_waiting:
+                    self.controller.log('抓取撤出：扫描恢复，原有定位与运动校验通过，继续剩余后退')
+                self.scan_waiting=False;self.pose_watch.reset()
             return result
         except Exception as exc:
-            if not pose_unavailable(exc):raise
+            scan_stale=(str(exc).startswith('sensor_or_costmap_stale ')
+                        and '/pb/scan' in str(exc).split(' ',1)[1].split(','))
+            if not (scan_stale or pose_unavailable(exc)):raise
             self.pose_wait.begin(self.moved);self.pose_wait.hold()
-            self.pose_watch.fail('后退已停车，定位不可用：'+str(exc))
+            if scan_stale:
+                if not self.scan_waiting:
+                    self.controller.log('抓取撤出：扫描过期，已请求停车，等待新扫描后重新校验')
+                self.scan_waiting=True;self.pose_watch.reset()
+            else:
+                self.scan_waiting=False
+                self.pose_watch.fail('后退已停车，定位不可用：'+str(exc))
             return dict(status='backing_chassis',waiting_for_pose=True)
 
     def _poll(self):
