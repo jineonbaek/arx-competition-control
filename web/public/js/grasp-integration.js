@@ -112,24 +112,23 @@ let actionBusy=false;
 function executionButtons(){
  const running=execution?.status==='running';
  if(running){
-  const activeFast=execution.settings?.pickup_flow==='fast';
+   const activeFast=['fast','fast_plan_f'].includes(execution.settings?.pickup_flow);
   el(activeFast?'flow-fast':'flow-stable').checked=true;
  }
  const fast=el('flow-fast').checked,mode=el('vision-mode').value;
  const planD=!fast&&mode==='plan_d',planF=mode==='plan_f';
- const start=execution?.settings?.fast_start,policy=execution?.settings?.fast_dock_policy;
+ const start=execution?.settings?.fast_start;
  el('flow-switch').disabled=running||actionBusy||planDBusy;
  el('stable-settings').hidden=fast;
- el('fast-settings').hidden=!fast;
+ el('fast-settings').hidden=true;
  el('plan-d-panel').hidden=!planD;
  el('execute').textContent=fast?'启动快模式':'启动稳模式';
  el('execute').disabled=actionBusy||planDBusy||running||!execution?.available||
-  !el('environment-clear').checked||(fast?(!start||!policy):planD);
+  !el('environment-clear').checked||planD;
  const paths={plan_f:'D405 粗定位、精定位后夹取',d405:'D435 粗定位、D405 精定位后夹取',
   d435:'D435 单帧定位后夹取',fixed:'按预录关节位置夹取'};
  el('flow-summary').textContent=fast?
-   'T1 低速贴靠 2 秒 → 雷达确认停稳 → 固定预抓取点 → D405 精调 → 夹取 → 后退 200 mm。'+
-  (execution&&!policy?' 等待配置平台停车信号。':''):
+   '当前快模式复用 Plan F：准备升降 → D405 定位、精纠后夹取 → 后退 200 mm → 返回运输姿态。':
   planD?'Plan D 仅预览 D435 电池识别结果。':(paths[mode]||'按所选方案夹取')+' → 后退 200 mm → 返回运输姿态。';
  el('fast-reference').textContent=start?'地图出发点  X '+start.pose[0].toFixed(3)+' m  Y '+start.pose[1].toFixed(3)+' m  朝向 '+(start.pose[2]*180/Math.PI).toFixed(2)+'°':'尚未记录快流程出发点';
  el('fast-record').disabled=!execution?.available||actionBusy;
@@ -182,9 +181,9 @@ el('execute').onclick=async()=>{
  actionBusy=true;executionButtons();
  try{
   const payload={action:fast?'start_fast':'start',request_id:requestId(),expected_epoch:execution.command_epoch,environment_clear:true};
-  if(!fast){
+  {
    const lift=el('lift-target-rad'),observer=el('observer-z-mm'),planCLift=el('plan-c-lift-target-rad');
-   const mode=el('vision-mode').value;
+   const mode=fast?'plan_f':el('vision-mode').value;
    const invalid=[lift,observer,planCLift,...['recognition-profile-name','dino-prompt','qwen-task'].map(el)].find(field=>!field.checkValidity());
    if(invalid){el('stable-settings').open=true;invalid.closest('details').open=true;invalid.reportValidity();return;}
    Object.assign(payload,{lift_target_rad:lift.valueAsNumber,observer_z_mm:observer.valueAsNumber,vision_mode:mode,recognition_profile:recognitionProfileFromForm()});

@@ -336,7 +336,8 @@ class BatteryTask:
         with self.lock:
             cached=self.requests.get((client,request))
             if cached is not None:return copy.deepcopy(cached)
-            if action=='start':
+            if action in ('start','start_fast'):
+                if action=='start_fast':data=dict(data,vision_mode='plan_f')
                 if (data.get('vision_mode',self.task_settings.get('vision_mode','d405'))=='plan_f'
                         and ('lift_target_rad' in data or 'observer_z_mm' in data)):
                     # Plan F has no observer-Z move; retain configuration, ignoring this unused input.
@@ -366,13 +367,14 @@ class BatteryTask:
                         and any(self.plan_c.get(key) is None
                                 for key in ('pregrasp_joints_rad','grasp_joints_rad'))):
                     raise ValueError('Plan C 请先记录预夹取点和夹取点')
+                if action=='start_fast':values['pickup_flow']='fast_plan_f'
                 result=self._start(client,data['expected_epoch'],data['environment_clear'],values)
-            elif action in ('record_fast_start', 'start_fast'):
+            elif action=='record_fast_start':
                 if self.fast_start_path is None:
                     raise ValueError('快速抓取未配置')
                 if self.active and self.active['status'] == 'running':
                     raise Rejected('抓取任务正在运行')
-                from fast_grasp_start import capture, check_start
+                from fast_grasp_start import capture
                 from navigation_view import read_snapshot
                 if action == 'record_fast_start':
                     if set(data) != {'action', 'request_id'}:
@@ -383,18 +385,6 @@ class BatteryTask:
                     reference = capture(robot, read_snapshot())
                     atomic_json(self.fast_start_path, reference)
                     result = self._view(client)
-                else:
-                    if (set(data) != {'action', 'request_id', 'expected_epoch', 'environment_clear'}
-                            or type(data['expected_epoch']) is not int or data['environment_clear'] is not True):
-                        raise ValueError('快速抓取需要本轮控制编号和现场确认')
-                    reference = self._fast_reference()
-                    if not reference or not getattr(self.fast_dock, 'policy', None):
-                        raise ValueError('需要记录出发点并配置平台停车信号')
-                    check_start(reference, read_snapshot())
-                    settings = dict(self.task_settings, vision_mode='plan_f', pickup_flow='fast',
-                                    fast_reference=reference,
-                                    recognition_profile=copy.deepcopy(DEFAULT_RECOGNITION_PROFILES['handle']))
-                    result = self._start(client, data['expected_epoch'], True, settings)
             elif action=='select_recognition_profile':
                 if set(data)!= {'action','request_id','profile_id'}:
                     raise ValueError('select_recognition_profile requires profile_id')

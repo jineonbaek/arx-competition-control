@@ -87,6 +87,15 @@ class FastPlanTests(unittest.TestCase):
         self.tools.fail='verify_hold'
         self.assertEqual(self.run_fast()['status'],'needs_attention')
         self.assertNotIn('stow_for_carry',self.tools.calls)
+
+    def test_replacement_fast_entry_reuses_plan_f_and_finishes_transport(self):
+        self.store.state['battery_task_settings']={'pickup_flow':'fast_plan_f'}
+        self.store.state.pop('fast_dock',None)
+        self.tools.vision_mode='plan_f'
+        self.assertEqual(self.run_fast()['status'],'completed')
+        self.assertIn('execute_battery_approach',self.tools.calls)
+        self.assertEqual(self.tools.calls[-3:],['verify_hold','stow_for_carry','return_to_carry'])
+        self.assertTrue(all(camera=='d405' for camera in self.cameras))
     def test_body_or_one_side_is_not_a_confirmed_bridge(self):
         profile=dict(points_object_mm={'front':[0,0,195]},hole_bounds_mm=[[-20,0,162],[20,0,177]],handle_thickness_mm=24)
         pts=np.zeros((6,4,3));pts[:,:,2]=.19;pts[:,:2,0]=-.01;pts[:,2:,0]=.01
@@ -107,6 +116,24 @@ class FastPlanTests(unittest.TestCase):
 
 
 class FastEntryTests(unittest.TestCase):
+    def test_fast_and_stable_receive_identical_plan_f_parameters(self):
+        from battery_task import BatteryTask
+        with tempfile.TemporaryDirectory() as directory:
+            factory=Mock()
+            factory.task_settings=dict(vision_mode='plan_f',lift_target_rad=12.52,
+                lift_acceptance_rad=12.,observer_z_mm=700.5)
+            task=BatteryTask(Path(directory)/'runs',Mock(),factory)
+            profile=task.task_settings['recognition_profile']
+            with patch.object(task,'_start',return_value={'status':'idle'}) as start:
+                for action in ['start','start_fast']:
+                    task.action('owner',dict(action=action,request_id=action,expected_epoch=4,
+                        environment_clear=True,lift_target_rad=12.52,observer_z_mm=700.5,
+                        vision_mode='plan_f',recognition_profile=profile))
+                stable=start.call_args_list[0].args[3]
+                fast=start.call_args_list[1].args[3].copy()
+            self.assertEqual(fast.pop('pickup_flow'),'fast_plan_f')
+            self.assertEqual(fast,stable)
+
     def test_stable_entry_never_uses_fast_pregrasp(self):
         from battery_task import BatteryTask
         from threading import RLock
@@ -121,7 +148,7 @@ class FastEntryTests(unittest.TestCase):
         task._prepare_plan_f_lift.assert_called_once_with(state,flow)
         flow.run.assert_called_once()
 
-    def test_standalone_uses_handle_profile_and_idempotent_request(self):
+    def test_replacement_fast_uses_plan_f_settings_without_docking_or_map_reference(self):
         from battery_task import BatteryTask
         import threading
         import json
@@ -141,22 +168,25 @@ class FastEntryTests(unittest.TestCase):
                     return dict(status='completed')
                 return SimpleNamespace(run=run)
             task=BatteryTask(Path(d)/'runs',controller,build,fast_start_path=ref,fast_dock=dock)
+            selected=task.task_settings['recognition_profile'].copy()
+            ref.unlink()
             request=dict(action='start_fast',request_id='request',expected_epoch=4,environment_clear=True)
             view={'pose':dict(valid=True,frame='map',x=3.,y=2.,yaw=0.),
                   'route':{'definition':{'map_id':'map-a'}}}
-            with patch('navigation_view.read_snapshot',return_value=view),patch('agent.fast_pick.prepare_pregrasp') as prepare:
+            with patch('navigation_view.read_snapshot',return_value=view) as navigation,patch('agent.fast_pick.prepare_pregrasp') as prepare,patch.object(task,'_prepare_plan_f_lift') as lift:
                 try:
                     first=task.action('owner',request)
                     self.assertEqual(task.action('owner',request)['run_id'],first['run_id'])
-                    self.assertEqual(first['settings']['recognition_profile']['id'],'handle')
-                    self.assertEqual(first['settings']['pickup_flow'],'fast')
+                    self.assertEqual(first['settings']['recognition_profile'],selected)
+                    self.assertEqual(first['settings']['pickup_flow'],'fast_plan_f')
+                    self.assertEqual(first['settings']['vision_mode'],'plan_f')
                     self.assertNotIn('pickup_flow',task.task_settings)
                 finally:
                     stop.set()
                     task.active['worker'].join(3.)
                     task.close()
-            self.assertEqual(dock.call_count,1)
-            prepare.assert_called_once_with(task.active['runner'])
+            dock.assert_not_called();prepare.assert_not_called();navigation.assert_not_called()
+            lift.assert_called_once_with(task.active,task.active['runner'])
             self.assertFalse(controller.submit.called)
 
     def test_direct_pick_opens_for_approach_then_accepts_closing_feedback(self):
