@@ -185,10 +185,7 @@ class BatteryFlow:
                             self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     plan=self.store.state['mission'].get('plan') or {}
                     receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
-                    if self.recovery is not None and phase=='approach_execute':
-                        if self.recovery.record_approach(receipt) is False:
-                            self.flow['recovery_reason']='连续两次接近/修正没有实际进展'
-                            self._next('recover_pose');continue
+                    if self.recovery is not None and phase=='approach_execute':self.recovery.record_approach(receipt)
                     self._next('verify_hold' if phase=='insert' else
                                'fixed_pick_plan' if self.vision_mode=='fixed' else
                                'pick_plan' if self.vision_mode=='d435' and phase=='coarse_execute' else 'wrist')
@@ -222,9 +219,6 @@ class BatteryFlow:
                     for key in ('plan','approach_plan','target','pick_corrections','pick_correction_mm','evidence_barriers'):
                         mission.pop(key,None)
                     mission['stage']='IDLE'
-                    mission['evidence_barriers']={'GRASP_RECOVERY':dict(
-                        completed_at=recovered['completed_at'],
-                        previous_observation_ids=list(self.store.state.get('observations',{})))}
                     for key in ('grasp_preview','grasp_preview_sha256','battery_pick_plan','battery_pick_plan_sha256',
                                 'latest_battery_observations','battery_observation_attempts'):
                         self.store.state.pop(key,None)
