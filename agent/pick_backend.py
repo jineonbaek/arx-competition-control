@@ -115,12 +115,18 @@ class _PreparedExecutionBackend:
                 if stage==self.terminal_stage:
                     self._save(self._receipt('completed',stage=stage,**self._completed_data(receipt)))
                     return
-                if stage not in self.running_stages:
+                if receipt.get('feedback_replan_required'):
+                    self._save(self._receipt('rejected',stage='feedback_replan_required',
+                        feedback_replan_required=True,return_trace_rad=receipt.get('return_trace_rad',[])))
+                    return
+                if stage not in self.running_stages and stage!='waiting_for_feedback':
                     raise ValueError('Unexpected execution stage')
-                pose_waiting=self.operation=='stow_for_carry' and receipt.get('waiting_for_pose') is True
+                pose_waiting=(receipt.get('waiting_for_feedback') is True or
+                              self.operation=='stow_for_carry' and receipt.get('waiting_for_pose') is True)
                 key=(stage,pose_waiting)
                 if key!=last:
-                    self._save(self._receipt('running',stage=stage,**({'waiting_for_pose':True} if pose_waiting else {})));last=key
+                    self._save(self._receipt('running',stage=stage,**({'waiting_for_feedback':True} if receipt.get('waiting_for_feedback') else
+                           {'waiting_for_pose':True} if pose_waiting else {})));last=key
                 cancelled=self.cancel_event.wait(.02) or self.cancelled()
                 now=time.monotonic()
                 if pose_waiting:deadline+=max(0.,now-last_tick)

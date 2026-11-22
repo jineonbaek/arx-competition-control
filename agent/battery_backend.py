@@ -219,10 +219,23 @@ class BatteryControllerBackend:
         except (OSError,ValueError,KeyError,TypeError):pass
         return self._reply('unknown',request,'recovery_required')
 
+    def _wait_for_feedback(self,*,paired):
+        if self.store.state.get('battery_task_settings',{}).get('vision_mode')!='plan_f':return
+        from .feedback_wait import feedback_pending
+        waiting=False
+        while feedback_pending(self.controller,self.policies['pick'],paired=paired):
+            if self.cancelled() or not self.controller.motion_valid(self.token):
+                raise ValueError('Task cancelled while waiting for feedback')
+            if not waiting:
+                self.controller.log('夹取步骤暂停：等待新鲜、同步的反馈');waiting=True
+            time.sleep(.02)
+        if waiting:self.controller.log('夹取反馈恢复，继续原步骤校验')
+
     def invoke(self,operation,arguments,request_id):
         if operation=='verify_hold':
             try:
                 self._path(request_id)
+                self._wait_for_feedback(paired=False)
                 if not self.available(operation):raise ValueError('Hold verifier unavailable')
                 arm=self.controller.snapshot().get('arms',{}).get('right',{})
                 feedback=arm.get('gripper');low,high=self.policies['pick']['hold_gripper_range']
@@ -256,15 +269,19 @@ class BatteryControllerBackend:
                     saved=json.loads(journal.read_text())
                     if saved['receipt']['status'] not in ('completed','rejected'):
                         raise ValueError('Earlier execution requires recovery')
-                if operation=='stow_for_carry':
-                    step=WristExtractionStep(self.controller,self.token)
-                elif operation=='return_to_carry':
-                    step=CarryReturnStep(self.controller,self.token,
-                        arm_policy=self.policies['coarse']['arm_policy'],
-                        timing_limits=self.pick_setup['timing_limits'],wrist_from_tool=self.pick_setup['T_wrist_from_tool'])
-                else:
-                    step=prepare_step(operation,arguments['plan'],self.controller,self.token,
+                from .feedback_wait import FeedbackWaitStep
+                self._wait_for_feedback(paired=operation in ('execute_battery_approach','execute_pick'))
+                def make_step():
+                    if operation=='stow_for_carry':return WristExtractionStep(self.controller,self.token)
+                    if operation=='return_to_carry':
+                        return CarryReturnStep(self.controller,self.token,
+                            arm_policy=self.policies['coarse']['arm_policy'],
+                            timing_limits=self.pick_setup['timing_limits'],wrist_from_tool=self.pick_setup['T_wrist_from_tool'])
+                    return prepare_step(operation,arguments['plan'],self.controller,self.token,
                         policies=self.policies,pick_setup=self.pick_setup,preflight=self.preflight)
+                step=make_step()
+                if self.store.state.get('battery_task_settings',{}).get('vision_mode')=='plan_f':
+                    step=FeedbackWaitStep(step,self.controller,self.token,self.policies['pick'],operation,make_step)
                 timeout=self.timeout_s.get(operation,self.timeout_s['execute_pick'])
                 if operation=='return_to_carry':timeout+=self.policies['coarse']['arm_policy']['timeout_s']
                 entry=BACKENDS[operation](step,request_id=request_id,arguments=arguments,journal=path,

@@ -93,9 +93,9 @@ class BatteryFlow:
                 if self.store.cancelled:raise AgentError('cancelled','Task cancelled during execution')
                 last_receipt=(self.store.state.get('pending') or {}).get('last_receipt') or {}
                 last_data=last_receipt.get('data',{})
-                if (name=='stow_for_carry' and last_receipt.get('status')=='running'
-                        and last_data.get('extract_stage')=='backing_chassis'
-                        and last_data.get('waiting_for_pose') is True):
+                if (last_receipt.get('status')=='running' and (last_data.get('waiting_for_feedback') is True
+                        or name=='stow_for_carry' and last_data.get('extract_stage')=='backing_chassis'
+                        and last_data.get('waiting_for_pose') is True)):
                     self.flow['pending_since']=time.time()
                 if time.time()-self.flow['pending_since']>self.receipt_timeout_s:
                     raise AgentError('execution_timeout','Execution receipt deadline exceeded')
@@ -184,7 +184,13 @@ class BatteryFlow:
                             if self.recovery is None or isinstance(error,AgentError) and error.code in NON_RECOVERABLE:raise
                             self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     plan=self.store.state['mission'].get('plan') or {}
-                    receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
+                    try:
+                        receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
+                    except AgentError as error:
+                        if (self.recovery is None or error.code!='feedback_replan_required'
+                                or self.store.cancelled or self.store.state.get('pending')):raise
+                        self.recovery.record_approach(self.store.state.pop('feedback_restart',{}))
+                        self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     if self.recovery is not None and phase=='approach_execute':self.recovery.record_approach(receipt)
                     self._next('verify_hold' if phase=='insert' else
                                'fixed_pick_plan' if self.vision_mode=='fixed' else
