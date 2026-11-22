@@ -4,6 +4,7 @@ import argparse
 import base64
 import http.cookies
 import json
+from placement_policy import CHASSIS_FORWARD_SDK, CHASSIS_FORWARD_SECONDS, CHASSIS_COMPLETION_BASIS
 import mimetypes
 import os
 from pathlib import Path
@@ -48,6 +49,7 @@ from placement_task import make_placement_task
 from competition_task import CompetitionTask
 from t2_test_task import make_t2_navigation_task
 from t2_timed_placement import TimedT2Placement
+from placement_mode_switch import PlacementModeSwitch
 from competition_modules import GraspModule, CarryReceiptModule, PlacementModule, QwenRecovery
 from t2_preview_backend import make_t2_placement
 from agent.battery_production import workflow_factory
@@ -69,7 +71,7 @@ def make_battery_task(controller,port,policy_path,depth_control=None):
                        recognition_profiles_path=WEB_ROOT/'config/battery-recognition-profiles.json')
 
 
-def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None, d435_overlay=None, placement_reference=None, placement_stages=None, t2_test_task=None):
+def make_handler(controller, arxgent=None, depth_control=None, vision=None, foundation=None, grasp_integration=None, battery_task=None, competition_task=None, placement_task=None, placement_preview=None, cabinet_preview=None, cabinet_rehearsal=None, cabinet_execution=None, visual_docking=None, fast_level=None, t2_preview=None, d435_overlay=None, placement_reference=None, placement_stages=None, t2_test_task=None, placement_modes=None):
     depth_control=depth_control or DepthControl()
     placement_preview=placement_preview or PlacementPreview(controller,depth_control)
     cabinet_preview=cabinet_preview or CabinetPreview(controller,depth_control)
@@ -141,7 +143,9 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
         except Exception as error:capture['d435']={'valid':False,'reason':str(error)}
         return capture,artifacts
     placement_reference=placement_reference or PlacementReferenceController(reference_root,capture_reference)
-    def competition_view(view):
+    def competition_view_unlocked(view):
+        if placement_modes is not None:
+            view['placement_mode']=placement_modes.snapshot()
         owner=t2_test_task if view.get('scope')=='t2_test' else competition_task
         module=owner.modules.get('place') if owner is not None else None
         module=getattr(module,'placement_module',module)
@@ -151,6 +155,25 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             view['placement_readiness']=module.readiness()
             view['insertion_policy']=dict(cabinet_depth_mm=150.,distance='minimum_measured_from_stroke_origin',minimum_measured_travel_mm=150.,axis_source='right_tool_positive_x',direct_start_mm=150.,standalone_probe_mm=5.,main_speed_factor=3.,terminal_speed_factor=5.,terminal_max_mm=10.,visual_check='live_reobserve_until_recognized',seat_standard='d405_operator_seated_reference',rotation_drift_limit_deg=None,handle_outside=True,
                 visual_verification=True,compensation_step_mm=10.,max_total_travel_mm=300.,unverified_after_attempt='stop_and_hold_closed')
+            if module.distance_only:
+                view['placement_backend']='current_position_fixed_stroke' if isinstance(module,CurrentPositionPlacement) else 'lidar_locked_fixed_stroke'
+                view['insertion_policy'].update(alignment='saved_preobservation',d405_horizontal_enabled=False,
+                    visual_check='disabled',seat_standard=None,visual_verification=False,seat_verification_enabled=False,
+                    handle_outside=None,completion_basis='measured_axial_travel',compensation_step_mm=None,
+                    max_tracking_finish_mm=1.75,max_tracking_finish_attempts=1,max_total_travel_mm=151.75,
+                    unverified_after_attempt='not_applicable',short_stroke_action='stop_and_hold_closed')
+            if module.chassis_only:
+                view['placement_backend']='lidar_special_point_chassis'
+                view['insertion_policy']=dict(alignment='saved_preobservation',d405_horizontal_enabled=False,
+                    chassis_recheck_enabled=False,chassis_pose_source='navigation_arrival_receipt',
+                    seat_verification_enabled=False,visual_verification=False,visual_check='disabled',
+                    arm_push_mm=0.,chassis_target='saved_special_route_endpoint',
+                    terminal_forward_s=CHASSIS_FORWARD_SECONDS,terminal_forward_sdk=CHASSIS_FORWARD_SDK,
+                    release_after='terminal_forward_completed_and_output_ended',
+                    retreat='recorded_t2_arrival_pose',completion_basis=CHASSIS_COMPLETION_BASIS)
+                for task in view.get('tasks',[]):
+                    if task['id']=='place':task['label']='预观察点及 J4 补偿，保持夹持交给底盘'
+                view['target']=f'T2 → 预观察点保持 → 已保存特殊点 → 底盘前进{CHASSIS_FORWARD_SECONDS:g}秒 → 松爪、底盘退出、机械臂返回'
             if view.get('run_id'):
                 outcome=module.inspect({'request_id':view['run_id']+':place'})
                 if outcome.get('arm_progress'):view['placement_progress']=outcome['arm_progress']
@@ -166,6 +189,13 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
             for task in view.get('tasks',[]):
                 if task.get('id')=='place':task['label']='T2 历史数据预览（不执行放置）'
         return view
+    def competition_view(view):
+        if placement_modes is None:return competition_view_unlocked(view)
+        with placement_modes.lock:return competition_view_unlocked(view)
+    def task_action(task,client,data):
+        if placement_modes is None:return competition_view(task.action(client,data))
+        with placement_modes.lock:
+            return competition_view(placement_modes.action(task,client,data))
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -447,10 +477,10 @@ def make_handler(controller, arxgent=None, depth_control=None, vision=None, foun
                     return self.json(202,placement_task.action(self.client(),strict_json(raw)))
                 if path == '/api/t2-test':
                     if t2_test_task is None:return self.json(503, {'message':'T2实测入口未启用'})
-                    return self.json(202,competition_view(t2_test_task.action(self.client(),strict_json(raw))))
+                    return self.json(202,task_action(t2_test_task,self.client(),strict_json(raw)))
                 if path == '/api/competition-task':
                     if competition_task is None:return self.json(503, {'message':'比赛总控未启用'})
-                    return self.json(202, competition_view(competition_task.action(self.client(), strict_json(raw))))
+                    return self.json(202, task_action(competition_task,self.client(),strict_json(raw)))
                 if path == '/api/battery-task':
                     if battery_task is None:return self.json(503,{"message":"自动抓取执行后端未启用"})
                     return self.json(202,battery_task.action(self.client(),strict_json(raw)))
@@ -532,19 +562,25 @@ def main():
     placement_task=make_placement_task(controller,placement_preview,args.placement_policy,depth_control,WEB_ROOT.parent)
     battery_task=make_battery_task(controller,args.port,args.battery_policy,depth_control)
     navigation=NavigationSession(controller,RouteMailbox(STATE_FILE.parent,read_snapshot))
-    t2_placement=TimedT2Placement(NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent,lidar_locked=True),navigation,WEB_ROOT.parent)
+    from chassis_placement import ChassisReleaseModule
+    t2_placement=NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent,lidar_locked=True)
+    if not t2_placement.chassis_only:t2_placement=TimedT2Placement(t2_placement,navigation,WEB_ROOT.parent)
     modules={'navigate_pick':navigation.stage('point_1'),'navigate_place':navigation.stage('point_2'),
              'place':t2_placement}
+    if t2_placement.chassis_only:modules['release_after_chassis']=ChassisReleaseModule(t2_placement)
     if battery_task:
         grasp=GraspModule(battery_task)
         modules.update(pick=grasp,carry=CarryReceiptModule(grasp))
     competition_task=CompetitionTask(controller, WEB_ROOT.parent/'agent/competition-runs',
         modules=modules,navigation=navigation,recovery=QwenRecovery(arxgent.config))
-    t2_test_task=make_t2_navigation_task(controller,WEB_ROOT.parent/'agent/t2-test-runs',navigation,
-        TimedT2Placement(CurrentPositionPlacement(controller,fast_level,WEB_ROOT.parent),navigation,WEB_ROOT.parent))
+    single=(NavigationPlacement(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent,lidar_locked=True)
+            if t2_placement.chassis_only else TimedT2Placement(CurrentPositionPlacement(controller,fast_level,WEB_ROOT.parent),navigation,WEB_ROOT.parent))
+    t2_test_task=make_t2_navigation_task(controller,WEB_ROOT.parent/'agent/t2-test-runs',navigation,single)
+    if single.chassis_only:t2_test_task.modules['release_after_chassis']=ChassisReleaseModule(single)
+    placement_modes=PlacementModeSwitch(controller,cabinet_preview,fast_level,navigation,WEB_ROOT.parent,competition_task,t2_test_task)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(controller, arxgent,
         depth_control=depth_control,vision=vision,foundation=foundation,grasp_integration=grasp_integration,
-        battery_task=battery_task,competition_task=competition_task,t2_test_task=t2_test_task,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution,visual_docking=visual_docking,fast_level=fast_level,
+        battery_task=battery_task,competition_task=competition_task,t2_test_task=t2_test_task,placement_modes=placement_modes,placement_task=placement_task,placement_preview=placement_preview,cabinet_rehearsal=cabinet_rehearsal,cabinet_preview=cabinet_preview,cabinet_execution=cabinet_execution,visual_docking=visual_docking,fast_level=fast_level,
         t2_preview=t2_placement if getattr(t2_placement,'preview_only',False) else None))
     server.daemon_threads = True
     server.stopping = threading.Event()

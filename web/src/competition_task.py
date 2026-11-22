@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from control import Rejected
+from placement_policy import terminal_forward_sdk, terminal_forward_seconds
 from agent.storage import atomic_json
 
 
@@ -72,7 +73,12 @@ class CompetitionTask:
                     status=record.get('status', 'pending'), request_id=record.get('request_id'),
                     reason=record.get('reason', '')))
             if s and 'finish_forward' in s['records']:
-                record=s['records']['finish_forward'];view['tasks'].append(dict(id='finish_forward',label='末点后向前0.225 SDK前进4秒并停车',connected=True,status=record.get('status','pending'),request_id=record['request_id'],reason=''))
+                record=s['records']['finish_forward'];view['tasks'].append(dict(id='finish_forward',label=f"末点后向前{terminal_forward_sdk('release_after_chassis' in self.modules):g} SDK前进{terminal_forward_seconds('release_after_chassis' in self.modules):g}秒并停车",connected=True,status=record.get('status','pending'),request_id=record['request_id'],reason=''))
+            if 'release_after_chassis' in self.modules:
+                record=(s['records'].get('release_after_chassis') or {}) if s else {}
+                view['tasks'].append(dict(id='release_after_chassis',label='底盘入仓后松爪、退回 T2、机械臂返回',
+                    connected=True,status=record.get('status','pending'),request_id=record.get('request_id'),reason=record.get('reason','')))
+                if record.get('status')=='running':view['phase']='release_after_chassis'
             if self.navigation:view['navigation']=self.navigation.snapshot()
             return view
 
@@ -153,9 +159,15 @@ class CompetitionTask:
             return result
 
     def _context(self, s, stage, record):
-        return dict(t2_timed_out=((s['records'].get('place') or {}).get('result') or {}).get('outcome')=='timed_out',run_id=s['run_id'], stage=stage, request_id=record['request_id'],
+        context=dict(t2_timed_out=((s['records'].get('place') or {}).get('result') or {}).get('outcome')=='timed_out',run_id=s['run_id'], stage=stage, request_id=record['request_id'],
             token=s['token'], cancelled=s['cancel'], controller=self.controller,
-            environment_clear=True, competition_token=s['competition_token'])
+            environment_clear=True, competition_token=s['competition_token'],
+            forward_receipt=(s['records'].get('finish_forward') or {}).get('result'),
+            chassis_insertion='release_after_chassis' in self.modules)
+        release=self.modules.get('release_after_chassis')
+        if callable(getattr(release,'hold',None)) and ((s['records'].get('place') or {}).get('result') or {}).get('placement_pending'):
+            context['chassis_hold']=lambda:release.hold(context)
+        return context
 
     def _check(self, s, *, reading=False):
         if s['cancel'].is_set():
@@ -316,12 +328,15 @@ class CompetitionTask:
         if s['index']==0:
             if callable(prepare):prepare(self._context(s,'navigate_pick',dict(request_id=s['run_id']+':navigate_pick')))
             elif callable(preflight):preflight()
-        self._prepare_arm_presets(s)
         pick = self.modules.get('pick')
         if (s['index']==0 and callable(getattr(pick,'preposition_lift',None))):
             self.controller.set_competition_navigation(s['competition_token'],True)
             pick.preposition_lift(self.controller,s['competition_token'])
             s['lift_prepositioned']=True
+            self._save(s,'pickup_lift_requested','初始准备时预升至抓取高度，与左右臂准备并行')
+        # The arm lease temporarily inherits the lift command, then preserves
+        # it on the competition lease for the later T1 grasp handoff.
+        self._prepare_arm_presets(s)
 
     def _run(self, s):
         status, reason = 'completed', ''
@@ -365,9 +380,23 @@ class CompetitionTask:
             if self.navigation and callable(getattr(self.navigation,'finish_forward',None)):
                 self._check(s);self._mode(s,False)
                 record=s['records'].setdefault('finish_forward',dict(request_id=s['run_id']+':finish_forward'))
-                record['status']='running';self._save(s,'final_forward_started','末点完成：0.225 SDK车头正前方4秒')
-                self.navigation.finish_forward(self._context(s,'finish_forward',record))
-                record['status']='completed';self._save(s,'final_forward_completed','前进4秒并结束输出')
+                context=self._context(s,'finish_forward',record)
+                duration=terminal_forward_seconds(context['chassis_insertion'])
+                record['status']='running';self._save(s,'final_forward_started',f'末点完成：{terminal_forward_sdk(context["chassis_insertion"]):g} SDK车头正前方{duration:g}秒')
+                release=self.modules.get('release_after_chassis')
+                call=lambda:self.navigation.finish_forward(context)
+                record['result']=release.forward(context,call) if callable(getattr(release,'forward',None)) else call()
+                record['status']='completed';self._save(s,'final_forward_completed',f'前进{duration:g}秒并结束输出')
+            release=self.modules.get('release_after_chassis')
+            if release is not None:
+                self._check(s);self._mode(s,False)
+                record=s['records'].setdefault('release_after_chassis',dict(request_id=s['run_id']+':release_after_chassis'))
+                result=self._execute(s,'release_after_chassis',release,record)
+                if result.get('status')!='completed':
+                    record.update(status='failed',result=copy.deepcopy(result),reason=result.get('reason') or '底盘放置松爪退出未完成')
+                    raise ValueError(record['reason'])
+                record.update(status='completed',result=copy.deepcopy(result));s['current']=None
+                self._save(s,'chassis_placement_completed','底盘入仓、松爪退出和机械臂返回完成')
         except Interrupted as error:
             status, reason = 'paused', str(error)
         except Exception as error:
@@ -407,6 +436,10 @@ class CompetitionTask:
         with self.lock:
             if s['cancel'].is_set(): status, reason = 'paused', '操作员停止'
             s.update(status=status, reason=reason or s['reason'])
+            if status!='completed':
+                for extra in ('finish_forward','release_after_chassis'):
+                    record=s['records'].get(extra)
+                    if record and record.get('status')=='running':record.update(status='stopped' if status=='paused' else 'failed',reason=s['reason'])
             if s['index'] < len(self.stages):
                 record = s['records'].get(self.stages[s['index']][0])
                 if record and record.get('status') != 'completed':

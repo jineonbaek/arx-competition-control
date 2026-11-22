@@ -31,6 +31,8 @@ ROOT=Path(__file__).resolve().parents[2]
 WORK=ROOT
 from agent.insertion_verification import run_verified_insertion
 from mouth_push import placement_timing, PUSH_MM, axis_basis, record_cross_track, record_rotation, require_seated_release, run_fixed_stroke
+from mouth_push import require_distance_release, run_distance_stroke
+from placement_policy import CHASSIS_FORWARD_SECONDS, load_placement_mode, LIDAR_FIXED_STROKE, LIDAR_SPECIAL_POINT, VISUAL_SEATED
 from placement_clamp import close_for_placement,require_closed_target
 
 
@@ -460,6 +462,7 @@ class FastVisualLevel:
         self.ctrl=ctrl;self.depth=depth;self.lock=threading.RLock();self.cancel=threading.Event();self.thread=None
         self.state=dict(status='idle',phase='idle',released=False,insertion=False)
         self.token=None;self.motion=None;self.perception=None;self.preobservation_only=False;self.t2_observation_q=None
+        self.placement_mode=load_placement_mode(ROOT)
     def snapshot(self):
         with self.lock:
             result=dict(self.state)
@@ -1146,7 +1149,13 @@ class FastVisualLevel:
             else load_locked_handoff(ROOT/self.route.visual_chassis_handoff,
                 now=time.time(),max_age_s=policy['handoff_max_age_s']))
         source=self.chassis_handoff.get('admission_source','visual_chassis')
-        self.save(chassis_handoff=self.chassis_handoff,entry_source=source+'+d405_preobservation')
+        chassis_only=(getattr(self,'placement_mode',VISUAL_SEATED)==LIDAR_SPECIAL_POINT
+                      and source in ('lidar_point_2','t2_current_position'))
+        distance_only=(getattr(self,'placement_mode',VISUAL_SEATED)==LIDAR_FIXED_STROKE
+                       and source in ('lidar_point_2','t2_current_position'))
+        self.save(chassis_handoff=self.chassis_handoff,entry_source=source+'+fixed_preobservation' if distance_only else source+'+d405_preobservation',
+                  placement_mode=LIDAR_SPECIAL_POINT if chassis_only else LIDAR_FIXED_STROKE if distance_only else VISUAL_SEATED,
+                  d405_skipped=distance_only or chassis_only,seat_verification_enabled=not (distance_only or chassis_only))
         saved=getattr(self,'saved_observation',lambda:None)()
         self.base_insert_speed=saved.get('insert_speed_mm_s',8.) if saved else 8.
         preobservation=None if saved else load_preobservation_waypoint(ROOT/self.route.d405_preobservation_waypoint,self.height)
@@ -1192,9 +1201,23 @@ class FastVisualLevel:
             self.preobservation_lock=validate_preobservation_waypoint(preobservation,
                 model.wrist_transform(q,self.height),T,q,limits,self.route,tcp_sha256)
         self.save(preobservation_lock=self.preobservation_lock)
-        alignment=self._timed('d405_horizontal_trim',lambda:self.auto_d405_horizontal_trim(model,tcp,T),
-            planned_duration_s=self.route.d405_capture_timeout_s*self.route.d405_attempts)
-        if not alignment['converged']:raise ValueError(alignment['reason'])
+        if chassis_only:
+            self.save(status='prepared',phase='chassis_navigation',placement_mode=LIDAR_SPECIAL_POINT,
+                      entry_source=source+'+chassis_special_point',preobservation_ready=True,
+                      chassis_hold_joints_rad=q.tolist(),chassis_initial_joints_rad=self.initial_q.tolist(),
+                      chassis_return_route_rad=copy.deepcopy(self.reached_route),chassis_driver_instance=self.driver,
+                      chassis_gripper_raw=self.raw,d405_skipped=True,seat_verification_enabled=False,
+                      insertion_depth_verified=False,insertion=False,released=False,returned=False,
+                      reason=f'机械臂保持预观察点和夹持；等待底盘到特殊点并前进 {CHASSIS_FORWARD_SECONDS:g} 秒')
+            self.timeline.start('chassis_navigation')
+            return
+        if distance_only:
+            self._timed('lidar_fixed_entry',lambda:self.save(
+                alignment_source='lidar_fixed_preobservation',d405_reason='雷达固定放置：跳过横向对位和坐底识别'),planned_duration_s=0.)
+        else:
+            alignment=self._timed('d405_horizontal_trim',lambda:self.auto_d405_horizontal_trim(model,tcp,T),
+                planned_duration_s=self.route.d405_capture_timeout_s*self.route.d405_attempts)
+            if not alignment['converged']:raise ValueError(alignment['reason'])
         def read_tool():
             state=self.ctrl.snapshot()
             return model.wrist_transform(state['arms']['right']['joints'],state['body']['height'])@tcp
@@ -1210,19 +1233,21 @@ class FastVisualLevel:
             if not callable(check_depth):
                 return dict(insertion_depth_verified=False,verification_reason='无法取得坐底观测')
             return self._timed('verify',lambda:check_depth(obs,guard))
-        result=run_fixed_stroke(initial,read_tool,advance,self.guard,verify,monitor=getattr(self,'stroke_monitor',None))
+        result=(run_distance_stroke(initial,read_tool,advance,self.guard) if distance_only else
+                run_fixed_stroke(initial,read_tool,advance,self.guard,verify,monitor=getattr(self,'stroke_monitor',None)))
         self.save(**result)
         if result['release_ready']:
             def release_check(state):
                 actual=model.wrist_transform(state['arms']['right']['joints'],state['body']['height'])@tcp
-                require_seated_release(initial,actual,axis,result)
+                (require_distance_release if distance_only else require_seated_release)(initial,actual,axis,result)
             self._timed('release_and_return',lambda:self.release_and_return(release_check))
             self.timeline.complete()
             self.save(status='complete',phase='complete',insertion=True,returned=True,
-                      reason='电池本体已坐底，把手留在仓外，已松爪并原路返回',**self.timeline.snapshot())
+                      reason=('已按实测轴向行程推满 150 mm、松爪并原路返回；坐底确认已关闭' if distance_only else
+                              '电池本体已坐底，把手留在仓外，已松爪并原路返回'),**self.timeline.snapshot())
         else:
             from agent.recovery_watch import report_fault
-            report_fault('放置坐底未确认',result.get('reason','未确认坐底'),run=getattr(getattr(self,'run',None),'name',None))
+            report_fault('放置行程未完成' if distance_only else '放置坐底未确认',result['verification_reason'],run=getattr(getattr(self,'run',None),'name',None))
             self.timeline.complete()
             self.save(status='held',phase='hold',insertion=False,returned=False,released=False,
                       reason=result['verification_reason']+'；已停推，夹爪保持闭合',**self.timeline.snapshot())

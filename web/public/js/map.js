@@ -18,7 +18,14 @@ function renderCompetition(task) {
   task = (taskKey==='t2_test' ? directTask : task) || {};
   const taskConnected=taskKey==='t2_test' ? directConnected : connected;
   el('task-state').textContent=statuses[task.status] || '比赛总控未启用';
-  if(taskKey==='t2_test' && task.target)el('target').textContent=task.target;
+  if(task.target)el('target').textContent=task.target;
+  const selector=el('placement-mode'), mode=task.placement_mode;
+  if(selector){
+    if(mode)selector.value=mode.selected;
+    selector.disabled=taskBusy || !taskConnected || !mode?.can_change;
+    const description=el('placement-mode-description');
+    if(description)description.textContent=mode?.options?.find(o=>o.value===mode.selected)?.description || '等待入仓模式反馈';
+  }
   el('phase').textContent=(task.tasks || []).find(t=>t.id===task.phase)?.label || '—';
   el('mission').textContent=task.control_owned?'控制权：整场任务管理':
     task.manual_available===false?'控制权：其他任务正在使用':'控制权：9983 手动控制';
@@ -79,6 +86,23 @@ async function competitionAction(action) {
 }
 for(const action of ['start','stop','continue'])el('competition-'+action).addEventListener('click',()=>competitionAction(action));
 el('environment-clear').addEventListener('change',()=>renderCompetition(latest?.[taskKey]));
+
+async function changePlacementMode(){
+  if(taskBusy || !latest?.competition?.placement_mode?.can_change)return;
+  const mode=el('placement-mode').value;
+  const request_id=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');
+  taskBusy=true;renderCompetition(latest.competition);el('task-message').textContent='正在保存入仓模式…';
+  try{
+    const response=await fetch('/api/competition-task',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'set_placement_mode',mode,request_id}),signal:AbortSignal.timeout(10000)});
+    const task=await response.json();
+    if(!response.ok)throw new Error(task.message || '入仓模式未保存');
+    latest.competition=task;
+    el('task-message').textContent='已保存入仓模式；下次开始比赛时使用。';
+  }catch(error){el('task-message').textContent=error.message+'；以页面当前模式反馈为准。';}
+  finally{taskBusy=false;renderCompetition(latest.competition);}
+}
+el('placement-mode')?.addEventListener('change',changePlacementMode);
 
 function draw() {
   const ratio = window.devicePixelRatio || 1;

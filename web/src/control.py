@@ -384,6 +384,22 @@ class Controller:
                 self._trajectory_abort(side, token)
                 raise
 
+    def pause_trajectory_for_feedback(self, token):
+        """Keep ownership only after the existing stop service acknowledges the pause."""
+        with self.lock:
+            if not self.motion_valid(token):raise Rejected('任务控制权已失效')
+            if self.motion_trajectory is None:return False
+            side=self.motion_trajectory['side']
+            try:
+                if not self.config['arms'][side]['stop_verified'] or not self.adapter.arm_stop_ready(side):
+                    raise Rejected('轨迹停止服务不可用')
+                self.adapter.arm_stop(side)
+                self.motion_trajectory=None
+                return True
+            except Exception:
+                self.begin_contact_stop(token);self._trajectory_abort(side,token)
+                raise
+
     def clear_stopped_trajectory(self, token, *, verify_stopped):
         """Failure cleanup requires a caller's measured-stop check, never just a sent stop."""
         with self.lock:

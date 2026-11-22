@@ -190,12 +190,6 @@ class PickMonitor:
             value=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
             stamp=measured['sample_time']
             if self.last_sample is not None and stamp<self.last_sample:raise ValueError(f'反馈时间倒退: sample={stamp:.6f}, previous={self.last_sample:.6f}')
-            if self.stage=='ready_to_close' and self.arrival_mode=='reference_settled':
-                if self.last_sample is not None and stamp==self.last_sample and not np.allclose(value,self.last_value,atol=1e-6,rtol=0):
-                    raise ValueError('Pose changed without advancing paired feedback time')
-                if (self.last_sample is not None and stamp>self.last_sample and
-                        np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
-                    raise ValueError('Measured motion resumed before closure')
             if self.stage!='inserting':
                 if self.arrival_mode=='strict' and self.stage!='closing' and np.any(np.abs(value)>self.arm.tolerance):raise ValueError(f'TCP到位后偏移: XYZ={value[:3].round(3).tolist()}mm, rotvec={value[3:].round(3).tolist()}deg; limits={self.arm.tolerance.tolist()}')
                 if self.last_sample is not None and stamp-self.last_sample>self.arm.max_age:
@@ -235,9 +229,6 @@ class PickMonitor:
         if sample is None:return self._receipt()
         value,stamp=sample
         if stamp<=self.arrival_sample:return self._receipt()
-        if (self.arrival_mode=='reference_settled' and self.last_sample is not None
-                and stamp>self.last_sample and np.any(np.abs(value-self.last_value)/(stamp-self.last_sample)>self.arm.max_speed)):
-            return self.abort('motion_before_close')
         self.last_value=value.copy();self.last_sample=stamp
         self.gripper=ArrivalMonitor([self.gripper_target],started_at=now,**self.gripper_policy)
         self.stage='closing'

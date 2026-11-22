@@ -15,6 +15,41 @@ try:
 except ImportError:HandoffHub=None
 
 
+class RouteCompletionDecisionTests(unittest.TestCase):
+    def fixture(self,route_changes=None,task_changes=None,status='特殊直线段：忽略代价地图，保留急停/定位保护  7/7'):
+        from types import SimpleNamespace
+        live_route=dict(route_id='route',map_id='map',state='completed',running=False,index=7,point_count=7)
+        live_route.update(route_changes or {})
+        task=dict(status='acknowledged',outcome='completed',mission_id='mission',visit_id='visit',point_id='point_2')
+        task.update(task_changes or {})
+        session=object.__new__(NavigationSession)
+        session.scope='competition';session.route_id='route';session.map_id='map';session.mission='mission'
+        session.visit=dict(visit_id='visit');session.prepared_definition=dict(points=[{} for _ in range(7)])
+        session.start_id='start';session.latest=dict(route=live_route,task=task)
+        session.route=SimpleNamespace(snapshot=lambda:dict(route=dict(available=True,status=status)),receipt=lambda ident:dict(status='published'))
+        session.complete_visit=lambda context:None
+        session.check=lambda:None
+        closed=[];session.close=lambda:closed.append(True)
+        class CancelAfterObservation:
+            def __init__(self):self.count=0
+            def wait(self,seconds):self.count+=1;return self.count>1
+        return session,dict(cancelled=CancelAfterObservation(),run_id='test'),closed
+
+    def test_completed_route_hands_off_despite_descriptive_status_label(self):
+        session,context,closed=self.fixture()
+        session.complete_route(context)
+        self.assertEqual(closed,[True])
+
+    def test_completion_label_cannot_override_wrong_route_or_incomplete_receipt(self):
+        cases=[({'route_id':'other'},{}),({'map_id':'other'},{}),({'state':'running','running':True},{}),
+               ({'index':6},{}),({}, {'mission_id':'other'}),({}, {'visit_id':'other'})]
+        for route,task in cases:
+            with self.subTest(route=route,task=task):
+                session,context,closed=self.fixture(route,task,status='全部到达并停稳 7/7')
+                with self.assertRaises(ValueError):session.complete_route(context)
+                self.assertEqual(closed,[])
+
+
 class Route:
     def __init__(self,hub):
         self.hub=hub;self.sent=[]
@@ -159,7 +194,9 @@ class NavigationSessionTests(unittest.TestCase):
                     with self.assertRaises(Rejected):self.ctrl.submit(dict(type='lift',target=5.),'manual')
                     self.hub.acknowledge(visit['visit_id'])
                     if number==1:self.arrive('point_2',visit['mission_id']);number=2
-                    else:self.route.status='全部到达并停稳 2/2'
+                    else:
+                        self.route.status='全部到达并停稳 2/2'
+                        self.hub.set_route(self.route.definition,state='completed',running=False,index=len(self.route.definition['points']))
         def run_navigation():
             try:virtual_navigation()
             except BaseException as error:errors.append(error)

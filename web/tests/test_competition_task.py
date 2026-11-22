@@ -142,13 +142,34 @@ class CompetitionTests(unittest.TestCase):
         battery.start_owned.assert_not_called()
         while ('lift',(5.52,)) not in self.adapter.calls and time.monotonic()<deadline:time.sleep(.01)
         self.assertIn(('lift',(5.52,)),self.adapter.calls)
+        while not any(row[:2]==('start','navigate_pick') for row in self.trace) and time.monotonic()<deadline:time.sleep(.01)
         arm_indices = [i for i, call in enumerate(self.adapter.calls) if call[0]=='arm']
         lift_index = self.adapter.calls.index(('lift',(5.52,)))
-        self.assertTrue(arm_indices and max(arm_indices) < lift_index)
+        self.assertTrue(arm_indices and lift_index < min(arm_indices))
+        self.assertEqual(self.adapter.calls.count(('lift',(5.52,))),1)
         self.assertEqual(self.task.active['competition_token'].prestarted_lift_target, 5.52)
         self.action('stop');self.wait('paused')
         battery.discard_prewarm.assert_called()
         self.assertIn(('lift',(5.0,)),self.adapter.calls)
+
+    def test_lift_starts_during_arm_preparation_and_stop_cleans_it_up(self):
+        battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}
+        self.task.register('pick',GraspModule(battery))
+        self.modules['navigate_pick'].navigation=True
+        self.modules['navigate_pick'].status='running'
+        # Acknowledge arm dispatch without moving the simulated joints: the
+        # lift must already be ascending while both presets are still pending.
+        self.adapter.arm=lambda *args,**kwargs:self.adapter.calls.append(('arm',args))
+        self.action('start')
+        deadline=time.monotonic()+2.
+        while len([c for c in self.adapter.calls if c[0]=='arm'])<2 and time.monotonic()<deadline:time.sleep(.01)
+        self.assertEqual(self.adapter.calls.count(('lift',(5.52,))),1)
+        self.assertFalse(any(row[:2]==('start','navigate_pick') for row in self.trace))
+        self.assertFalse(self.controller.snapshot()['left_fixed_hold2']['arrived'])
+        self.action('stop');self.wait('paused')
+        self.assertIn(('lift',(5.0,)),self.adapter.calls)
+        self.assertFalse(self.controller.snapshot()['motion_reserved'])
+        self.assertFalse(self.task.snapshot()['control_owned'])
 
     def test_pick_start_failure_stops_prepositioned_lift_before_releasing_control(self):
         battery=Mock();battery.lock=threading.RLock();battery.task_settings={'lift_target_rad':5.52}

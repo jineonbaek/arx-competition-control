@@ -62,3 +62,21 @@ test('navigation progress and handoff waits are displayed without adding motion 
   vm.runInContext(`renderCompetition({tasks:[],navigation:{route:{available:false,status:'旧进度'},error:'导航离线'}})`,p.context);
   assert.match(p.node('navigation-state').textContent,/导航离线/);
 });
+
+
+test('mode selector reflects persisted choice, disables during work, and only sends a mode change',async()=>{
+  const p=page();
+  vm.runInContext(`connected=true;latest={competition:{status:'idle',tasks:[],placement_mode:{selected:'lidar_special_point',can_change:true,options:[{value:'lidar_special_point',description:'skip T2 vision'},{value:'visual_seated',description:'D405 visual'}]}}};renderCompetition(latest.competition)`,p.context);
+  assert.equal(p.node('placement-mode').value,'lidar_special_point');
+  assert.equal(p.node('placement-mode').disabled,false);
+  assert.match(p.node('placement-mode-description').textContent,/skip T2 vision/);
+  p.node('placement-mode').value='visual_seated';
+  await vm.runInContext('changePlacementMode()',p.context);
+  assert.equal(p.sent.length,1);
+  assert.equal(p.sent[0].data.action,'set_placement_mode');
+  assert.equal(p.sent[0].data.mode,'visual_seated');
+  assert.equal(p.sent[0].url,'/api/competition-task');
+  assert.equal(Object.hasOwn(p.sent[0].data,'environment_clear'),false);
+  vm.runInContext(`renderCompetition({status:'running',tasks:[],placement_mode:{selected:'visual_seated',can_change:false,options:[]}})`,p.context);
+  assert.equal(p.node('placement-mode').disabled,true);
+});
