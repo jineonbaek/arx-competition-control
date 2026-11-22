@@ -10,7 +10,7 @@ from agent.contracts import AgentError
 from agent.battery_flow import BatteryFlow
 from agent.tests.test_battery_flow import Tools,review
 from agent.tests.test_execution_policy import policy
-from agent.grasp_recovery import GraspRecovery, simplify_trace
+from agent.grasp_recovery import GraspRecovery, POINT3_JOINTS_DEG, simplify_trace
 
 class Controller:
     def __init__(self):
@@ -46,7 +46,7 @@ class RecoveryTests(unittest.TestCase):
         original=list(self.c.q);self.recovery.capture()
         self.c.q[0]=.2;self.recovery.capture()
         self.assertEqual(self.store.state['grasp_recovery']['point2']['joints_rad'],original)
-    def test_recovery_returns_along_completed_trace_then_changes_pose(self):
+    def test_recovery_returns_along_completed_trace_then_moves_to_point3(self):
         self.recovery.capture();origin=list(self.c.q)
         via=np.array(origin);via[1]+=.05;end=via.copy();end[0]+=.04
         self.recovery.record_approach({'execution_id':'approach1','return_trace_rad':[origin,via.tolist(),end.tolist()]})
@@ -56,7 +56,9 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(self.recovery,'_move',side_effect=move):r=self.recovery.recover('preview_failed')
         self.assertEqual(routes[0][-1],origin)
         self.assertTrue(any(np.allclose(v,via) for v in routes[0]))
-        self.assertAlmostEqual(routes[1][-1][3]-origin[3],np.radians(4))
+        np.testing.assert_allclose(np.degrees(routes[1][-1]),[15.,32.,45.,-13.,16.,-90.])
+        self.assertEqual(self.c.grip,-3.14)
+        self.assertEqual(self.c.lift,12.)
         self.assertEqual(r['attempt'],1)
         self.assertEqual(self.store.state['grasp_recovery']['status'],'ready')
     def test_unknown_hold_or_unknown_execution_or_cancel_never_returns(self):
@@ -84,13 +86,14 @@ class RecoveryTests(unittest.TestCase):
             with patch.object(self.recovery,'_move') as move:
                 with self.assertRaises((ValueError,AgentError)):self.recovery.recover('vision_failed')
                 move.assert_not_called()
-    def test_four_distinct_candidates_then_bounded_stop(self):
+    def test_four_point3_retries_then_existing_bounded_stop(self):
         self.recovery.capture();postures=[]
         def move(points):self.c.q=list(points[-1]);return points
         with patch.object(self.recovery,'_move',side_effect=move):
             for i in range(4):postures.append(tuple(self.recovery.recover('vision_failed')['target_joints_rad']))
             with self.assertRaisesRegex(ValueError,'exhausted'):self.recovery.recover('vision_failed')
-        self.assertEqual(len(set(postures)),4)
+        self.assertEqual(len(postures),4)
+        for q in postures:np.testing.assert_allclose(np.degrees(q),POINT3_JOINTS_DEG)
     def test_failed_recovery_is_persisted_and_never_replayed(self):
         self.recovery.capture()
         with patch.object(self.recovery,'_move',side_effect=RuntimeError('unknown reply')):
@@ -121,14 +124,13 @@ class RecoveryTests(unittest.TestCase):
             first=self.recovery.recover('vision_failed',request_id='flow_1')
             again=self.recovery.recover('vision_failed',request_id='flow_1')
             self.assertEqual(first,again);self.assertEqual(moving.call_count,2)
-    def test_invalid_first_candidate_is_skipped_before_any_motion(self):
+    def test_invalid_point3_sends_no_motion(self):
         self.recovery.capture();origin=list(self.c.q);routes=[]
-        self.c.models['right'].check=lambda a,b,h:dict(clear=bool(b[3]<=origin[3]+.001),lower_mm=100.)
+        self.c.models['right'].check=lambda a,b,h:dict(clear=bool(b[0]<=origin[0]+.001),lower_mm=100.)
         def move(points):routes.append(points);self.c.q=list(points[-1]);return points
         with patch.object(self.recovery,'_move',side_effect=move):
-            r=self.recovery.recover('vision_failed')
-        self.assertEqual(r['attempt'],2)
-        self.assertLess(routes[-1][-1][3],origin[3])
+            with self.assertRaises(ValueError):self.recovery.recover('vision_failed')
+        self.assertEqual(routes,[])
     def test_real_recovery_loop_uses_trajectory_receipt_and_never_commands_gripper(self):
         self.recovery.capture();base_snapshot=self.c.snapshot
         def snapshot():self.c.now+=.03;return base_snapshot()
@@ -182,10 +184,45 @@ class FlowRecoveryTests(unittest.TestCase):
         self.assertIn('previous',self.store.state['calls'])
         self.assertNotIn('target_cache',flow.flow)
     def test_unknown_receipt_never_enters_retry(self):
-        self.tools.fail='observe_battery'
+        self.tools.execute=lambda *args:{'ok':False,'error':{'code':'execution_unknown','message':'lost reply'}}
         with patch.object(self.recovery,'recover') as recover:
             out=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery).run()
             self.assertEqual(out['status'],'needs_attention');recover.assert_not_called()
+
+    def test_review_error_restarts_from_a_new_observation(self):
+        first=True
+        def reviewer(operation,plan):
+            nonlocal first
+            if first:
+                first=False
+                raise ValueError('IK unavailable')
+            return review(operation,plan)
+        with patch.object(self.recovery,'recover',return_value={'completed_at':123.}) as recover:
+            out=BatteryFlow(self.tools,review_plan=reviewer,vision_mode='plan_f',recovery=self.recovery).run()
+        self.assertEqual(out['status'],'completed');recover.assert_called_once()
+        self.assertGreaterEqual(self.tools.calls.count('observe_battery'),3)
+
+    def test_recognition_planning_and_ordinary_errors_restart_the_full_grasp_flow(self):
+        for failure in ('scene_changed','pick_plan_failed','observer_search_failed','value_error'):
+            with self.subTest(failure=failure):
+                self.store.state.pop('battery_flow',None)
+                self.store.state['mission']={'stage':'IDLE'}
+                self.tools.calls=[];base=Tools.execute.__get__(self.tools);first=True
+                def execute(name,args,ident):
+                    nonlocal first
+                    if first:
+                        first=False
+                        if failure=='value_error':raise ValueError('invalid perception output')
+                        return {'ok':False,'error':{'code':failure,'message':'not localized'}}
+                    return base(name,args,ident)
+                self.tools.execute=execute
+                with patch.object(self.recovery,'recover',return_value={'completed_at':123.}) as recover:
+                    out=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery).run()
+                self.assertEqual(out['status'],'completed');recover.assert_called_once()
+                self.assertEqual(self.tools.calls[0],'observe_battery')
+                self.assertIn('preview_battery_grasp',self.tools.calls)
+                self.assertIn('plan_battery_pick',self.tools.calls)
+                self.assertEqual(self.tools.calls[-3:],['verify_hold','stow_for_carry','return_to_carry'])
 
 
 class FreshRecoveryObservationTests(unittest.TestCase):

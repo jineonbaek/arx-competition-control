@@ -61,11 +61,11 @@ class BatteryFlow:
             return data
         except Exception as error:
             if self.recovery is not None:
-                from .grasp_recovery import RECOVERABLE
-                if (not isinstance(error,AgentError) or error.code not in RECOVERABLE
+                from .grasp_recovery import NON_RECOVERABLE
+                if (isinstance(error,AgentError) and error.code in NON_RECOVERABLE
                         or self.store.cancelled or self.store.state.get('pending')):raise
                 self.flow['recovery_reason']=str(error)[:300]
-                self.store.event('grasp_pose_retry',dict(name='视觉/规划失败，返回观察点换姿态',reason=str(error)[:300]))
+                self.store.event('grasp_pose_retry',dict(name='识别/规划失败，返回预观察点 3 重跑',reason=str(error)[:300]))
                 self._next('recover_pose')
                 return None
             if (self.vision_mode!='plan_f' or fast_requested(self.store) or self.store.cancelled
@@ -179,8 +179,9 @@ class BatteryFlow:
                     # After restart, resolve the existing request before any new review or action.
                     if not self.store.state.get('pending') and not self.flow.get('command'):
                         try:self._review(operation)
-                        except AgentError as error:
-                            if self.recovery is None or error.code!='plan_not_verified':raise
+                        except Exception as error:
+                            from .grasp_recovery import NON_RECOVERABLE
+                            if self.recovery is None or isinstance(error,AgentError) and error.code in NON_RECOVERABLE:raise
                             self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     plan=self.store.state['mission'].get('plan') or {}
                     receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})

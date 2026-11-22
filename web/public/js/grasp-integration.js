@@ -142,7 +142,7 @@ function executionButtons(){
  for(const id of ['recognition-profile','recognition-profile-name','dino-prompt','qwen-task','reference-first','reference-reobserve','save-recognition-profile','save-as-recognition-profile'])el(id).disabled=running;
  el('delete-recognition-profile').disabled=running||!el('recognition-profile').value.startsWith('custom-');
 }
-const executionNames={grasp_point2:'预观察点 2',grasp_pose_retry:'换姿态重试',grasp_arrival:'到位误差记录',fast_dock:'快流程贴靠',run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
+const executionNames={grasp_point2:'记录抓取起始姿态',grasp_pose_retry:'预观察点 3 重试',grasp_arrival:'到位误差记录',fast_dock:'快流程贴靠',run_created:'建立任务',tool_result:'步骤结果',backend_request:'下发底层请求',execution_review:'路径检查',perception_recovery:'视觉重试',battery_flow:'流程结束',battery_recovery:'控制权处理'};
 function executionLog(){
  const list=el('execution-log'),logs=execution?.logs||[];
  if(!logs.length){list.replaceChildren(Object.assign(document.createElement('li'),{textContent:'等待任务启动。'}));return;}

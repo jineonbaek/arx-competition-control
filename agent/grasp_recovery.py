@@ -12,10 +12,11 @@ from .motion_feedback import ArrivalMonitor, tool_feedback
 from .storage import atomic_json
 from web.src.handeye_column import NOMINAL_RAD_PER_M
 
-CANDIDATES=((3,4.),(3,-4.),(4,4.),(4,-4.))
-RECOVERABLE={'vision_failed','preview_failed','pick_plan_failed','observation_budget',
-             'stage_not_ready','post_action_evidence_required','stale_observation',
-             'stale_snapshot','plan_not_verified'}
+POINT3_JOINTS_DEG=(15.,32.,45.,-13.,16.,-90.)
+MAX_ATTEMPTS=4
+NON_RECOVERABLE={'execution_unknown','execution_timeout','cancelled','interrupted',
+                 'control_lost','ownership_lost','capability_unavailable',
+                 'recovery_required','invalid_flow'}
 TERMINAL_STAGES={'PICK_EXECUTED','HOLD_CONFIRMED','EXTRACTED','CARRY_READY'}
 
 
@@ -84,7 +85,7 @@ class GraspRecovery:
         point=dict(joints_rad=q.tolist(),lift_rad=lift,sample_time=stamp)
         self.store.state['grasp_recovery']=dict(run_id=self.store.state['run_id'],point2=point,
             attempt=0,status='ready',outbound_trace=[q.tolist()])
-        self.store.save();self.store.event('grasp_point2',dict(name='预观察点 2：本轮抓取开始姿态',**point))
+        self.store.save();self.store.event('grasp_point2',dict(name='记录本轮抓取起始姿态，用于沿原路退出',**point))
         return copy.deepcopy(point)
 
     def record_approach(self,data):
@@ -131,29 +132,22 @@ class GraspRecovery:
                 if (saved.get('status')=='completed' and previous
                         and previous.get('request_id')==request_id):return copy.deepcopy(previous)
                 raise ValueError('Stale or uncertain recovery request; will not replay')
-        if self.state['attempt']>=len(CANDIDATES):raise ValueError('Posture recovery exhausted four candidates')
+        if self.state['attempt']>=MAX_ATTEMPTS:raise ValueError('Point 3 recovery exhausted four attempts')
         if not self.environment_clear:raise ValueError('Recovery needs existing clear-area confirmation')
         origin=np.asarray(self.state['point2']['joints_rad'],float)
         # Completed status is durable, but never grants permission to replay a command.
         _,current,lift,_=self._snapshot(open_grip=True)
         reverse=simplify_trace([current.tolist()]+list(reversed(self.state['outbound_trace']))+[origin.tolist()])
         self._validate_points(reverse,lift)
-        while self.state['attempt']<len(CANDIDATES):
-            attempt=self.state['attempt']+1;axis,offset=CANDIDATES[attempt-1]
-            target=origin.copy();target[axis]+=np.radians(offset)
-            try:self._validate_points([origin.tolist(),target.tolist()],lift)
-            except ValueError as error:
-                self.state['attempt']=attempt;self.store.save()
-                self.store.event('grasp_pose_retry',dict(name=f'候选姿态 {attempt}/4 不可用，尝试下一个',reason=str(error)))
-                continue
-            break
-        else:raise ValueError('Posture recovery exhausted four candidates')
+        attempt=self.state['attempt']+1
+        target=np.radians(POINT3_JOINTS_DEG)
+        self._validate_points([origin.tolist(),target.tolist()],lift)
         journal=self.directory/f'attempt-{attempt}.json'
         if journal.exists():raise ValueError('Recovery attempt already exists; will not replay')
         intent=dict(attempt=attempt,request_id=request_id,reason=str(reason)[:300],target_joints_rad=target.tolist())
         self.state.update(status='moving',attempt=attempt)
         self.store.save();atomic_json(journal,dict(status='unknown',**intent))
-        self.store.event('grasp_pose_retry',dict(name=f'换姿态重试 {attempt}/4：返回预观察点 2',**intent))
+        self.store.event('grasp_pose_retry',dict(name=f'重试 {attempt}/4：返回预观察点 3',**intent))
         try:
             _,current,_,_=self._snapshot(open_grip=True)
             reverse=simplify_trace([current.tolist()]+list(reversed(self.state['outbound_trace']))+[origin.tolist()])
@@ -164,7 +158,7 @@ class GraspRecovery:
             self.state.update(status='ready',outbound_trace=simplify_trace([origin.tolist()]+trace),last_recovery=copy.deepcopy(intent),
                               last_approach_end=trace[-1],no_progress_count=0)
             atomic_json(journal,dict(status='completed',**intent));self.store.save()
-            self.store.event('grasp_pose_retry',dict(name='换姿态完成，使用新画面重新定位',**intent))
+            self.store.event('grasp_pose_retry',dict(name='预观察点 3 到位，从新画面重新开始抓取流程',**intent))
             return intent
         except Exception:
             self.state['status']='unknown'
