@@ -75,6 +75,9 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
     if not np.array_equal(tcp,plan['T_wrist_from_tool']):raise ValueError('Plan TCP changed')
     model=controller.models['right'];reach=model.reach+np.linalg.norm(tcp[:3,3])
     approach=operation=='execute_battery_approach'
+    scope=plan.get('motion_scope')
+    if scope is not None and scope not in (('approach','correction') if approach else ('insertion',)):
+        raise ValueError('Plan motion scope does not match requested operation')
     direct = not approach and direct_plan(plan)
     if (not approach and not direct and not plan.get('cached_target')
             and plan.get('vision_mode') not in ('d435','fixed')
@@ -99,9 +102,14 @@ def prepare_step(operation,plan,controller,token,*,policies,pick_setup,preflight
                 raise ValueError('Correction is not bound to the checked TCP step')
         else:
             a=plan['approach']
-            if not np.array_equal(start,a['start_rad']) or not np.array_equal(points[0],a['end_rad']):
+            if scope=='approach':
+                if len(points)!=2 or not np.array_equal(points[0],start):
+                    raise ValueError('Approach start differs from checked segment')
+                end=points[-1]
+            else:end=points[0]
+            if not np.array_equal(start,a['start_rad']) or not np.array_equal(end,a['end_rad']):
                 raise ValueError('Approach is not bound to the checked insertion path')
-            points=np.asarray([start,points[0]])
+            points=np.asarray([start,end])
             stationary=np.array_equal(*points)
     else:
         start=np.asarray(plan['start_joints_rad'],float)

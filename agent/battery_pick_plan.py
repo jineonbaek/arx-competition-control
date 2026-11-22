@@ -1,18 +1,58 @@
 """Bind reviewed visual evidence to calibrated, offline right-arm insertion IK."""
 import hashlib
 import json
+from pathlib import Path
 import numpy as np
 from web.src.handeye_column import ColumnModel, PACKAGE
 from .grasp_geometry import ROOT, PROFILE, rigid, validate_frame
 from .grasp_scene import frame_path, CALIBRATION, D435_CALIBRATION
-from .grasp_path import plan_insert
+from .grasp_path import plan_insert, plan_correction
 from .fast_pick import fast_requested
 from .storage import atomic_json
 
 
-def plan(registry,observation_id,call_id,setup=None,*,cached=None):
+def planning_model(registry):
+    """Reuse immutable CAD geometry, never a solution or a measured pose."""
+    model=getattr(registry,'_pick_model',None)
+    if model is None:
+        controller=getattr(getattr(registry,'backends',None),'controller',None)
+        model=getattr(controller,'models',{}).get('right')
+    if (model is None or not getattr(model,'source_hashes',None)
+            or any(hashlib.sha256(Path(p).read_bytes()).hexdigest()!=h
+                   for p,h in model.source_hashes.items())):
+        model=ColumnModel()
+    registry._pick_model=model
+    return model
+
+
+def materialize(registry,result,setup,scope):
+    model=planning_model(registry)
+    limits=json.loads((ROOT/'web/config/control.json').read_text())['arms']['right']['joint_limits_deg']
+    if scope=='correction':
+        motion=plan_correction(model,result['start_joints_rad'],result['lift_rad'],
+            result['T_wrist_from_tool'],result['refinement']['correction_target_base_from_tool'],
+            limits,timing_limits=setup['timing_limits'])
+        result['correction']=motion
+        result.update(motion,status='kinematic_preview')
+        joints=motion['joint_waypoints_rad'][1:]
+    elif scope in ('approach','insertion'):
+        line=result['contact_path']
+        motion=plan_insert(model,result['start_joints_rad'],result['lift_rad'],line['pre_mm'],
+            line['end_mm'],result['R_base_from_tool'],result['T_wrist_from_tool'],limits,
+            timing_limits=setup['timing_limits'],approach_only=scope=='approach')
+        result.update(motion)
+        joints=motion['joint_waypoints_rad'][1:] if scope=='approach' else motion['joint_waypoints_rad']
+    else:raise ValueError('Unknown pick motion scope')
+    if any(abs(np.degrees(q[5])+90)>setup['j6_tolerance_deg'] for q in joints):
+        raise ValueError('IK 夹姿不是约定 J6 -90 度，不能套用带槽夹指方向')
+    result['motion_scope']=scope
+    return result
+
+
+def plan(registry,observation_id,call_id,setup=None,*,cached=None,defer_motion=False):
     store=registry.store
     store.state.pop('battery_pick_plan',None)
+    store.state.pop('battery_pick_plan_sha256',None)
     store.save()
     relative=cached['preview_file'] if cached else store.state.get('grasp_preview')
     if not relative:raise ValueError('本轮尚无已通过复核的位姿与点云预览')
@@ -96,16 +136,16 @@ def plan(registry,observation_id,call_id,setup=None,*,cached=None):
         if not isinstance(setup['timing_limits'],dict):raise ValueError('需要显式轨迹速度和加速度参数')
         tool_rotation=np.asarray(geometry['grip']['R_base_from_tool'],float)
         check=np.eye(4);check[:3,:3]=tool_rotation;rigid(check)
-        result=plan_insert(ColumnModel(),q,lift,line['pre_mm'],line['end_mm'],tool_rotation,tcp,limits,
-                           timing_limits=setup['timing_limits'])
-        if any(abs(np.degrees(joints[5])+90)>setup['j6_tolerance_deg']
-               for joints in result['joint_waypoints_rad']):
-            raise ValueError('IK 夹姿不是约定 J6 -90 度，不能套用带槽夹指方向')
+        model=planning_model(registry)
+        result=dict(status='geometry_preview',motion_scope='geometry',joint_waypoints_rad=None,timing=None)
         binding.update(calibration_id=setup['calibration_id'],
             pick_setup_sha256=hashlib.sha256(json.dumps(setup,sort_keys=True,allow_nan=False).encode()).hexdigest(),
             T_wrist_from_tool=tcp.tolist(),R_base_from_tool=tool_rotation.tolist(),
-            actual_base_from_tool=(ColumnModel().wrist_transform(q,lift)@tcp).tolist())
+            actual_base_from_tool=(model.wrist_transform(q,lift)@tcp).tolist())
     result.update(binding,executable=False)
+    if setup is not None and not defer_motion:
+        materialize(registry,result,setup,'insertion')
+        if not plan_f:result.pop('motion_scope',None) # Legacy combined approach/insertion proposal.
     if cached:
         # Keep the original target/evidence binding; only the measured start and trajectory change.
         for key in ('observation_id','snapshot_id','scene_sha256','preview_sha256','profile_sha256',
@@ -116,7 +156,10 @@ def plan(registry,observation_id,call_id,setup=None,*,cached=None):
         result['handoff_advisory']='D435/D405 跨相机质量仅为警告；执行仍依赖 D405 位姿和路径检查'
     output=store.path/'pick-plans'/call_id/'result.json'
     output.parent.mkdir(parents=True,exist_ok=True)
-    atomic_json(output,result)
-    relative=str(output.relative_to(store.path));store.state['battery_pick_plan']=relative
-    store.save()
+    relative=str(output.relative_to(store.path))
+    if not defer_motion or setup is None:
+        atomic_json(output,result)
+        store.state.update(battery_pick_plan=relative,
+            battery_pick_plan_sha256=hashlib.sha256(output.read_bytes()).hexdigest())
+        store.save()
     return result|{'result_file':relative}

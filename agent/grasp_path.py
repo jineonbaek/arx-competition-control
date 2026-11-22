@@ -14,7 +14,7 @@ def _checked_inverse(model, start, lift, xyz, rpy, limits):
     return np.asarray(joints), clearance
 
 
-def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wrist_from_tool, limits_deg, *, timing_limits=None):
+def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wrist_from_tool, limits_deg, *, timing_limits=None, approach_only=False):
     if wrist_from_tool is None:
         return dict(status='tcp_pending',joint_waypoints_rad=None,wrist_pre_mm=None,wrist_end_mm=None,
                     executable=False,reason='TCP 待用户提供，未计算腕部轨迹')
@@ -36,34 +36,59 @@ def plan_insert(model, start_q, lift_rad, pre_mm, end_mm, base_tool_rotation, wr
     if np.linalg.norm(tcp[:3,3])>1:raise ValueError('TCP uses metres; offset exceeds tool size bound')
     wrist_rotation=orientation[:3,:3]@tcp[:3,:3].T
     rpy=Rotation.from_matrix(wrist_rotation).as_euler('xyz',degrees=True)
-    points=np.linspace(pre,end,int(np.ceil(distance/2))+1)
+    # Execution knots are distinct from the dense verification samples below.
+    # Two insertion segments leave room for the measured-start connector.
+    points=np.linspace(pre,end,3 if distance<=50.000001 else max(2,int(np.ceil(distance/2))+1))
     wrists=points-(wrist_rotation@tcp[:3,3])*1000
     # Approach is a separate joint-space proposal; only the insertion below has a straightness bound.
     first,clearance=_checked_inverse(model,q,lift_rad,wrists[0],rpy,limits)
+    if approach_only:
+        if not clearance['clear']:raise ValueError('Path approaches central column')
+        stationary=np.array_equal(q,first)
+        timing=(dict(status='timed_preview',duration_s=0.,stationary=True)
+                if stationary else TimedJointPath([q,first],model.reach+np.linalg.norm(tcp[:3,3]),
+                    tcp_position=lambda angles:(model.wrist_transform(angles,lift_rad)@tcp)[:3,3],
+                    **timing_limits).receipt()) if timing_limits is not None else None
+        return dict(status='kinematic_preview',motion_scope='approach',timing=timing,
+            approach=dict(kind='joint_space',start_rad=q.tolist(),end_rad=first.tolist()),
+            joint_waypoints_rad=[q.tolist(),first.tolist()],wrist_pre_mm=wrists[0].tolist(),
+            column_checked=True,column_lower_mm=clearance['lower_mm'],executable=False,
+            environment_collision_checked=False)
     waypoints=[first];position_bound=0.;angle_error=0.;clearances=[]
     clearances.append(clearance)
     for previous_point,target,target_wrist in zip(points[:-1],points[1:],wrists[1:]):
         a=waypoints[-1]
-        b,clearance=_checked_inverse(model,a,lift_rad,target_wrist,rpy,limits)
+        # Short IK seed steps preserve the existing branch-jump bound; they
+        # are not commanded stops. Recheck the actual coarse segment below.
+        seed=a
+        seed_steps=max(1,int(np.ceil(np.linalg.norm(target-previous_point)/16.)))
+        previous_wrist=previous_point-(wrist_rotation@tcp[:3,3])*1000
+        for fraction in np.linspace(0,1,seed_steps+1)[1:]:
+            b,clearance=_checked_inverse(model,seed,lift_rad,
+                previous_wrist+fraction*(target_wrist-previous_wrist),rpy,limits)
+            if np.max(np.abs(b-seed))>np.radians(5):
+                raise ValueError('Insertion IK branch jump or singular configuration')
+            if not clearance['clear']:raise ValueError('Path approaches central column')
+            seed=b
+        if seed_steps>1:clearance=model.check(a,b,lift_rad)
         dq=b-a
-        if np.max(np.abs(dq))>np.radians(5):
-            raise ValueError('Insertion IK branch jump or singular configuration')
         clearances.append(clearance)
-        endpoint_errors=[]
-        for joints,point in ((a,previous_point),(b,target)):
-            T=model.wrist_transform(joints,lift_rad)@tcp
-            endpoint_errors.append(np.linalg.norm(T[:3,3]*1000-point))
-        # For linear joint interpolation, ||p''|| <= reach * sum(|dq|)^2; chord error <= bound/8.
-        curvature=(model.reach+np.linalg.norm(tcp[:3,3]))*np.abs(dq).sum()**2/8*1000
-        bound=max(endpoint_errors)+curvature
+        intervals=max(2,int(np.ceil(np.max(np.abs(dq))/np.radians(.1))),
+                      int(np.ceil(np.linalg.norm(target-previous_point)/2)))
+        errors=[];angles=[]
+        for t in np.linspace(0,1,intervals+1):
+            actual=model.wrist_transform(a+t*dq,lift_rad)@tcp
+            errors.append(np.linalg.norm(actual[:3,3]*1000-(previous_point+t*(target-previous_point))))
+            angles.append(np.degrees(Rotation.from_matrix(orientation[:3,:3].T@actual[:3,:3]).magnitude()))
+        # Bound the actual coarse joint curve between verification samples,
+        # rather than assuming it follows the discarded fine IK waypoints.
+        curvature=(model.reach+np.linalg.norm(tcp[:3,3]))*np.abs(dq).sum()**2/8*1000/intervals**2
+        bound=max(errors)+curvature
         position_bound=max(position_bound,float(bound))
         if bound>2:raise ValueError('Joint interpolation cannot keep TCP within 2 mm of insertion line')
-        count=max(2,int(np.ceil(np.max(np.abs(dq))/np.radians(.1)))+1)
-        for t in np.linspace(0,1,count):
-            actual=(model.wrist_transform(a+t*dq,lift_rad)@tcp)[:3,:3]
-            error=np.degrees(Rotation.from_matrix(orientation[:3,:3].T@actual).magnitude())
-            angle_error=max(angle_error,float(error))
-        if angle_error>.7:raise ValueError('Insertion orientation departs from fixed tool pose')
+        angle_error=max(angle_error,float(max(angles)))
+        if max(angles)+np.degrees(np.abs(dq).sum())/(2*intervals)>.7:
+            raise ValueError('Insertion orientation departs from fixed tool pose')
         waypoints.append(b)
     if not all(c['clear'] for c in clearances):raise ValueError('Path approaches central column')
     timing=(TimedJointPath(waypoints,model.reach+np.linalg.norm(tcp[:3,3]),

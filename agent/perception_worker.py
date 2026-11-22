@@ -10,6 +10,7 @@ from PIL import Image
 from .storage import atomic_json
 from .contracts import AgentError
 from .grasp_geometry import rigid,validate_frame
+from .frame_vision import FrameModels
 
 ROOT=Path(__file__).resolve().parents[1]
 VISION=Path('/home/arx/arx-vision-demo/vision/demo')
@@ -95,13 +96,14 @@ class Models:
         with np.load(args['frame'],allow_pickle=False) as archive:
             frame={k:archive[k] for k in archive.files}
         validate_frame(frame);camera=str(frame['camera_id']);image=Image.open(args['image']).convert('RGB')
+        vision=FrameModels(self.vision)
         chosen=None;method='local_candidate';tracking_error=None
         observation_stage='first' if self.head_target is None else 'reobserve'
         reference_ids=(args.get('reference_images') or {}).get(observation_stage,[])
         if camera=='d405' and 'base_from_object' in self.pose:
             try:
                 box=projected_box(frame,self.pose)
-                mask,score=self.vision.segment(shape_view(image),box=box)
+                mask,score=vision.segment(shape_view(image),box=box)
                 from .battery_observation import surface_location
                 surface_location(frame,mask)
                 if score<.85:raise ValueError('Tracked mask confidence low')
@@ -113,17 +115,17 @@ class Models:
             except ValueError as error:tracking_error=str(error)
         candidates=[]
         if chosen is None:
-            detected=self.vision.detect(shape_view(image),dino_prompt)
+            detected=vision.detect(shape_view(image),dino_prompt)
             candidates,_=filter_fixed_gripper_candidates(detected,image.size,camera)
             if not (camera=='d405' and args.get('vision_mode')=='plan_f' and self.head_target is None):
-                chosen=local_choice(candidates,frame,self.vision,image,
+                chosen=local_choice(candidates,frame,vision,image,
                     self.head_target if camera=='d405' else None)
         if chosen is None:
             from .battery_references import reference_image
             reference=[reference_image(identity) for identity in reference_ids] if reference_ids else load_reference()
             judge=QwenJudge(ROOT/'agent/.secrets/qwen.env')
             try:
-                report=run_frame(self.vision,judge,image,reference,qwen_task,output,camera=camera,
+                report=run_frame(vision,judge,image,reference,qwen_task,output,camera=camera,
                                  review_mask=False,dino_prompt=dino_prompt)
             except AgentError as error:
                 if error.code not in ('model_protocol_error','model_http_error','model_unavailable'):raise

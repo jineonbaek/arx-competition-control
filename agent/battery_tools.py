@@ -11,7 +11,7 @@ from .contracts import AgentError, object_schema
 from .grasp_tools import WorkflowTools, WORKFLOW_TOOLS
 from .tools import ToolRegistry, TEXT
 from .mission import Mission
-from .battery_pick_plan import plan as plan_battery_pick
+from .battery_pick_plan import plan as plan_battery_pick, materialize, planning_model
 from .grasp_refinement import assess
 from .storage import atomic_json
 from .grasp_path import plan_correction
@@ -77,7 +77,8 @@ class BatteryExecutionTools(WorkflowTools):
     def _save_pick_plan(self,result):
         path=self.store.path/result['result_file']
         atomic_json(path,result)
-        self.store.state['battery_pick_plan_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        self.store.state.update(battery_pick_plan=result['result_file'],
+            battery_pick_plan_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
         self.store.save()
 
     def replan_cached_target(self,source,call_id):
@@ -235,7 +236,7 @@ class BatteryExecutionTools(WorkflowTools):
             if a['observation_id']!=self._localized(camera):
                 raise AgentError('stale_observation','必须使用本轮最新 '+camera.upper()+' 定位')
             try:
-                result=plan_battery_pick(self,a['observation_id'],call_id,self.pick_setup)
+                result=plan_battery_pick(self,a['observation_id'],call_id,self.pick_setup,defer_motion=plan_f)
                 result['plan_id']='pick_'+hashlib.sha256((state['run_id']+':'+call_id).encode()).hexdigest()[:24]
                 if result['status']!='tcp_pending':
                     previous=mission.data.get('approach_plan') or mission.data.get('refinement_reference')
@@ -246,6 +247,7 @@ class BatteryExecutionTools(WorkflowTools):
                         next_stage='PICK_AT_PREGRASP'
                     elif (plan_f and not previous and stopped_for_fast_pick(self.store)
                             and result.get('vision_mode') == 'd405'):
+                        materialize(self,result,self.pick_setup,'insertion')
                         result['pickup_flow'] = 'fast'
                         next_stage = 'PICK_PLANNED'
                     elif plan_b:
@@ -256,14 +258,20 @@ class BatteryExecutionTools(WorkflowTools):
                             total_mm=mission.data.get('pick_correction_mm',0)) if self.refinement_policy is not None
                             else dict(status='policy_pending',executable=False))
                         if result['refinement']['status']=='correction_required':
-                            limits=json.loads((ROOT/'web/config/control.json').read_text())['arms']['right']['joint_limits_deg']
-                            result['correction']=plan_correction(ColumnModel(),result['start_joints_rad'],
-                                result['lift_rad'],result['T_wrist_from_tool'],
-                                result['refinement']['correction_target_base_from_tool'],limits,
-                                timing_limits=self.pick_setup['timing_limits'])
+                            if plan_f:materialize(self,result,self.pick_setup,'correction')
+                            else:
+                                limits=json.loads((ROOT/'web/config/control.json').read_text())['arms']['right']['joint_limits_deg']
+                                result['correction']=plan_correction(planning_model(self),result['start_joints_rad'],
+                                    result['lift_rad'],result['T_wrist_from_tool'],
+                                    result['refinement']['correction_target_base_from_tool'],limits,
+                                    timing_limits=self.pick_setup['timing_limits'])
+                        elif plan_f and result['refinement']['status']=='aligned':
+                            materialize(self,result,self.pick_setup,'insertion')
                         next_stage={'aligned':'PICK_PLANNED','correction_required':'PICK_CORRECTION_PLANNED'}.get(
                             result['refinement']['status'],'PICK_AT_PREGRASP')
-                    else:next_stage='PICK_APPROACH_PLANNED'
+                    else:
+                        if plan_f:materialize(self,result,self.pick_setup,'approach')
+                        next_stage='PICK_APPROACH_PLANNED'
                     mission.data.update(stage=next_stage,plan=copy.deepcopy(result) if next_stage!='PICK_AT_PREGRASP' else None)
                 self._save_pick_plan(result)
                 return result

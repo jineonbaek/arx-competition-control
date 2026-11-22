@@ -35,15 +35,20 @@ def review_plan(operation,plan,*,environment_clear):
         method='Configured lift, D435-directed observer, CAD mesh sweep and operator clear-area confirmation'
     else:
         points=np.asarray(plan.get('joint_waypoints_rad'),float)
-        timing=plan.get('timing',{})
+        timing=plan.get('timing') or {}
+        scope=plan.get('motion_scope')
+        compatible=(scope is None or scope=='insertion' and operation=='execute_pick'
+                    or scope in ('approach','correction') and operation=='execute_battery_approach')
         ik=(plan.get('status')=='kinematic_preview' and points.ndim==2
-            and points.shape[1:]==(6,) and len(points)>=2 and np.isfinite(points).all())
+            and points.shape[1:]==(6,) and len(points)>=2 and np.isfinite(points).all() and compatible)
         checked=plan.get('column_checked') is True
         clear=(checked and type(plan.get('interpolation_position_bound_mm')) in (int,float)
                and type(plan.get('sampled_orientation_error_deg')) in (int,float)
                and plan['interpolation_position_bound_mm']<=2.
                and plan['sampled_orientation_error_deg']<=.7
                and timing.get('status')=='timed_preview')
+        if scope in ('approach','correction'):
+            clear=checked and ik and timing.get('status')=='timed_preview'
         if plan.get('refinement',{}).get('status')=='correction_required':
             correction=plan.get('correction',{})
             points=np.asarray(correction.get('joint_waypoints_rad'),float)
@@ -51,6 +56,7 @@ def review_plan(operation,plan,*,environment_clear):
                        and np.isfinite(points).all())
             checked=checked and correction.get('column_checked') is True
             clear=(clear and checked and ik and correction.get('timing',{}).get('status')=='timed_preview')
+        clear=clear and compatible
         method='CAD column sweep, bounded IK path and one operator clear-area confirmation'
     return dict(plan_sha256=plan_digest(plan),ik_checked=bool(ik),
         collision_checked=bool(checked),collision_free=bool(clear),
