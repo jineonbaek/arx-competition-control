@@ -145,6 +145,8 @@ class FlowRecoveryTests(unittest.TestCase):
         self.assertEqual(flow.run()['status'],'completed')
         self.assertEqual(len(seen),len(set(seen)))
         self.assertNotIn('target_cache',flow.flow)
+        self.assertTrue(self.store.state['mission']['point3_refinement'])
+        self.assertIn('PICK_AT_PREGRASP',self.store.state['mission']['evidence_barriers'])
     def test_new_recovery_clears_old_plan_and_preview_but_not_call_journal(self):
         flow=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery)
         self.store.state['mission'].update(approach_plan={'old':True},plan={'old':True},pick_correction_mm=50)
@@ -174,6 +176,24 @@ class FlowRecoveryTests(unittest.TestCase):
             out=BatteryFlow(self.tools,review_plan=reviewer,vision_mode='plan_f',recovery=self.recovery).run()
         self.assertEqual(out['status'],'completed');recover.assert_called_once()
         self.assertGreaterEqual(self.tools.calls.count('observe_battery'),3)
+
+    def test_point3_recovery_enters_wrist_refinement_without_initial_approach(self):
+        base=self.tools.execute;seen=[]
+        def execute(name,args,ident):
+            seen.append((name,copy.deepcopy(args)))
+            result=base(name,args,ident)
+            if name=='plan_battery_pick':
+                self.store.state['mission'].update(stage='PICK_PLANNED',plan=result['data'])
+                result['data']['refinement']={'status':'aligned'}
+            return result
+        self.tools.execute=execute
+        flow=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery)
+        flow.flow.update(phase='recover_pose',recovery_reason='vision_failed')
+        self.assertEqual(flow.run()['status'],'completed')
+        self.assertEqual(seen[0],('observe_battery',{'camera':'d405'}))
+        self.assertNotIn('execute_battery_approach',[name for name,args in seen])
+        self.assertNotIn('plan_coarse_alignment',[name for name,args in seen])
+        self.assertTrue(flow.flow['head'])
 
     def test_recognition_planning_and_ordinary_errors_restart_the_full_grasp_flow(self):
         for failure in ('scene_changed','pick_plan_failed','observer_search_failed','value_error'):
