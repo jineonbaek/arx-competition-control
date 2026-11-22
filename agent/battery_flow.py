@@ -187,9 +187,13 @@ class BatteryFlow:
                     try:
                         receipt=self._call(operation,{'plan_id':plan.get('plan_id',self.flow.get('plan_id'))})
                     except AgentError as error:
-                        if (self.recovery is None or error.code!='feedback_replan_required'
+                        recoverable={'feedback_replan_required','plan_missing','plan_changed','stale_observation',
+                                     'post_action_evidence_required','plan_not_verified','reobservation_required',
+                                     'stage_not_allowed','geometry_unavailable'}
+                        if (self.recovery is None or error.code not in recoverable
                                 or self.store.cancelled or self.store.state.get('pending')):raise
-                        self.recovery.record_approach(self.store.state.pop('feedback_restart',{}))
+                        if error.code=='feedback_replan_required':
+                            self.recovery.record_approach(self.store.state.pop('feedback_restart',{}))
                         self.flow['recovery_reason']=str(error)[:300];self._next('recover_pose');continue
                     if self.recovery is not None and phase=='approach_execute':self.recovery.record_approach(receipt)
                     self._next('verify_hold' if phase=='insert' else
@@ -221,6 +225,8 @@ class BatteryFlow:
                     elif data.get('refinement',{}).get('status')=='reacquire_required':
                         self.flow['recovery_reason']='当前姿态无法完成视觉修正'
                         self._next('recover_pose' if self.recovery is not None else 'wrist')
+                    elif self.recovery is not None:
+                        self.flow['recovery_reason']=data.get('status','planning_incomplete');self._next('recover_pose')
                     else:return self._finish('needs_attention',data.get('status','planning_incomplete'))
                 elif phase=='recover_pose':
                     if self.recovery is None:raise AgentError('invalid_flow','Recovery adapter missing')
