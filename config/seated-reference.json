@@ -1,0 +1,46 @@
+{
+  "reference_id": "seated-reference-20261121-162734-abc2c5",
+  "operator_confirmation": "用户现场确认电池本体已完全进入仓体，以当前画面为坐底标准",
+  "seated_depth_mm": 150.0,
+  "signature": {
+    "shoulders_mm": [
+      -8.906126022338867,
+      -9.142656326293945
+    ],
+    "surface_z_mm": [
+      158.33393509717797,
+      161.68215262258127
+    ],
+    "handle_outside_mm": 13.475142478942871,
+    "support_pixels": [
+      1365,
+      1580,
+      1431
+    ],
+    "source_frame": "abc2c5b8443646c9a29feb9d66d03abb",
+    "calibration": "93bb21d49d1c1a56898634ecc4d7869640243bf1e550aa49903c271213f63d82",
+    "camera_serial": "262422272899",
+    "mouth": {
+      "inside_axis_base": [
+        0.9920949880278948,
+        0.09317362619968855,
+        0.0840605636480751
+      ],
+      "mouth_anchor_base_m": [
+        0.5226082493523838,
+        -0.12946072393063837,
+        0.4902693167753369
+      ]
+    }
+  },
+  "geometry_sha256": {
+    "config/right-grip-tcp.json": "0c6dcdb08f51b671343a19ecf5e5c62c973b021ef7769385765dfe5b8b9689b6",
+    "config/battery-envelope.json": "ab642205a599d26ad6ddb289d70d9a60b29fe4009b409c071dc2ef11aa25003f",
+    "web/public/cad/battery-grip.json": "d2c56be2aae54d40d3a6a529a4cf16cb193b726d6ce453ee8e8eba0d893830a6"
+  },
+  "artifact_sha256": {
+    "d405.npz": "d4cb57e54a500a3d394f62705b73cd6e870abbeeeb2ef8e60fe7eafea170586a",
+    "d435.npz": "68b1150a6a34385277e4811d6a41b7e01f34ec9123959eb1418cbe2194ea51de",
+    "pose.json": "a71646f3346cbddabc4056f9cf61c7ed14512f57698a98dec232134b4fc8cf82"
+  }
+}

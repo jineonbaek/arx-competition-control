@@ -7,7 +7,7 @@ class StartAssist(unittest.TestCase):
  def step(self,x=0):
   self.stamp+=.1;r=self.c.step([x,0,0],[x,0,0],self.stamp,self.stamp,.1,self.previous);self.previous=r.command;return np.linalg.norm(r.command[:2])
  def test_stalled_floor_steps_point_three_then_point_six_and_caps(self):
-  self.step();self.assertAlmostEqual(self.step(),.14)
+  self.step();self.assertAlmostEqual(self.step(),.225)
   self.assertEqual(self.c.request_start_assist(),.3)
   for _ in range(4):value=self.step()
   self.assertAlmostEqual(value,.3)
@@ -18,7 +18,7 @@ class StartAssist(unittest.TestCase):
   self.step();self.c.request_start_assist();self.c.request_start_assist()
   for _ in range(5):self.step()
   for _ in range(6):value=self.step(.016)
-  self.assertEqual(self.c.start_assist_floor,0.);self.assertAlmostEqual(value,.14)
+  self.assertEqual(self.c.start_assist_floor,0.);self.assertAlmostEqual(value,.225)
  def test_terminal_still_returns_zero_and_new_recovery_can_reset_assist(self):
   self.step();self.c.request_start_assist();self.c.reset_start_assist();self.assertEqual(self.c.start_assist_floor,0.)
   self.c.request_start_assist();self.stamp+=.2

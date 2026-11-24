@@ -16,6 +16,7 @@ class Waypoints:
   self.status=driver.create_publisher(String,'/pb/waypoints/status',qos);self.markers=driver.create_publisher(MarkerArray,'/pb/waypoints/markers',qos)
   self.definition_pub=driver.create_publisher(String,'/pb/waypoints/definition',qos);self.constraints_pub=driver.create_publisher(String,'/pb/mission/constraints',qos)
   self.goals=driver.create_publisher(PoseStamped,'/pb/plan_goal',5)
+  self.terminal_forward_pub=driver.create_publisher(String,'/pb/waypoints/terminal_forward_receipt',qos)
   self.t2_receipts={};self.t2_cancelled=set();self.t2_execution=None
   self.t2_receipt_pub=driver.create_publisher(String,'/pb/waypoints/t2_receipt',QoSProfile(depth=10,durability=DurabilityPolicy.TRANSIENT_LOCAL))
   driver.create_subscription(String,'/pb/waypoints/start_t2',self.start_t2,5)

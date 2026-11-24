@@ -216,3 +216,30 @@ class FlowRecoveryTests(unittest.TestCase):
                 self.assertIn('preview_battery_grasp',self.tools.calls)
                 self.assertIn('plan_battery_pick',self.tools.calls)
                 self.assertEqual(self.tools.calls[-3:],['verify_hold','stow_for_carry','return_to_carry'])
+
+
+    def test_pre_dispatch_validation_failure_returns_to_point3(self):
+        for code in ('plan_changed','stale_observation','plan_not_verified','post_action_evidence_required'):
+            with self.subTest(code=code):
+                self.setUp();base=self.tools.execute;failed=False
+                def execute(name,args,ident):
+                    nonlocal failed
+                    if name=='execute_battery_approach' and not failed:
+                        failed=True
+                        return {'ok':False,'error':{'code':code,'message':'pre-dispatch validation rejected'}}
+                    return base(name,args,ident)
+                self.tools.execute=execute
+                with patch.object(self.recovery,'recover',return_value={'completed_at':123.}) as recover:
+                    out=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery).run()
+                self.assertEqual(out['status'],'completed');recover.assert_called_once()
+
+    def test_generic_backend_rejection_does_not_move_on_an_uncertain_previous_journal(self):
+        base=self.tools.execute
+        def execute(name,args,ident):
+            if name=='execute_battery_approach':
+                return {'ok':False,'error':{'code':'backend_rejected','message':'Earlier execution requires recovery'}}
+            return base(name,args,ident)
+        self.tools.execute=execute
+        with patch.object(self.recovery,'recover') as recover:
+            out=BatteryFlow(self.tools,review_plan=review,vision_mode='plan_f',recovery=self.recovery).run()
+        self.assertEqual(out['status'],'needs_attention');recover.assert_not_called()

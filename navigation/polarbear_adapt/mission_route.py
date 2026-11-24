@@ -76,6 +76,8 @@ class MissionRoute:
   end=start
   while (end+1<self._execution_limit() and self.points[end+1]['type']=='special'
          and not self.points[end].get('test_task_id') and not self.points[end+1].get('test_task_id')):end+=1
+  if (end+1<self._execution_limit() and (self.points[end+1]['type']=='task' or self.points[end+1].get('test_task_id'))
+      and not self.points[end].get('test_task_id')):end+=1
   return end
  def _group(self,pose=None,after_task=False,direct_start=False):
   self.mode='navigation';self.direct_source=None
@@ -89,11 +91,13 @@ class MissionRoute:
    # Competition entry always uses straight control, including near/non-special first points.
    self.direct_source=dict(pose=list(pose));self.mode='direct';self.target_index=self.index
    if self.points[self.index]['type']=='special':self.target_index=self._direct_end(self.target_index)
+   if self.points[self.target_index]['type']=='task':self.mode='task_direct'
    return copy.deepcopy(self.points[self.target_index])
   if self.can_enter_direct(pose):
    self.direct_source=copy.deepcopy(self.points[self.index])
    self.index+=1;self.mode='direct';self.target_index=self.index
    self.target_index=self._direct_end(self.target_index)
+   if self.points[self.target_index]['type']=='task':self.mode='task_direct'
    return copy.deepcopy(self.points[self.target_index])
   self.target_index=next((i for i in range(self.index,self._execution_limit()) if self.points[i]['type']!='via'),self._execution_limit()-1)
   if (self.points[self.target_index]['type']=='task' or self.points[self.target_index].get('test_task_id')) and self.target_index>self.index:self.target_index-=1
@@ -111,7 +115,9 @@ class MissionRoute:
   if pose is None or len(pose)!=3 or not all(math.isfinite(v) for v in pose):raise ValueError('valid T2 entry pose required')
   self.execution_end=len(self.points);self.t2_index=end;self.index=entry;self.running=True;self.mission_id=uid()
   self.state='running';self.sample=None;self.mode='direct';self.direct_source=dict(pose=list(pose));self.target_index=entry
-  return copy.deepcopy(self.points[entry])
+  if self.points[entry]['type']=='special' and not self.points[entry].get('test_task_id'):
+   self.target_index=end;self.mode='task_direct'
+  return copy.deepcopy(self.points[self.target_index])
  def start(self,available=(),pose=None,direct_start=False):
   if self.running or self.state!='draft' or not self.points:return None
   if any(p.get('test_task_id') for p in self.points) and any(p['type']=='task' for p in self.points):raise ValueError('mixed test and real tasks are not executable')
@@ -122,7 +128,7 @@ class MissionRoute:
  def direct_points(self):
   return copy.deepcopy(self.points[self.index:self.target_index+1]) if self.running and self.mode in ('direct','task_direct') and self.target_index is not None else []
  def advance_direct(self,point_id):
-  if not self.running or self.mode!='direct' or self.state!='running' or self.index>=self.target_index or self.points[self.index]['id']!=point_id:raise ValueError('invalid special advance')
+  if not self.running or self.mode not in ('direct','task_direct') or self.state!='running' or self.index>=self.target_index or self.points[self.index]['id']!=point_id:raise ValueError('invalid special advance')
   self.index+=1
  def vias(self):
   if not self.running or self.target_index is None or self.state!='running' or self.mode in ('direct','task_direct'):return []
@@ -155,7 +161,7 @@ class MissionRoute:
   if outcome!='arrived_stopped':self.running=False;self.state=outcome;return None
   if self.state!='running':return None
   if self.vias():raise ValueError('unvisited via before terminal arrival')
-  if self.mode=='direct' and self.index<self.target_index:raise ValueError('unvisited special before terminal arrival')
+  if self.mode in ('direct','task_direct') and self.index<self.target_index:raise ValueError('unvisited special before terminal arrival')
   p=self.points[self.target_index];self.index=self.target_index
   if self.t2_index is not None and self.index==self.t2_index-1:
    # The predecessor is a navigation location only, regardless of saved type.

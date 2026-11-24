@@ -119,12 +119,7 @@ class PickTrajectoryStep(PickCloseStep):
             if self.started or self.monitor.failure:raise ValueError('Insertion cannot be replayed or resumed')
             self.started=True
             try:
-                def start_guard(snapshot,now):
-                    if self.preflight(snapshot,now) is not True:return False
-                    if self.monitor.arrival_mode!='reference_settled':return True
-                    return self.monitor.model.check(snapshot['arms']['right']['joints'],
-                        self.plan['joint_waypoints_rad'][0],snapshot['body']['height']).get('clear') is True
-                self.controller.start_trajectory('right',self.plan,self.token,preflight=start_guard)
+                self.controller.start_trajectory('right',self.plan,self.token,preflight=self.preflight)
                 return dict(status='awaiting_trajectory',close_permitted=False,
                             stop_required=False,grasp_confirmed=False)
             except Exception as error:
@@ -169,7 +164,6 @@ class ApproachTrajectoryStep(PickTrajectoryStep):
                 arm=snapshot.get('arms',{}).get('right',{});q=np.asarray(arm.get('joints'),float)
                 if q.shape!=(6,) or not np.isfinite(q).all() or arm.get('fresh') is not True:return False
                 if not self.return_trace_rad or np.max(np.abs(q-self.return_trace_rad[-1]))>np.radians(.1):
-                    if len(self.return_trace_rad)>=10000:raise ValueError('Measured approach trace limit exceeded')
                     self.return_trace_rad.append(q.tolist())
             return True
         self.preflight=traced

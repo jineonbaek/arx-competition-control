@@ -21,8 +21,9 @@
       <section><h2>定位</h2><strong id="pose-state">等待反馈</strong><p id="pose-value">—</p><p id="pose-age">—</p><p id="path-state">—</p></section>
       <section>
         <h2>T2 单独实测</h2>
-        <p>先导航到T2前一点，再导航至T2。到达T2后才发送真实任务开始信号，放置完成并归还控制权后，继续剩余导航点，到路线终点（随后以0.225 SDK向车头正前方前进4秒并停车）才结束实测。T2真实任务超过180秒未完成时，停止原任务，先将右臂回到预观察点，再将底盘回到T2；确认归位后跳过本次放置并继续导航。当前不在前一点范围内时，按比赛起步方式直线接入，忽略障碍和代价地图。</p>
-        <p id="target">T2前一点 → T2 → 真实放置 → 剩余导航 → 路线终点</p>
+        <p><strong>雷达底盘入仓 · 视觉对位和坐底确认关闭</strong>：到达T2后右臂进入保存的预观察点并做 J4 下坠补偿，保持夹爪闭合；底盘继续到已保存的特殊终点，再以 0.3 SDK 向前行驶 6 秒并停车；随后松爪、底盘退回本轮 T2 到达位置、机械臂返回初始姿态。</p>
+        <p>雷达交付 T2 到点回执后直接准备机械臂，跳过底盘二次停稳检查和 D435/D405 视觉对位。前段按原导航路线到 T2 前一点及 T2，每轮使用当前保存的路线坐标；相机画面和标定线仅供观察。</p>
+        <p id="target">T2前一点 → T2准备机械臂 → 特殊点 → 前进6秒 → 松爪退出返回</p>
         <label class="clearance"><input id="environment-clear" type="checkbox">已确认本轮作业区无人且无临时障碍</label>
         <div class="task-actions">
           <button id="competition-start" type="button" disabled>开始 T2 实测</button>

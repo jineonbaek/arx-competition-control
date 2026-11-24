@@ -26,12 +26,14 @@ class TaskDirectRoute(unittest.TestCase):
  def test_task_at_start_uses_direct_mode_without_dropping_heading(self):
   r=MissionRoute('r');r.add(dict(type='task',point_id='point_1',pose=[.3,.2,-1.]))
   p=r.start({'point_1'},pose=[0,0,0]);self.assertEqual(r.mode,'task_direct');self.assertEqual(r.direct_points(),[p])
- def test_special_chain_finishes_before_next_oriented_task(self):
+ def test_special_chain_continues_into_oriented_task(self):
   r=MissionRoute('r')
   for x in (0.,.3):r.add(dict(type='special',pose=[x,0,0]))
   r.add(dict(type='task',point_id='point_1',pose=[.6,0,1.]))
-  r.start({'point_1'},pose=[0,0,0]);self.assertEqual(r.mode,'direct')
-  p=r.finish('arrived_stopped',pose=[.3,0,0]);self.assertEqual(p['point_id'],'point_1');self.assertEqual(r.mode,'task_direct')
+  p=r.start({'point_1'},pose=[0,0,0]);self.assertEqual(r.mode,'task_direct')
+  self.assertEqual(p['point_id'],'point_1')
+  r.advance_direct(r.points[1]['id'])
+  self.assertIsNone(r.finish('arrived_stopped',pose=[.6,0,1.]));self.assertEqual(r.state,'waiting_task')
  def test_two_cm_last_via_cannot_switch_to_direct_when_four_cm_away(self):
   r=MissionRoute('r');r.add(dict(type='via',pose=[.4,0,0],pass_radius_m=.02));r.add(dict(type='task',point_id='point_1',pose=[.8,0,0]));r.start({'point_1'},pose=[0,0,0])
   r.observe([.36,0,0],[.36,0,0],1.)

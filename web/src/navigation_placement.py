@@ -13,6 +13,7 @@ from agent.storage import atomic_json
 from agent.taught_placement import load_taught_route
 from agent.visual_chassis_correction import load_chassis_policy, run_visual_chassis_workflow
 from placement_reference_store import load_active_reference
+from placement_policy import CHASSIS_FORWARD_SECONDS, LIDAR_FIXED_STROKE, LIDAR_SPECIAL_POINT, distance_receipt_complete
 
 
 class NavigationPlacement:
@@ -27,8 +28,24 @@ class NavigationPlacement:
     @property
     def reference_root(self):return self.root/'web/hardware/runtime/placement-references'
 
+    @property
+    def distance_only(self):
+        return self.lidar_locked and getattr(self.placement,'placement_mode',None)==LIDAR_FIXED_STROKE
+
+    @property
+    def chassis_only(self):
+        return self.lidar_locked and getattr(self.placement,'placement_mode',None)==LIDAR_SPECIAL_POINT
+
     def readiness(self):
         try:
+            if self.chassis_only:
+                return dict(connected=True,reference_valid=True,reference_required=False,
+                            admission_source='lidar_point_2',seat_verification_enabled=False,
+                            placement_mode=LIDAR_SPECIAL_POINT,reason=f'预观察点保持 → 雷达特殊点 → 底盘前进 {CHASSIS_FORWARD_SECONDS:g} 秒 → 松爪退出')
+            if self.distance_only:
+                return dict(connected=True,reference_valid=True,reference_required=False,
+                            admission_source='lidar_point_2',seat_verification_enabled=False,
+                            placement_mode=LIDAR_FIXED_STROKE,reason='固定预观察点 → 轴向实测 150 mm → 松爪返回；坐底确认关闭')
             if self.lidar_locked:
                 from seated_reference import geometry_hashes
                 standard=json.loads((self.root/'config/seated-reference.json').read_text())
@@ -77,7 +94,12 @@ class NavigationPlacement:
         with self.lock:
             r=self.runs.get(context['request_id'])
             if r is None:return dict(status='unknown',reason='没有本轮放置记录')
-            return {k:copy.deepcopy(v) for k,v in r.items() if k not in ('thread','stop')}
+            result={k:copy.deepcopy(v) for k,v in r.items() if k not in ('thread','stop')}
+            if self.chassis_only and r.get('arm_run_id'):
+                arm=self.placement.snapshot()
+                if arm.get('run_id')==r['arm_run_id']:
+                    result['arm_progress']={k:arm[k] for k in ('phase','reason','released','returned') if k in arm}
+            return result
 
     def _check_owner(self,context,run):
         if context['cancelled'].is_set() or run['stop'].is_set():raise ValueError('放置已停止')
@@ -152,11 +174,22 @@ class NavigationPlacement:
 
     def _admit(self,context,run):
         if self.lidar_locked:
-            stopped=self._stop_chassis(context,run)
-            if stopped.get('stopped') is not True:raise ValueError('雷达地点 2 尚未停稳')
+            if self.chassis_only:
+                # The navigation task already supplies a stopped arrival for
+                # this mission/visit. Do not poll a second pose or invoke vision.
+                self.ctrl.end_chassis_output(context['token'])
+                arrival=np.asarray(self.navigation.visit['arrival_pose'],float)
+                if arrival.shape!=(3,) or not np.isfinite(arrival).all():raise ValueError('导航到点回执坐标无效')
+                stopped=dict(stopped=True,pose=dict(zip(('x','y','yaw'),map(float,arrival))))
+            else:
+                stopped=self._stop_chassis(context,run)
+                if stopped.get('stopped') is not True:raise ValueError('雷达地点 2 尚未停稳')
             receipt=dict(status='complete',outcome='locked_admitted',admission_source='lidar_point_2',
                          point_id='point_2',mission_id=self.navigation.mission,captured_at=self.clock(),
                          chassis_pose=stopped['pose'],chassis_locked=True,chassis_stopped=True,admission_valid=True)
+            if self.chassis_only:
+                receipt.update(chassis_pose_source='navigation_arrival_receipt',
+                               pose_stamp_ns=self.navigation.visit.get('pose_stamp_ns'),chassis_recheck_skipped=True)
         else:
             reference=load_active_reference(self.reference_root)['capture']
             if (reference.get('d435') or {}).get('valid') is not True:raise ValueError('柜口参考无效，请先记录确认的柜前画面')
@@ -176,6 +209,10 @@ class NavigationPlacement:
             self._check(context,run)
             route=load_taught_route(self.root/'config/taught-placement.json')
             receipt=self._admit(context,run)
+            if self.chassis_only:
+                from chassis_placement import special_target
+                run['special_target']=special_target(self.navigation.prepared_definition)
+                run['chassis_start_pose']=copy.deepcopy(receipt['chassis_pose'])
             self._check(context,run)
             result=self.placement.start_owned(context['token'],receipt)
             run.update(phase='arm_placement',arm_run_id=result['run_id'])
@@ -185,17 +222,30 @@ class NavigationPlacement:
                     run['arm_progress']={k:result[k] for k in ('phase','d405_live','d405_attempt','d405_seat_attempt',
                         'd405_reason','reason','measured_travel_mm','released','returned') if k in result}
                 if result.get('run_id')!=run['arm_run_id']:raise ValueError('放置执行身份已变化')
+                if self.chassis_only and result.get('status')=='prepared':
+                    if result.get('preobservation_ready') is not True or result.get('released') is not False:
+                        raise ValueError('底盘入仓前缺少预观察点保持回执')
+                    if self.placement.thread:self.placement.thread.join(3.)
+                    if self.placement.thread and self.placement.thread.is_alive():raise ValueError('预观察点准备未结束')
+                    run.update(status='completed',phase='chassis_navigation',placement_pending=True,placement_confirmed=False,
+                               completion_basis='preobservation_only',placement=copy.deepcopy(result),
+                               reason=f'预观察点准备完成；底盘特殊点及 {CHASSIS_FORWARD_SECONDS:g} 秒推进后才松爪')
+                    return
                 if result.get('status')=='complete':
                     outside=result.get('handle_outside_mm')
+                    confirmed=(distance_receipt_complete(result) if self.distance_only else
+                               require_verified_receipt(result,route.full_depth_mm) and
+                               abs(result['verified_depth_mm']-route.full_depth_mm)<=2. and
+                               type(outside) in (float,int) and math.isfinite(outside) and outside>0.)
                     if (result.get('released') is not True or result.get('returned') is not True or
-                            not require_verified_receipt(result,route.full_depth_mm) or
-                            abs(result['verified_depth_mm']-route.full_depth_mm)>2. or
-                            type(outside) not in (float,int) or not math.isfinite(outside) or outside<=0.):
-                        raise ValueError('缺少本体坐底、把手在外、松爪和返回回执')
+                            not confirmed):
+                        raise ValueError('缺少实测 150 mm、松爪和返回回执' if self.distance_only else '缺少本体坐底、把手在外、松爪和返回回执')
                     if self.placement.thread:
                         self.placement.thread.join(3.)
                         if self.placement.thread.is_alive():raise ValueError('放置执行清理未结束')
-                    run.update(status='completed',completed_at_monotonic=time.monotonic(),phase='returned',placement_confirmed=True,reason='',placement=result);return
+                    run.update(status='completed',completed_at_monotonic=time.monotonic(),phase='returned',
+                               placement_confirmed=not self.distance_only,completion_basis='measured_axial_travel' if self.distance_only else 'visual_seated',
+                               reason='坐底确认已关闭；按实测轴向行程完成' if self.distance_only else '',placement=result);return
                 if result.get('status') not in ('running','idle'):raise ValueError(result.get('reason') or '放置未成功')
                 run['stop'].wait(.1)
         except Exception as error:

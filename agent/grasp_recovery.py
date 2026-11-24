@@ -66,6 +66,8 @@ class GraspRecovery:
         if 'grasp_recovery' in self.store.state:
             if self.state.get('run_id')!=self.store.state['run_id']:raise ValueError('Point 2 belongs to another run')
             return copy.deepcopy(self.state['point2'])
+        wait=getattr(self.backend,'_wait_for_feedback',None)
+        if wait is not None:wait(paired=True)
         _,q,lift,stamp=self._snapshot()
         point=dict(joints_rad=q.tolist(),lift_rad=lift,sample_time=stamp)
         self.store.state['grasp_recovery']=dict(run_id=self.store.state['run_id'],point2=point,
@@ -90,6 +92,8 @@ class GraspRecovery:
         return True
 
     def recover(self,reason,request_id=None):
+        wait=getattr(self.backend,'_wait_for_feedback',None)
+        if wait is not None:wait(paired=True)
         previous=self.state.get('last_recovery')
         if request_id and previous and previous.get('request_id')==request_id:return copy.deepcopy(previous)
         origin=np.asarray(self.state['point2']['joints_rad'],float)
@@ -126,6 +130,8 @@ class GraspRecovery:
 
     def _move(self,points):
         """Return using the existing driver trajectory completion receipt."""
+        wait=getattr(self.backend,'_wait_for_feedback',None)
+        if wait is not None:wait(paired=True)
         _,q,lift,_=self._snapshot()
         points=simplify_trace([q.tolist()]+points)
         path=np.asarray(points,float)

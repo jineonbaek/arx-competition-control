@@ -34,7 +34,7 @@ class RelaxedTests(unittest.TestCase):
         self.assertAlmostEqual(r['position_error_mm'][0],13.)
         self.assertAlmostEqual(r['lift_offset_rad'],.1)
         self.assertTrue(g.start_closing(self.state(10.16),10.16,ready=True)['close_permitted'])
-    def test_moving_feedback_and_post_arrival_movement_cannot_close(self):
+    def test_moving_feedback_still_blocks_arrival_without_extra_preclose_gate(self):
         g=self.make();g.begin_settling(10.)
         for t,x in ((10.01,.013),(10.07,.014),(10.13,.015)):
             r=g.update(self.state(t,x),t,ready=True)
@@ -42,7 +42,7 @@ class RelaxedTests(unittest.TestCase):
         for t in (10.19,10.25,10.31):r=g.update(self.state(t,.015),t,ready=True)
         self.assertEqual(r['status'],'ready_to_close')
         r=g.start_closing(self.state(10.37,.025),10.37,ready=True)
-        self.assertTrue(r['stop_required']);self.assertFalse(r['close_permitted'])
+        self.assertFalse(r['stop_required']);self.assertTrue(r['close_permitted'])
     def test_stale_feedback_cancel_and_moving_chassis_remain_terminal(self):
         for fault in ('stale','cancel','base','driver'):
             g=self.make();g.begin_settling(10.);s=self.state(10.1)
@@ -89,8 +89,43 @@ class TraceTests(unittest.TestCase):
         r=step._on_arrived({'status':'ready_to_close'})
         self.assertEqual(r['return_trace_rad'][0],[0.]*6)
         self.assertEqual(r['return_trace_rad'][-1],q)
-    def test_motion_on_poll_after_arrival_revokes_close(self):
+    def test_motion_on_poll_after_arrival_has_no_added_gate(self):
         fixture=RelaxedTests();g=fixture.make();g.begin_settling(10.)
         for t in (10.01,10.07,10.13):g.update(fixture.state(t),t,ready=True)
         r=g.update(fixture.state(10.19,.025),10.19,ready=True)
-        self.assertTrue(r['stop_required'])
+        self.assertFalse(r['stop_required'])
+
+class RemovedGateTests(unittest.TestCase):
+    def test_relaxed_open_and_trajectory_do_not_repeat_runtime_cad(self):
+        from unittest.mock import patch
+        import test_battery_step_preparation as fixture
+        t=fixture.PreparationTests();t.setUp()
+        t.plan['arrival_mode']='reference_settled'
+        t.plan['start_joints_rad'][0]-=.001
+        t.plan['approach']['start_rad']=t.plan['start_joints_rad'][:]
+        with patch.object(t.c.models['right'],'check',side_effect=AssertionError('Runtime CAD repeated')) as cad:
+            step=t.prepare()
+            self.assertEqual(step.start()['status'],'opening_gripper')
+            with patch.object(t.c,'start_trajectory') as dispatch:
+                self.assertEqual(step.approach.start()['status'],'awaiting_trajectory')
+                guard=dispatch.call_args.kwargs['preflight']
+                self.assertTrue(guard(t.c.snapshot(),t.f.now))
+            cad.assert_not_called()
+        self.assertEqual(len(t.f.adapter.calls),1)
+        self.assertAlmostEqual(t.f.adapter.calls[0][1][2],-3.14)
+
+    def test_original_plan_verification_still_required(self):
+        import test_battery_step_preparation as fixture
+        t=fixture.PreparationTests();t.setUp();t.plan['arrival_mode']='reference_settled'
+        t.plan['collision_free']=False
+        with self.assertRaises(ValueError):t.prepare()
+        self.assertEqual(t.f.adapter.calls,[])
+
+    def test_new_preclose_motion_and_paired_stamp_checks_are_removed(self):
+        for paired_stamp in (False,True):
+            fixture=RelaxedTests();g=fixture.make();g.begin_settling(10.)
+            for t in (10.01,10.07,10.13):g.update(fixture.state(t),t,ready=True)
+            moved=fixture.state(10.19,.025)
+            if paired_stamp:moved['body']['received']=10.13
+            self.assertFalse(g.update(moved,10.19,ready=True)['stop_required'])
+            self.assertTrue(g.start_closing(fixture.state(10.25,.035),10.25,ready=True)['close_permitted'])

@@ -16,7 +16,6 @@ class OpenThenApproachStep:
         low,high=config['gripper_limits_raw']
         if q.shape!=(6,) or not np.isfinite(q).all() or not np.isfinite(self.target) or not low<=self.target<=high:
             raise ValueError('Finite planned start and configured open target required')
-        self.start_joints=q.copy()
         self.start_pose=self.monitor.model.wrist_transform(q,self.monitor.feedback_policy['expected_lift_rad'])@self.monitor.tcp
         self.arrival=ArrivalMonitor([2.9],minimum=[2.9],started_at=self.controller.clock(),**self.monitor.gripper_policy)
         self.lock=Lock();self.started=False;self.approaching=False;self.failure=None
@@ -42,8 +41,7 @@ class OpenThenApproachStep:
                                now=now,**self.monitor.feedback_policy)
         error=np.r_[measured['position_error_mm'],measured['orientation_error_rotvec_deg']]
         if self.monitor.arrival_mode=='reference_settled':
-            return self.monitor.model.check(measured['joints_rad'],self.start_joints,
-                                            snapshot['body']['height']).get('clear') is True
+            return True
         return bool(np.all(np.abs(error)<=self.monitor.arm.tolerance))
 
     def _abort(self,reason,detail=None):

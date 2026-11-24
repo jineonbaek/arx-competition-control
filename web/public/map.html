@@ -27,6 +27,12 @@
           <option value="fast">快模式（预抓点直接精纠）</option>
         </select>
         <p id="competition-mode-description">稳模式沿用原比赛流程。</p>
+        <label for="placement-mode">T2 入仓方式</label>
+        <select id="placement-mode" disabled>
+          <option value="lidar_special_point">底盘入仓（直接兜底）</option>
+          <option value="visual_seated">视觉入仓（旧版 D405）</option>
+        </select>
+        <p id="placement-mode-description" role="status">等待入仓模式反馈</p>
         <p><a href="/t2-test.html">T2 单独实测</a></p>
         <p id="target">无人机指定左上角电池 → 电池柜红框 A 口</p>
         <label class="clearance"><input id="environment-clear" type="checkbox">已确认本轮作业区无人且无临时障碍</label>

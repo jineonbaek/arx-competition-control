@@ -96,6 +96,19 @@ class BatteryExecutionTools(WorkflowTools):
         self._save_pick_plan(result)
         return result
 
+    def _receipt(self,name,arguments,receipt,*,physical,request_id,original_call=None):
+        try:
+            return super()._receipt(name,arguments,receipt,physical=physical,
+                                    request_id=request_id,original_call=original_call)
+        except AgentError as error:
+            data=receipt.get('data',{})
+            if error.code=='backend_rejected' and data.get('feedback_replan_required'):
+                self.store.state['feedback_restart']=copy.deepcopy(data)
+                if original_call is not None:
+                    self.store.state['calls'][original_call['call_id']]['result']['error']['code']='feedback_replan_required'
+                raise AgentError('feedback_replan_required','反馈恢复，已停止的轨迹改走点3重新规划') from error
+            raise
+
     def _operation(self,name,arguments,call_id,mission):
         if name=='close_centered_handle':
             report=self.store.state.get('fast_handle_center',{})

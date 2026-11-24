@@ -4,7 +4,9 @@ import numpy as np
 import rclpy
 from urllib.error import URLError,HTTPError
 from tf2_ros import TransformException
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool,String
+from terminal_forward import TerminalForward
+from through_task import ThroughTaskChain
 from mppi_trial.stationary import StopWindow
 from special_segments import StraightChain,RADIUS
 from special_segments import body_delta,wrap
@@ -18,6 +20,26 @@ class SlowTestChain(StraightChain):
         result=super().step(*args,**kwargs)
         result.command=cap_sdk(result.command,'slow')
         return result
+
+
+class ThroughTestChain(StraightChain):
+    """Ordinary pass points keep cruise; only the test task uses slow approach."""
+    def __init__(self,mp,od,points):
+        super().__init__(mp,od,points,continuous=True,terminal_precision=False)
+        self.approach=None
+    def step(self,mp,od,stamp,now,dt,previous):
+        if self.approach is not None:
+            self.approach.previous_sample=self.previous_sample
+            result=self.approach.step(mp,od,stamp,now,dt,previous)
+            self.previous_sample=self.approach.previous_sample;self.measured=self.approach.measured
+            return result
+        result=super().step(mp,od,stamp,now,dt,previous)
+        if self.index<len(self.goals)-1:return result
+        self.approach=SlowTestChain(mp,od,[self.points[-1]])
+        approach=self.approach.step(mp,od,stamp,now,dt,result.command)
+        self.previous_sample=self.approach.previous_sample;self.measured=self.approach.measured
+        approach.passed_ids=result.passed_ids
+        return approach
 
 def transient_input(error):
     return (isinstance(error,HTTPError) and error.code in (502,503,504) or
@@ -141,15 +163,21 @@ def run_special(n):
         # Test T2 shares parking geometry/policy, while its route marker stays
         # special: no worker ownership, real task handoff or T1 fixed backoff.
         oriented=task or test_point=='point_2'
-        control_point=dict(points[0],type='task',point_id='point_2') if test_point=='point_2' else points[0]
+        control_point=dict(points[-1],type='task',point_id='point_2') if test_point=='point_2' else points[-1]
         arrival=n.waypoints.runtime.t2_policy(control_point) if oriented and control_point.get('point_id')=='point_2' else None
-        chain=TaskApproach(mp,od,[control_point],arrival_policy=arrival) if oriented else (SlowTestChain if test_point else StraightChain)(mp,od,points)
+        if oriented:
+            chain=(ThroughTaskChain(mp,od,points[:-1]+[control_point],arrival_policy=arrival) if len(points)>1 else TaskApproach(mp,od,[control_point],arrival_policy=arrival))
+        elif test_point:chain=(ThroughTestChain if len(points)>1 else SlowTestChain)(mp,od,points)
+        else:chain=StraightChain(mp,od,points,continuous=True,terminal_precision=False)
         review=TaskStopReview(control_point,arrival_policy=arrival) if oriented else None
         chain.previous_sample=(source,mp.copy(),od.copy())
-        session=dict(epoch=epoch,task=task,oriented=oriented,control_point=control_point,points=points,test_point=test_point,chain=chain,review=review,stage='approach')
+        session=dict(terminal_forward=None,epoch=epoch,task=task,oriented=oriented,control_point=control_point,points=points,test_point=test_point,chain=chain,review=review,stage='approach')
         n.special_session=session
     else:
         task=session['task'];oriented=session['oriented'];control_point=session['control_point'];points=session['points'];test_point=session['test_point'];chain=session['chain'];review=session['review']
+    suspended=session.pop('terminal_suspended_at',None)
+    if suspended is not None and session['terminal_forward'] is not None:
+        session['terminal_forward'].end+=time.monotonic()-suspended
     if session['stage']=='backoff':
         from route_backoff_runtime import run_backoff
         run_backoff(n,epoch,chain);return 'arrived_stopped'
@@ -163,10 +191,22 @@ def run_special(n):
         nonlocal mp,od,source,prior,last_source,last_tick,stop,stop_stamp,progress_pose,progress_at
         was_stopping=stop is not None
         brake();waiting=time.monotonic();mp,od,source=wait_special_ready(n,epoch,chain)
+        if session['terminal_forward'] is not None:session['terminal_forward'].end+=time.monotonic()-waiting
         if not task and not test_point:chain.reset_start_assist()
         if was_stopping and not oriented:chain.terminal_correction=True
         prior=np.zeros(3);last_source=source;last_tick=time.monotonic();stop=None;stop_stamp=None
         progress_pose=od.copy();progress_at=last_tick
+    def terminal_permit(state):
+        route=n.waypoints.route
+        value=state.get('terminal_forward')
+        if value and value.get('session_active'):
+            if (value.get('route_id')!=route.route_id or value.get('mission_id')!=route.mission_id
+                    or value.get('point_id')!=points[-1]['id']):raise ValueError('terminal_forward_identity_mismatch')
+            return value
+        # Standalone RViz test routes have no arm work or web task owner.
+        if any(p.get('type')=='task' for p in route.points):raise ValueError('terminal_forward_web_guard_missing')
+        return dict(route_id=route.route_id,mission_id=route.mission_id,point_id=points[-1]['id'],
+                    authorized=True,sdk_forward=.225,duration_s=4.)
     try:
         while rclpy.ok():
             tick=time.monotonic();dt=tick-last_tick;last_tick=tick
@@ -181,7 +221,13 @@ def run_special(n):
             except Exception as exc:
                 if not transient_input(exc):raise
                 recover();continue
-            if source!=last_source:
+            forward=session['terminal_forward']
+            if forward is not None and stop is None:
+                prior=np.asarray(forward.command(terminal_permit(state),time.monotonic()))
+                if not np.any(prior):
+                    brake();stop=StopWindow(after=n.now());stop_started=time.monotonic();stop_stamp=None
+                    n.status('terminal_forward_verifying_stopped')
+            if source!=last_source and forward is None:
                 try:step=chain.step(mp,od,source,n.now(),max(.001,dt),prior)
                 except Exception as exc:
                     if not transient_input(exc):raise
@@ -189,7 +235,13 @@ def run_special(n):
                 last_source=source
                 for ident in step.passed_ids:n.waypoints.route.advance_direct(ident);n.waypoints.show()
                 prior=np.asarray(step.command)
-                if step.terminal_near and stop is None:
+                if step.terminal_near and stop is None and not oriented and not test_point:
+                    route=n.waypoints.route
+                    if route.target_index!=route._execution_limit()-1:raise ValueError('special_continuous_successor_not_grouped')
+                    session['terminal_forward']=TerminalForward(terminal_permit(state),time.monotonic())
+                    prior=np.asarray(session['terminal_forward'].command(terminal_permit(state),time.monotonic()))
+                    n.status('special_terminal_forward_continuous')
+                elif step.terminal_near and stop is None:
                     # Persist before a stop command can fail and unwind outward.
                     if not oriented:chain.terminal_correction=True
                     brake();prior=np.zeros(3);stop=StopWindow(after=n.now());stop_started=time.monotonic();stop_stamp=None
@@ -216,6 +268,10 @@ def run_special(n):
                         stop=None;prior=np.zeros(3);progress_pose=od.copy();progress_at=time.monotonic()
                         n.status('task_terminal_correction');continue
                     if not oriented and stationary:
+                        if session['terminal_forward'] is not None:
+                            receipt=session['terminal_forward'].receipt(time.monotonic())
+                            n.waypoints.terminal_forward_pub.publish(String(data=json.dumps(receipt)))
+                            return 'arrived_stopped'
                         if np.linalg.norm(od[:2]-chain.target)>RADIUS:
                             chain.terminal_correction=True
                             stop=None;prior=np.zeros(3);progress_pose=od.copy();progress_at=time.monotonic()
@@ -231,7 +287,7 @@ def run_special(n):
                         if oriented and np.linalg.norm(mp[:2]-chain.goal[:2])<=RADIUS:
                             brake();prior=np.zeros(3);stop=StopWindow(after=n.now());stop_started=time.monotonic();stop_stamp=None
                             n.status('task_verifying_stopped');continue
-                        if not task and not test_point:
+                        if not task and not test_point and session['terminal_forward'] is None and np.linalg.norm(od[:2]-chain.target)>.5:
                             floor=chain.request_start_assist()
                             n.status(f'special_start_assist_sdk {floor:.2f}')
                         else:n.status('special_no_progress_observed')
@@ -247,8 +303,14 @@ def run_special(n):
                     except Exception as exc:
                         if not transient_input(exc):raise
                         recover();continue
-                    n.intent.publish(Bool(data=True));n.active=True;n.transport.send(prior)
+                    n.intent.publish(Bool(data=True));n.active=True
+                    if session['terminal_forward'] is not None:
+                        remaining=session['terminal_forward'].end-time.monotonic()
+                        n.transport.send(prior,ttl_s=min(.15,max(.001,remaining)))
+                    else:n.transport.send(prior)
                 else:brake()
             n.spin(max(.001,.05-(time.monotonic()-tick)))
         raise ValueError('ros_shutdown')
-    finally:n.brake()
+    finally:
+        n.brake()
+        if session['terminal_forward'] is not None:session['terminal_suspended_at']=time.monotonic()

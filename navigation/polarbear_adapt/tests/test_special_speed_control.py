@@ -25,6 +25,15 @@ class SpeedControl(unittest.TestCase):
    c=self.chain();c.previous_sample=(.9,np.array([.46,0,0]),np.array([.46,0,0]));r=c.step([.5,0,0],[.5,0,0],1.,1.+age,.05,[.3,0,0]);outputs.append(r.command[0])
   self.assertLess(outputs[1],outputs[0])
  def test_terminal_recovery_cannot_return_to_normal_cruise(self):
-  c=self.chain();c.terminal_correction=True;r=c.step([1.2,0,0],[1.2,0,0],1.,1.2,.05,[0,0,0]);self.assertLessEqual(np.linalg.norm(r.command[:2]),.14+1e-9)
-  r=c.step([1.2,0,0],[1.2,0,0],1.1,1.3,.05,r.command);self.assertLessEqual(np.linalg.norm(r.command[:2]),.14+1e-9)
+  c=self.chain();c.terminal_correction=True;r=c.step([1.2,0,0],[1.2,0,0],1.,1.2,.05,[0,0,0]);self.assertLessEqual(np.linalg.norm(r.command[:2]),.225+1e-9)
+  r=c.step([1.2,0,0],[1.2,0,0],1.1,1.3,.05,r.command);self.assertLessEqual(np.linalg.norm(r.command[:2]),.225+1e-9)
+ def test_stalled_special_endpoint_keeps_0225_output_after_ramp(self):
+  for continuous in (False,True):
+   for correcting in (False,True):
+    c=StraightChain([0.,0.,0.],[0.,0.,0.],[dict(id='goal',pose=[1.,0.,0.])],continuous=continuous)
+    c.terminal_correction=correcting
+    r=c.step([.88,0,0],[.88,0,0],1.,1.2,.1,[.225,0,0])
+    self.assertFalse(r.terminal_near)
+    self.assertAlmostEqual(r.command[0],.225)
+    self.assertEqual(r.command[1:],(0.,0.))
 if __name__=='__main__':unittest.main()

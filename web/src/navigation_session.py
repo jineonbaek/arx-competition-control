@@ -34,6 +34,7 @@ class NavigationSession:
         self.latest={};self.visit=None;self.mission=None;self.events={}
         self.stop_event=threading.Event();self.worker=None;self.start_requested=False
         self.clear_requested=False;self.prepared=False
+        self.terminal_context=None;self.terminal_receipt=None
 
     def stage(self,point):return NavigationStage(self,point)
 
@@ -91,6 +92,7 @@ class NavigationSession:
         self.start_id=context['run_id']+':route-start';self.clear_id=context['run_id']+':route-clear'
         self.events={};self.visit=None;self.mission=None;self.latest=state;self.error=''
         self.stop_event=threading.Event();self.active=True;self.clear_requested=False
+        self.terminal_context=None;self.terminal_receipt=None
         self.start_requested=False;self.prepared=True;self.prepared_definition=copy.deepcopy(definition)
         self.worker=threading.Thread(target=self._heartbeat,args=(self.stop_event,),daemon=True,name='competition-navigation')
         self.worker.start()
@@ -214,6 +216,7 @@ class NavigationSession:
         self._event('accept')
 
     def complete_visit(self,context):
+        if callable(context.get('chassis_hold')):context['chassis_hold']()
         from agent.recovery_watch import RetryWatch
         watch=RetryWatch(context['run_id'],'交接控制权归还',max_attempts=450,max_s=45.)
         while True:
@@ -227,17 +230,56 @@ class NavigationSession:
             self._event('timeout',control_released=True,navigation_ready=True,error='t2_task_timeout_180s')
         else:self._event('complete',control_released=True,navigation_ready=True)
 
+    def terminal_forward_permit(self):
+        """Read-only guard consumed by the existing navigation output owner."""
+        if not self.active:return dict(session_active=False)
+        result=dict(session_active=True,authorized=False)
+        context=self.terminal_context
+        if not context or context['cancelled'].is_set():return result
+        points=self.prepared_definition['points']
+        if not points or points[-1].get('type')!='special' or points[-1].get('test_task_id'):return result
+        from placement_policy import terminal_forward_sdk,terminal_forward_seconds
+        result.update(route_id=self.route_id,mission_id=self.mission,point_id=points[-1]['id'],
+                      sdk_forward=terminal_forward_sdk(context.get('chassis_insertion')),
+                      duration_s=terminal_forward_seconds(context.get('chassis_insertion')))
+        try:
+            if callable(context.get('chassis_hold')):context['chassis_hold']()
+        except Exception as error:
+            result['reason']=str(error);return result
+        result['authorized']=bool(self.mission);return result
+
     def complete_route(self,context):
+        tail=self.prepared_definition['points'][-1]
+        self.terminal_context=context if tail.get('type')=='special' and not tail.get('test_task_id') else None
         self.complete_visit(context)
         from agent.recovery_watch import RetryWatch
         watch=RetryWatch(context['run_id'],'导航结束回执',max_attempts=450,max_s=45.)
         while not context['cancelled'].wait(.1):
+            if callable(context.get('chassis_hold')):context['chassis_hold']()
             if self.check():
                 watch.fail(self.check());continue
-            task=self.latest.get('task') or {};view=self.route.snapshot().get('route') or {}
+            state=self.latest;task=state.get('task') or {};view=self.route.snapshot().get('route') or {}
             receipt=self.route.receipt(self.start_id) or {}
-            ended=receipt.get('status')=='started' and receipt.get('mission_id')==self.mission and receipt.get('state')=='completed' if self.scope=='t2_test' else view.get('status','').startswith('全部到达并停稳')
+            if self.scope=='t2_test':
+                ended=receipt.get('status')=='started' and receipt.get('mission_id')==self.mission and receipt.get('state')=='completed'
+            else:
+                # Display text can still describe the special straight segment
+                # after arrival; the handoff server carries the actual route state.
+                route=state.get('route') or {};count=len(self.prepared_definition['points'])
+                ended=(route.get('route_id')==self.route_id and route.get('map_id')==self.map_id
+                       and route.get('state')=='completed' and route.get('running') is False
+                       and count>0 and route.get('index')==route.get('point_count')==count
+                       and task.get('mission_id')==self.mission
+                       and task.get('visit_id')==(self.visit or {}).get('visit_id'))
             if task.get('status')=='acknowledged' and task.get('outcome')==('timed_out' if context.get('t2_timed_out') else 'completed') and ended:
+                tail=self.prepared_definition['points'][-1]
+                if tail.get('type')=='special' and not tail.get('test_task_id'):
+                    from navigation.polarbear_adapt.terminal_forward import receipt_matches
+                    expected=self.terminal_forward_permit()
+                    receipt=view.get('terminal_forward_receipt')
+                    if not receipt_matches(receipt,expected):
+                        watch.fail('等待本轮末点连续前进的完整停车回执');continue
+                    self.terminal_receipt=copy.deepcopy(receipt)
                 self.close();return
             if not view.get('available') or view.get('drive_status','').startswith('stopped:'):
                 watch.fail('导航结束通道不可用，保留已完成作业回执')
@@ -248,23 +290,39 @@ class NavigationSession:
 
     def finish_forward(self,context,*,clock=time.monotonic,transport_factory=None):
         """Terminal body-forward action; scoped ownership is kept until output ends."""
+        if getattr(self,'terminal_context',None) is not None:
+            from navigation.polarbear_adapt.terminal_forward import receipt_matches
+            from placement_policy import terminal_forward_sdk,terminal_forward_seconds
+            expected=dict(route_id=self.route_id,mission_id=self.mission,
+                point_id=self.prepared_definition['points'][-1]['id'],
+                sdk_forward=terminal_forward_sdk(context.get('chassis_insertion')),
+                duration_s=terminal_forward_seconds(context.get('chassis_insertion')))
+            if self.terminal_context['run_id']!=context['run_id'] or not receipt_matches(self.terminal_receipt,expected):
+                raise ValueError('缺少本轮末点连续前进回执，禁止重复推进')
+            if context['cancelled'].is_set():raise ValueError('末点前进已停止')
+            if callable(context.get('chassis_hold')):context['chassis_hold']()
+            return copy.deepcopy(self.terminal_receipt)
         if transport_factory is None:
             from navigation.polarbear_adapt.chassis_command import WebChassis
             transport_factory=WebChassis
         ctrl=context['controller'];token=context['token']
         transport=transport_factory(submit=lambda payload:ctrl.submit(payload,token))
         transport.sdk_units=transport.native_sdk=True
-        end=clock()+4.
+        from placement_policy import terminal_forward_sdk, terminal_forward_seconds
+        sdk_forward=terminal_forward_sdk(context.get('chassis_insertion'))
+        started=clock();end=started+terminal_forward_seconds(context.get('chassis_insertion'))
         try:
             while clock()<end:
+                if callable(context.get('chassis_hold')):context['chassis_hold']()
                 if context['cancelled'].is_set() or not ctrl.motion_valid(token):raise ValueError('末点前进已停止或控制权失效')
                 state=ctrl.snapshot()
                 if not state['body']['fresh'] or not state.get('nav_sdk_ready',False):raise ValueError('末点前进底盘反馈未就绪')
                 remaining=end-clock()
                 if remaining<=0:break
-                transport.send((.225,0.,0.),ttl_s=min(.15,remaining))
+                transport.send((sdk_forward,0.,0.),ttl_s=min(.15,remaining))
                 if context['cancelled'].wait(min(.04,remaining)):raise ValueError('操作员停止末点前进')
         finally:transport.end_output()
+        return dict(status='completed',duration_s=clock()-started,sdk_forward=sdk_forward,output_ended=True)
 
     def stop(self,context):
         with self.lock:

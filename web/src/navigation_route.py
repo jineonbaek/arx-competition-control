@@ -51,7 +51,7 @@ class RouteRelay:
         self.root=Path(root)
         # A restarted observer must never replay a queued movement request.
         self.seen=read(self.root/'navigation-command.json').get('request_id')
-        self.definition={};self.status='';self.drive_status='';self.drive_received=0.;self.publishers={}
+        self.terminal_forward_receipt=None;self.definition={};self.status='';self.drive_status='';self.drive_received=0.;self.publishers={}
 
     def attach(self,node):
         from std_msgs.msg import Empty,String
@@ -59,6 +59,7 @@ class RouteRelay:
         self.empty=Empty;self.string=String
         self.range_pub=node.create_publisher(String,'/pb/waypoints/start_t2',5)
         node.create_subscription(String,'/pb/waypoints/t2_receipt',self.on_t2_receipt,QoSProfile(depth=10,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        node.create_subscription(String,'/pb/waypoints/terminal_forward_receipt',self.on_terminal_forward,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.publishers={kind:node.create_publisher(Empty,'/pb/waypoints/'+kind,5) for kind in ('start','clear')}
         qos=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
         node.create_subscription(String,'/pb/waypoints/definition',self.on_definition,qos)
@@ -79,8 +80,14 @@ class RouteRelay:
 
     def publish(self,action):self.publishers[action].publish(self.empty())
 
+    def on_terminal_forward(self,msg):
+        try:
+            value=json.loads(msg.data)
+            if isinstance(value,dict):self.terminal_forward_receipt=value
+        except (TypeError,ValueError):pass
+
     def snapshot(self):
-        return copy.deepcopy(dict(available=self.available(),definition=self.definition,
+        return copy.deepcopy(dict(terminal_forward_receipt=self.terminal_forward_receipt,available=self.available(),definition=self.definition,
                                   status=self.status,drive_status=self.drive_status,drive_received=self.drive_received))
 
     def result(self,value):

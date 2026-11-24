@@ -412,6 +412,59 @@ def require_seated_release(start,actual,axis,result):
     return measured
 
 
+def require_distance_release(start,actual,axis,result):
+    """Release against actual axial travel, without claiming visually confirmed seating."""
+    from placement_policy import distance_receipt_complete
+    travel=axial_travel_mm(start,actual,axis)
+    if (not distance_receipt_complete(result) or travel+TRAVEL_EPS_MM<PUSH_MM
+            or abs(travel-result['measured_travel_mm'])>ARRIVAL_MM):
+        raise ValueError(f'轴向实测 {travel:.3f} mm，缺少完整 150 mm 推进行程')
+    return travel
+
+
+def run_distance_stroke(start,read_tool,move,guard):
+    """One 150 mm stroke, at most one small tracking finish, no camera calls."""
+    axis,_=axis_basis(start[:3,0])
+    length=PUSH_MM
+    extra=0.
+    for attempt in range(2):
+        guard()
+        before=read_tool()
+        before_mm=axial_travel_mm(start,before,axis)
+        contact=None
+        try:
+            move('fixed_push' if attempt==0 else 'finish_travel',length,before[:3,:3].copy())
+        except InsertionContact as stopped:
+            contact=stopped.evidence
+            if contact.get('stop_confirmed') is not True or contact.get('reference_reset') is not True:
+                raise ValueError('推进停止尚未确认，保持夹持') from stopped
+        guard()
+        actual=read_tool()
+        travel=axial_travel_mm(start,actual,axis)
+        delta=travel-before_mm
+        if delta < -ARRIVAL_MM or delta>length+ARRIVAL_MM:
+            raise ValueError('实测推进方向或行程异常，保持夹持')
+        reached=travel+TRAVEL_EPS_MM>=PUSH_MM
+        result=dict(release_ready=reached,minimum_travel_mm=PUSH_MM,
+                    minimum_travel_reached=reached,measured_travel_mm=travel,
+                    planned_initial_travel_mm=PUSH_MM,compensation_count=attempt,compensation_mm=extra,
+                    completion_basis='measured_axial_travel',seat_verification_enabled=False,
+                    insertion_depth_verified=False,
+                    verification_reason='坐底确认已关闭；按实测轴向行程完成' if reached else
+                        f'轴向实测 {travel:.2f} mm，尚未达到 150 mm')
+        if contact is not None:result['contact_stop']=contact
+        if reached:
+            require_distance_release(start,actual,axis,result)
+            return result
+        # Never replay a nominal stroke after a stop or a large shortfall.
+        # Acknowledged endpoint tracking error gets just one small finish.
+        shortfall=PUSH_MM-travel
+        if contact is not None or attempt or not 0.<shortfall<=ARRIVAL_MM:
+            return result
+        length=shortfall+.25
+        extra=length
+
+
 def run_fixed_stroke(start,read_tool,move,guard,verify,*,monitor=None):
     """Use one rail axis throughout. Only current, independent depth can justify extra travel."""
     axis,_=axis_basis(start[:3,0])
